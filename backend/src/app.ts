@@ -1,5 +1,4 @@
-
-import express from 'express';
+import express, { Express } from 'express';
 import { json, urlencoded } from 'body-parser';
 import cors from 'cors';
 import { createConnection, Connection } from 'mysql2/promise';
@@ -8,7 +7,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const app = express();
+const app: Express = express();
 const PORT = process.env.PORT || 3000;
 
 // Store connection globally
@@ -18,11 +17,10 @@ let dbConnection: Connection;
 app.use(cors());
 app.use(json());
 app.use(urlencoded({ extended: true }));
-// Serve uploaded files statically (optional, for file download)
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static('uploads')); // Serve uploaded files statically
 
 // Database connection
-const initDatabase = async () => {
+const initDatabase = async (): Promise<Connection> => {
     try {
         console.log('Connecting to:', {
             host: process.env.DB_HOST,
@@ -30,7 +28,7 @@ const initDatabase = async () => {
             database: process.env.DB_NAME,
         });
 
-        dbConnection = await createConnection({
+        const connection = await createConnection({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
@@ -38,7 +36,8 @@ const initDatabase = async () => {
             port: Number(process.env.DB_PORT) || 3306,
         });
         console.log('✅ Database connected successfully');
-        return dbConnection;
+        dbConnection = connection;
+        return connection;
     } catch (error) {
         console.error('❌ Database connection failed:', error);
         process.exit(1);
@@ -48,7 +47,6 @@ const initDatabase = async () => {
 // Start the server
 const startServer = async () => {
     await initDatabase();
-    // Initialize routes and pass connection
     setRoutes(app, dbConnection);
     app.listen(PORT, () => {
         console.log(`🚀 Server is running on http://localhost:${PORT}`);

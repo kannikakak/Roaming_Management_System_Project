@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Layers, Database, AlertCircle, BarChart2, FileText, Settings, Filter
+  LayoutDashboard, Layers, Database, AlertCircle, BarChart2, FileText, Settings, Filter, ClipboardList
 } from 'lucide-react';
 import SidebarItem from './SidebarItem';
 
@@ -11,10 +11,13 @@ const navItems = [
   { label: 'Datasets', icon: <Database size={20} />, path: '/datasets' },
   { label: 'Data Quality', icon: <AlertCircle size={20} />, path: '/data-quality' },
   { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
+  { label: 'Chart History', icon: <BarChart2 size={20} />, path: '/chart-history' },
   { label: 'Templates', icon: <FileText size={20} />, path: '/templates' },
   { label: 'Reports', icon: <FileText size={20} />, path: '/reports' },
   { label: 'Calculated Fields', icon: <Settings size={20} />, path: '/calculated-fields' },
   { label: 'Filters & Drill-Down', icon: <Filter size={20} />, path: '/filters-drilldown' },
+  // --- Add Audit Log here ---
+  { label: 'Audit Log', icon: <ClipboardList size={20} />, path: '/audit-log' },
 ];
 
 const Sidebar: React.FC = () => {

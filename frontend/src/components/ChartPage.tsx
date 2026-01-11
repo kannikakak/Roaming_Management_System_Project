@@ -1,318 +1,487 @@
-import React, { useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useRef, useState, useEffect, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell, CartesianGrid
-} from 'recharts';
-import * as htmlToImage from 'html-to-image';
-import { Download, ArrowLeft, BarChart3, TrendingUp } from 'lucide-react';
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+import * as htmlToImage from "html-to-image";
+import { Download, ArrowLeft, BarChart3, TrendingUp, Save, FileText } from "lucide-react";
+import { logAudit } from "../utils/auditLog";
 
-const COLORS = ['#EACE5F', '#b89c1d', '#FFD700', '#FFB300', '#FF8C00', '#FFD580', '#F5DEB3'];
-const CHART_TYPES = ['Line', 'Bar', 'Area'];
+const COLORS = ["#EACE5F", "#b89c1d", "#FFD700", "#FFB300", "#FF8C00", "#FFD580", "#F5DEB3"];
+const CHART_TYPES = ["Line", "Bar", "Area"];
+
+interface SavedChart {
+  id: string;
+  name: string;
+  createdAt: string;
+  config: {
+    categoryCol: string;
+    valueCols: string[];
+    chartType: string;
+    selectedCols: string[];
+    file: any;
+  };
+}
+
+const LS_KEY = "savedCharts";
+const DRAFT_KEY = "reportDraftSlides";
 
 const ChartPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { file, selectedCols } = location.state || {};
+
+  const { file: initialFile, selectedCols: initialSelectedCols } = (location.state || {}) as any;
+
   const chartRef = useRef<HTMLDivElement | null>(null);
 
-  const [categoryCol, setCategoryCol] = useState<string>(selectedCols?.[0] || '');
-  const [valueCols, setValueCols] = useState<string[]>(selectedCols?.slice(1) || []);
-  const [chartType, setChartType] = useState<string>('Line');
+  const [currentFile, setCurrentFile] = useState<any>(initialFile || null);
+  const [currentSelectedCols, setCurrentSelectedCols] = useState<string[]>(initialSelectedCols || []);
+
+  const [savedCharts, setSavedCharts] = useState<SavedChart[]>([]);
+
+  const [categoryCol, setCategoryCol] = useState<string>(initialSelectedCols?.[0] || "");
+  const [valueCols, setValueCols] = useState<string[]>(initialSelectedCols?.slice(1) || []);
+  const [chartType, setChartType] = useState<string>("Line");
   const [isExporting, setIsExporting] = useState(false);
 
-  if (!file || !selectedCols || selectedCols.length < 2) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 flex items-center justify-center p-8">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <BarChart3 className="w-8 h-8 text-yellow-600" />
-          </div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">No Chart Data</h2>
-          <p className="text-gray-600 mb-6">
-            Please select at least two columns and generate chart from Card Detail.
-          </p>
-          <button
-            className="px-6 py-3 rounded-lg bg-gradient-to-r from-yellow-400 to-amber-500 text-white font-semibold hover:from-yellow-500 hover:to-amber-600 transition-all shadow-md hover:shadow-lg"
-            onClick={() => navigate(-1)}
-          >
-            <ArrowLeft className="inline w-4 h-4 mr-2" />
-            Go Back
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // ✅ helper to load charts anytime
+  const loadSavedCharts = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const charts = raw ? JSON.parse(raw) : [];
+      const valid = Array.isArray(charts)
+        ? charts.filter(
+            (c: any) =>
+              c &&
+              typeof c.id === "string" &&
+              typeof c.name === "string" &&
+              c.config &&
+              typeof c.config.chartType === "string" &&
+              typeof c.config.categoryCol === "string" &&
+              Array.isArray(c.config.valueCols)
+          )
+        : [];
+      setSavedCharts(valid);
+    } catch (e) {
+      console.error("Failed to load savedCharts:", e);
+      setSavedCharts([]);
+    }
+  }, []);
 
-  const chartData = (file.rows || []).map((row: any) => {
-    const obj: any = {};
-    selectedCols.forEach((col: string) => {
-      obj[col] = row[col];
-    });
-    return obj;
-  });
+  useEffect(() => {
+    loadSavedCharts();
+  }, [loadSavedCharts]);
+
+  useEffect(() => {
+    const onFocus = () => loadSavedCharts();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadSavedCharts]);
+
+  // Chart data
+  const chartData =
+    currentFile && currentSelectedCols.length > 0
+      ? (currentFile.rows || []).map((row: any) => {
+          const obj: any = {};
+          currentSelectedCols.forEach((col: string) => (obj[col] = row[col]));
+          return obj;
+        })
+      : [];
 
   const isNumericCol = (col: string) =>
-    chartData.some((row: any) => row[col] !== undefined && row[col] !== null && row[col] !== '' && !isNaN(Number(row[col])));
+    chartData.some(
+      (row: any) =>
+        row[col] !== undefined && row[col] !== null && row[col] !== "" && !isNaN(Number(row[col]))
+    );
 
-  const availableValueCols = selectedCols.filter((col: string) => col !== categoryCol && isNumericCol(col));
+  const availableValueCols = currentSelectedCols.filter((c) => c !== categoryCol && isNumericCol(c));
 
   const handleValueColChange = (col: string) => {
-    setValueCols(prev =>
-      prev.includes(col) ? prev.filter((c: string) => c !== col) : [...prev, col]
-    );
+    setValueCols((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
   };
 
   const handleCategoryColChange = (col: string) => {
     setCategoryCol(col);
-    setValueCols(valueCols.filter((c: string) => c !== col));
+    setValueCols((prev) => prev.filter((c) => c !== col));
   };
 
-  const exportChartAsImage = async (ext: 'png' | 'jpg') => {
+  // ✅ Save chart config (card)
+  const handleSaveChart = () => {
+    try {
+      const existing: SavedChart[] = JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+
+      const fileName =
+        currentFile?.name || currentFile?.fileName || `Chart_${new Date().toISOString()}`;
+
+      const newChart: SavedChart = {
+        id: `${Date.now()}`,
+        name: fileName,
+        createdAt: new Date().toISOString(),
+        config: {
+          categoryCol,
+          valueCols,
+          chartType,
+          selectedCols: currentSelectedCols,
+          file: currentFile, // ⚠️ if too big, localStorage can fail
+        },
+      };
+
+      const updated = [newChart, ...existing];
+      localStorage.setItem(LS_KEY, JSON.stringify(updated));
+      setSavedCharts(updated);
+
+      logAudit("Save Chart Card", {
+        chartType,
+        categoryCol,
+        valueCols,
+        fileName,
+        selectedCols: currentSelectedCols,
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Save failed. Your data may be too large for localStorage.");
+    }
+  };
+
+  // ✅ Load chart
+  const handleLoadChart = (config: SavedChart["config"]) => {
+    setCurrentFile(config.file);
+    setCurrentSelectedCols(config.selectedCols);
+    setCategoryCol(config.categoryCol);
+    setValueCols(config.valueCols);
+    setChartType(config.chartType);
+
+    logAudit("Load Chart Card", {
+      chartType: config.chartType,
+      categoryCol: config.categoryCol,
+      valueCols: config.valueCols,
+      fileName: config.file?.name || config.file?.fileName,
+      selectedCols: config.selectedCols,
+    });
+  };
+
+  // Export chart as image
+  const exportChartAsImage = async (ext: "png" | "jpg") => {
     if (!chartRef.current) return;
     setIsExporting(true);
     try {
-      const dataUrl = await htmlToImage[ext === 'png' ? 'toPng' : 'toJpeg'](chartRef.current);
-      const link = document.createElement('a');
+      const dataUrl =
+        ext === "png"
+          ? await htmlToImage.toPng(chartRef.current, { pixelRatio: 2, backgroundColor: "white" })
+          : await htmlToImage.toJpeg(chartRef.current, { pixelRatio: 2, backgroundColor: "white" });
+
+      const link = document.createElement("a");
       link.download = `chart.${ext}`;
       link.href = dataUrl;
       link.click();
+
+      logAudit("Export Chart", {
+        type: ext,
+        chartType,
+        categoryCol,
+        valueCols,
+        fileName: currentFile?.name || currentFile?.fileName,
+        selectedCols: currentSelectedCols,
+      });
     } finally {
       setIsExporting(false);
     }
   };
 
+  // ✅ Add to slide draft (YOUR button)
+  const addToReportDraft = async () => {
+    if (!chartRef.current) return;
+
+    const pngDataUrl = await htmlToImage.toPng(chartRef.current, {
+      pixelRatio: 2,
+      backgroundColor: "white",
+    });
+
+    const slide = {
+      id: `${Date.now()}`,
+      chartImage: pngDataUrl,
+      title: currentFile?.name || "Report Slide",
+      subtitle: new Date().toLocaleDateString(),
+      summary: `Chart: ${chartType} | X: ${categoryCol} | Y: ${valueCols.join(", ")}`,
+      createdAt: new Date().toISOString(),
+      chartMeta: {
+        chartType,
+        categoryCol,
+        valueCols,
+        fileName: currentFile?.name || currentFile?.fileName,
+      },
+    };
+
+    const existing = JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]");
+    const updated = [...existing, slide];
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(updated));
+
+    logAudit("Add Slide To Draft", {
+      slidesCount: updated.length,
+      chartType,
+      categoryCol,
+      valueCols,
+      fileName: currentFile?.name || currentFile?.fileName,
+    });
+
+    navigate("/slide-builder");
+  };
+
+  const hasChart = !!currentFile && currentSelectedCols.length >= 2;
+
   const getChartIcon = (type: string) => {
-    switch (type) {
-      case 'Line': return <TrendingUp className="w-4 h-4" />;
-      case 'Bar': return <BarChart3 className="w-4 h-4" />;
-      case 'Area': return <TrendingUp className="w-4 h-4" />;
-      default: return null;
-    }
+    if (type === "Bar") return <BarChart3 className="w-4 h-4" />;
+    return <TrendingUp className="w-4 h-4" />;
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        {/* ✅ ALWAYS show saved cards */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-gray-700">Saved Charts</h3>
             <button
-              onClick={() => navigate(-1)}
-              className="p-2 rounded-lg hover:bg-white/50 transition-colors"
+              onClick={loadSavedCharts}
+              className="text-sm px-3 py-1 rounded bg-white border hover:bg-gray-50"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-700" />
+              Refresh
             </button>
-            <h1 className="text-3xl font-bold text-gray-800">Chart Visualization</h1>
-          </div>
-        </div>
-
-        {/* Controls Card */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-yellow-100">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Category Selection */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Category Axis (X)
-              </label>
-              <select
-                value={categoryCol}
-                onChange={e => handleCategoryColChange(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none transition-all text-sm"
-              >
-                {selectedCols.map((col: string) => (
-                  <option key={col} value={col}>{col}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Chart Type Selection */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Chart Type
-              </label>
-              <select
-                value={chartType}
-                onChange={e => setChartType(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none transition-all text-sm"
-              >
-                {CHART_TYPES.map((type: string) => (
-                  <option key={type} value={type}>{type} Chart</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Export Buttons */}
-            <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-yellow-400 to-amber-500 text-white text-sm font-semibold hover:from-yellow-500 hover:to-amber-600 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                onClick={() => exportChartAsImage('png')}
-                disabled={isExporting}
-              >
-                <Download className="w-4 h-4" />
-                Export PNG
-              </button>
-              <button
-                className="flex-1 px-4 py-2 rounded-lg bg-white border-2 border-yellow-400 text-yellow-700 text-sm font-semibold hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                onClick={() => exportChartAsImage('jpg')}
-                disabled={isExporting}
-              >
-                <Download className="w-4 h-4" />
-                Export JPG
-              </button>
-            </div>
           </div>
 
-          {/* Value Columns Selection */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
-              Data Series (Y-Axis)
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {availableValueCols.map((col: string) => (
-                <label
-                  key={col}
-                  className={`px-4 py-2 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium ${
-                    valueCols.includes(col)
-                      ? 'bg-yellow-100 border-yellow-400 text-yellow-800'
-                      : 'bg-white border-gray-300 text-gray-700 hover:border-yellow-300 hover:bg-yellow-50'
-                  }`}
+          {savedCharts.length === 0 ? (
+            <div className="bg-white border rounded-lg p-4 text-sm text-gray-600">
+              No saved chart cards yet. Click <b>Save Card</b> to create one.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-4">
+              {savedCharts.map((chart) => (
+                <div
+                  key={chart.id}
+                  className="cursor-pointer bg-white border-2 border-yellow-200 rounded-lg px-6 py-4 shadow hover:shadow-lg transition-all"
+                  onClick={() => handleLoadChart(chart.config)}
+                  title="Click to load this chart"
                 >
-                  <input
-                    type="checkbox"
-                    checked={valueCols.includes(col)}
-                    onChange={() => handleValueColChange(col)}
-                    className="mr-2 accent-yellow-500"
-                  />
-                  {col}
-                </label>
+                  <div className="font-bold text-yellow-700">{chart.name}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {chart.config.chartType} Chart <br />
+                    X: {chart.config.categoryCol} <br />
+                    Y: {chart.config.valueCols.join(", ")}
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Chart Card */}
-        <div className="bg-white rounded-xl shadow-xl border border-yellow-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-yellow-50 to-amber-50 px-6 py-4 border-b border-yellow-100">
-            <div className="flex items-center gap-2">
-              {getChartIcon(chartType)}
-              <h2 className="text-lg font-semibold text-gray-800">
-                {chartType} Chart Visualization
-              </h2>
+        {/* If no chart data */}
+        {!hasChart ? (
+          <div className="bg-white border rounded-xl p-6 text-gray-700">
+            No chart data. Go back and select at least 2 columns.
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="mb-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-white/50">
+                  <ArrowLeft className="w-5 h-5 text-gray-700" />
+                </button>
+                <h1 className="text-3xl font-bold text-gray-800">Chart Visualization</h1>
+              </div>
             </div>
-          </div>
-          <div ref={chartRef} className="p-6 bg-white">
-            <ResponsiveContainer width="100%" height={450}>
-              {chartType === 'Line' && (
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis 
-                    dataKey={categoryCol} 
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px', fontWeight: 500 }}
-                  />
-                  <YAxis 
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px', fontWeight: 500 }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend 
-                    wrapperStyle={{ paddingTop: '20px' }}
-                    iconType="line"
-                  />
-                  {valueCols.map((col: string, idx: number) => (
-                    <Line 
-                      key={col} 
-                      type="monotone" 
-                      dataKey={col} 
-                      stroke={COLORS[idx % COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 4, strokeWidth: 2 }}
-                      activeDot={{ r: 6 }}
-                    />
+
+            {/* Controls */}
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-yellow-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Category */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Category Axis (X)
+                  </label>
+                  <select
+                    value={categoryCol}
+                    onChange={(e) => handleCategoryColChange(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none text-sm"
+                  >
+                    {currentSelectedCols.map((col: string) => (
+                      <option key={col} value={col}>
+                        {col}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Chart type */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Chart Type</label>
+                  <select
+                    value={chartType}
+                    onChange={(e) => setChartType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none text-sm"
+                  >
+                    {CHART_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type} Chart
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Buttons */}
+                <div className="md:col-span-2 flex items-end gap-2">
+                  <button
+                    className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-yellow-400 to-amber-500 text-white text-sm font-semibold hover:from-yellow-500 hover:to-amber-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                    onClick={() => exportChartAsImage("png")}
+                    disabled={isExporting}
+                  >
+                    <Download className="w-4 h-4" />
+                    Export PNG
+                  </button>
+
+                  <button
+                    className="flex-1 px-4 py-2 rounded-lg bg-white border-2 border-yellow-400 text-yellow-700 text-sm font-semibold hover:bg-yellow-50 disabled:opacity-50 flex items-center justify-center gap-2"
+                    onClick={() => exportChartAsImage("jpg")}
+                    disabled={isExporting}
+                  >
+                    <Download className="w-4 h-4" />
+                    Export JPG
+                  </button>
+
+                  <button
+                    className="flex-1 px-4 py-2 rounded-lg bg-yellow-100 border-2 border-yellow-400 text-yellow-700 text-sm font-semibold hover:bg-yellow-200 flex items-center justify-center gap-2"
+                    onClick={handleSaveChart}
+                    type="button"
+                  >
+                    <Save className="w-4 h-4" />
+                    Save Card
+                  </button>
+
+                  {/* ✅ YOUR button is back */}
+                  <button
+                    className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 flex items-center justify-center gap-2"
+                    onClick={addToReportDraft}
+                    type="button"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Add to Report
+                  </button>
+                </div>
+              </div>
+
+              {/* Value cols */}
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Data Series (Y-Axis)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {availableValueCols.map((col) => (
+                    <label
+                      key={col}
+                      className={`px-4 py-2 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium ${
+                        valueCols.includes(col)
+                          ? "bg-yellow-100 border-yellow-400 text-yellow-800"
+                          : "bg-white border-gray-300 text-gray-700 hover:border-yellow-300 hover:bg-yellow-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={valueCols.includes(col)}
+                        onChange={() => handleValueColChange(col)}
+                        className="mr-2 accent-yellow-500"
+                      />
+                      {col}
+                    </label>
                   ))}
-                </LineChart>
-              )}
-              {chartType === 'Bar' && (
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis 
-                    dataKey={categoryCol}
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px', fontWeight: 500 }}
-                  />
-                  <YAxis 
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px', fontWeight: 500 }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend 
-                    wrapperStyle={{ paddingTop: '20px' }}
-                    iconType="rect"
-                  />
-                  {valueCols.map((col: string, idx: number) => (
-                    <Bar 
-                      key={col} 
-                      dataKey={col} 
-                      fill={COLORS[idx % COLORS.length]}
-                      radius={[8, 8, 0, 0]}
-                    />
-                  ))}
-                </BarChart>
-              )}
-              {chartType === 'Area' && (
-                <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis 
-                    dataKey={categoryCol}
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px', fontWeight: 500 }}
-                  />
-                  <YAxis 
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px', fontWeight: 500 }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Legend 
-                    wrapperStyle={{ paddingTop: '20px' }}
-                    iconType="rect"
-                  />
-                  {valueCols.map((col: string, idx: number) => (
-                    <Area 
-                      key={col} 
-                      type="monotone" 
-                      dataKey={col} 
-                      stroke={COLORS[idx % COLORS.length]}
-                      fill={COLORS[idx % COLORS.length]}
-                      fillOpacity={0.6}
-                      strokeWidth={2}
-                    />
-                  ))}
-                </AreaChart>
-              )}
-            </ResponsiveContainer>
-          </div>
-        </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Chart */}
+            <div className="bg-white rounded-xl shadow-xl border border-yellow-100 overflow-hidden">
+              <div className="bg-gradient-to-r from-yellow-50 to-amber-50 px-6 py-4 border-b border-yellow-100">
+                <div className="flex items-center gap-2">
+                  {getChartIcon(chartType)}
+                  <h2 className="text-lg font-semibold text-gray-800">
+                    {chartType} Chart Visualization
+                  </h2>
+                </div>
+              </div>
+
+              <div ref={chartRef} className="p-6 bg-white">
+                <ResponsiveContainer width="100%" height={450}>
+                  {chartType === "Line" && (
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="line" />
+                      {valueCols.map((col, idx) => (
+                        <Line
+                          key={col}
+                          type="monotone"
+                          dataKey={col}
+                          stroke={COLORS[idx % COLORS.length]}
+                          strokeWidth={2}
+                        />
+                      ))}
+                    </LineChart>
+                  )}
+
+                  {chartType === "Bar" && (
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="rect" />
+                      {valueCols.map((col, idx) => (
+                        <Bar
+                          key={col}
+                          dataKey={col}
+                          fill={COLORS[idx % COLORS.length]}
+                          radius={[8, 8, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  )}
+
+                  {chartType === "Area" && (
+                    <AreaChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="rect" />
+                      {valueCols.map((col, idx) => (
+                        <Area
+                          key={col}
+                          type="monotone"
+                          dataKey={col}
+                          stroke={COLORS[idx % COLORS.length]}
+                          fill={COLORS[idx % COLORS.length]}
+                          fillOpacity={0.6}
+                        />
+                      ))}
+                    </AreaChart>
+                  )}
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

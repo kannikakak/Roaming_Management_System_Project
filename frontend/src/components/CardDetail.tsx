@@ -4,6 +4,8 @@ import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical } from 'lucide-react';
+// --- Add this import ---
+import { logAudit } from '../utils/auditLog';
 
 type FileData = {
   id: number;
@@ -119,6 +121,15 @@ const CardDetail: React.FC = () => {
             setFiles(prev => [...prev, newFile]);
             setActiveFileId(id);
             setUploading(false);
+
+            // --- Audit log for file upload ---
+            logAudit('Upload File', {
+              fileName: file.name,
+              fileType: ext,
+              columns: result.meta.fields || [],
+              rowsCount: (result.data as any[]).length,
+              uploadedAt: newFile.uploadedAt,
+            });
           }
         });
       } else if (ext === 'xlsx' || ext === 'xls') {
@@ -141,6 +152,15 @@ const CardDetail: React.FC = () => {
             setFiles(prev => [...prev, newFile]);
             setActiveFileId(id);
             setUploading(false);
+
+            // --- Audit log for file upload ---
+            logAudit('Upload File', {
+              fileName: file.name,
+              fileType: ext,
+              columns: columns || [],
+              rowsCount: (jsonData as any[]).length,
+              uploadedAt: newFile.uploadedAt,
+            });
           } catch (err) {
             setError(`Failed to parse ${file.name}`);
             setUploading(false);
@@ -162,6 +182,14 @@ const CardDetail: React.FC = () => {
           setFiles(prev => [...prev, newFile]);
           setActiveFileId(id);
           setUploading(false);
+
+          // --- Audit log for file upload ---
+          logAudit('Upload File', {
+            fileName: file.name,
+            fileType: ext,
+            uploadedAt: newFile.uploadedAt,
+            textLength: text.length,
+          });
         };
         reader.readAsText(file);
       } else if (ext === 'docx') {
@@ -181,6 +209,14 @@ const CardDetail: React.FC = () => {
             setFiles(prev => [...prev, newFile]);
             setActiveFileId(id);
             setUploading(false);
+
+            // --- Audit log for file upload ---
+            logAudit('Upload File', {
+              fileName: file.name,
+              fileType: ext,
+              uploadedAt: newFile.uploadedAt,
+              textLength: result.value.length,
+            });
           } catch {
             setError(`Failed to parse ${file.name}`);
             setUploading(false);
@@ -196,11 +232,22 @@ const CardDetail: React.FC = () => {
 
   const handleDeleteFile = (fileId: number) => {
     setFiles(prev => {
+      const fileToDelete = prev.find(f => f.id === fileId);
       const updated = prev.filter(f => f.id !== fileId);
       if (activeFileId === fileId) {
         setActiveFileId(updated.length > 0 ? updated[0].id : null);
         setSelectedChartCols([]);
       }
+
+      // --- Audit log for file delete ---
+      if (fileToDelete) {
+        logAudit('Delete File', {
+          fileName: fileToDelete.name,
+          fileId: fileToDelete.id,
+          deletedAt: new Date().toISOString(),
+        });
+      }
+
       return updated;
     });
   };
@@ -333,6 +380,13 @@ const CardDetail: React.FC = () => {
                   className="px-2 py-1 rounded font-semibold flex items-center gap-1 bg-amber-400 text-white hover:bg-amber-500 disabled:opacity-50 text-xs"
                   disabled={selectedChartCols.length === 0}
                   onClick={() => {
+                    // --- Audit log for chart generation ---
+                    logAudit('Generate Chart', {
+                      fileName: activeFile.name,
+                      fileId: activeFile.id,
+                      selectedCols: selectedChartCols,
+                      generatedAt: new Date().toISOString(),
+                    });
                     navigate('/charts', {
                       state: {
                         file: activeFile,
