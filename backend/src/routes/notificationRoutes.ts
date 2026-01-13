@@ -1,0 +1,29 @@
+import { Router } from "express";
+import { Pool } from "mysql2/promise";
+
+export function notificationRoutes(dbPool: Pool) {
+  const router = Router();
+
+  router.get("/", async (_req, res) => {
+    try {
+      const [rows] = await dbPool.query(
+        "SELECT * FROM notifications ORDER BY created_at DESC"
+      );
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to list notifications");
+    }
+  });
+
+  router.post("/:id/read", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      await dbPool.execute("UPDATE notifications SET read_at = NOW() WHERE id = ?", [id]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to mark read");
+    }
+  });
+
+  return router;
+}

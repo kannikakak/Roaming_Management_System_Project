@@ -11,6 +11,8 @@ import MainLayout from "./components/MainLayout";
 import Projects from "./pages/Projects";
 import AuditLogViewer from "./pages/AuditLogViewer";
 import SlideBuilderPage from "./pages/SlideBuilderPage";
+import SchedulesPage from "./pages/SchedulesPage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 // import TemplatesPage from "./pages/TemplatesPage";
 // import ReportBuilderPage from "./pages/ReportBuilderPage";
@@ -94,6 +96,22 @@ const App: React.FC = () => (
         element={
           <MainLayout>
             <AuditLogViewer />
+          </MainLayout>
+        }
+      />
+      <Route
+        path="/schedules"
+        element={
+          <MainLayout>
+            <SchedulesPage />
+          </MainLayout>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <MainLayout>
+            <NotificationsPage />
           </MainLayout>
         }
       />

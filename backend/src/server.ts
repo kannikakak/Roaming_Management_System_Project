@@ -5,6 +5,7 @@ import path from "path";
 
 import { dbPool } from "./db";
 import { setRoutes } from "./routes";
+import { startScheduler } from "./services/scheduler";
 
 // ✅ project routes
 import projectRoutes from "./routes/projectRoutes";
@@ -65,6 +66,7 @@ const startServer = async () => {
 
   // ✅ Register your other app routes (reports, audit, etc.)
   setRoutes(app, dbPool);
+  startScheduler(dbPool);
 
   // ✅ FIX: Mount project routes so React can call:
   // GET  /api/projects?user_id=1

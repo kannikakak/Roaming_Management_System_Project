@@ -5,6 +5,7 @@ import path from "path";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth";
+import { getNotificationSettings } from "../services/notificationSettings";
 
 type ParsedFile = {
   columns: string[];
@@ -76,6 +77,7 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
   }
 
   const createdFiles: any[] = [];
+  const settings = await getNotificationSettings(dbPool);
 
   try {
     for (const file of req.files as Express.Multer.File[]) {
@@ -122,6 +124,18 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
           fileType: path.extname(file.originalname).replace(".", "") || "unknown",
           uploadedAt: new Date().toISOString(),
         });
+
+        if (settings.in_app_enabled) {
+          await connection.query(
+            "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
+            [
+              "upload_success",
+              "system",
+              `File uploaded: ${file.originalname}`,
+              JSON.stringify({ fileId, fileName: file.originalname, projectId }),
+            ]
+          );
+        }
       } catch (err) {
         await connection.rollback();
         throw err;
@@ -133,6 +147,21 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
     res.json({ files: createdFiles });
   } catch (err: any) {
     console.error("Upload error:", err);
+    if (settings.in_app_enabled) {
+      try {
+        await dbPool.execute(
+          "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
+          [
+            "upload_error",
+            "system",
+            "File upload failed",
+            JSON.stringify({ error: err?.message || String(err) }),
+          ]
+        );
+      } catch {
+        // ignore notification failure
+      }
+    }
     res.status(500).json({ message: "Database error", error: err.message || err });
   }
 };

@@ -112,6 +112,50 @@ CREATE TABLE IF NOT EXISTS report_slides (
   FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS report_schedules (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  target_type VARCHAR(16) NOT NULL,
+  target_id INT NOT NULL,
+  frequency VARCHAR(16) NOT NULL,
+  time_of_day TIME NOT NULL,
+  day_of_week TINYINT NULL,
+  day_of_month TINYINT NULL,
+  recipients_email JSON NULL,
+  recipients_telegram JSON NULL,
+  file_format VARCHAR(16) NOT NULL,
+  attachment_path VARCHAR(512) NULL,
+  attachment_name VARCHAR(255) NULL,
+  attachment_mime VARCHAR(128) NULL,
+  attachment_size INT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  last_run_at DATETIME NULL,
+  next_run_at DATETIME NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  type VARCHAR(64) NOT NULL,
+  channel VARCHAR(32) NOT NULL,
+  message TEXT NOT NULL,
+  metadata JSON NULL,
+  read_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS notification_settings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NULL,
+  email_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  telegram_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  in_app_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS charts (
   id INT AUTO_INCREMENT PRIMARY KEY,
   file_id INT NULL,

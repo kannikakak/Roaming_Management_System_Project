@@ -8,6 +8,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.1",
@@ -15,10 +16,12 @@
     "csv-parse": "^6.1.0",
     "dotenv": "^17.2.3",
     "express": "^4.22.1",
+    "form-data": "^4.0.5",
     "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.9.0",
     "multer": "^2.0.2",
     "mysql2": "^3.16.0",
-    "mammoth": "^1.9.0",
+    "nodemailer": "^7.0.12",
     "papaparse": "^5.5.3",
     "pptxgenjs": "^4.0.1",
     "xlsx": "^0.18.5"
@@ -32,6 +35,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^16.18.126",
+    "@types/nodemailer": "^7.0.5",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"

@@ -9,6 +9,9 @@ import projectRoutes from "./projectRoutes";
 
 import { chartRoutes } from "./chartRoutes";
 import auditLogsRoutes from "./auditLogs";
+import { scheduleRoutes } from "./scheduleRoutes";
+import { notificationRoutes } from "./notificationRoutes";
+import { notificationSettingsRoutes } from "./notificationSettingsRoutes";
 // バ. Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -36,6 +39,15 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Audit logs
   app.use("/api/audit-logs", auditLogsRoutes);
+
+  // Schedules
+  app.use("/api/schedules", scheduleRoutes(dbPool));
+
+  // Notifications
+  app.use("/api/notifications", notificationRoutes(dbPool));
+
+  // Notification settings
+  app.use("/api/notification-settings", notificationSettingsRoutes(dbPool));
 
   // Reports
   app.use("/api/reports", reportRoutes(dbPool));

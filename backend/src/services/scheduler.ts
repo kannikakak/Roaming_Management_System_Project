@@ -1,0 +1,183 @@
+import { Pool } from "mysql2/promise";
+import { getNotificationSettings } from "./notificationSettings";
+import {
+  isEmailReady,
+  isTeamsReady,
+  isTelegramReady,
+  loadAttachmentFromSchedule,
+  sendEmail,
+  sendTeams,
+  sendTelegram,
+} from "./delivery";
+
+export type ScheduleFrequency = "daily" | "weekly" | "monthly";
+
+export type ScheduleRow = {
+  id: number;
+  name: string;
+  target_type: string;
+  target_id: number;
+  frequency: ScheduleFrequency;
+  time_of_day: string;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  recipients_email: string | null;
+  recipients_telegram: string | null;
+  file_format: string;
+  is_active: number;
+  last_run_at: string | null;
+  next_run_at: string;
+};
+
+function clampDayToMonth(date: Date, day: number) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return Math.min(day, lastDay);
+}
+
+export function computeNextRunAt(
+  frequency: ScheduleFrequency,
+  timeOfDay: string,
+  from: Date,
+  dayOfWeek?: number | null,
+  dayOfMonth?: number | null
+) {
+  const [h, m, s] = timeOfDay.split(":").map((v) => Number(v));
+  const base = new Date(from);
+  base.setSeconds(Number.isFinite(s) ? s : 0, 0);
+  base.setMinutes(Number.isFinite(m) ? m : 0);
+  base.setHours(Number.isFinite(h) ? h : 0);
+
+  if (frequency === "daily") {
+    if (base <= from) base.setDate(base.getDate() + 1);
+    return base;
+  }
+
+  if (frequency === "weekly") {
+    const targetDow = typeof dayOfWeek === "number" ? dayOfWeek : 0;
+    const currentDow = base.getDay();
+    let diff = targetDow - currentDow;
+    if (diff < 0 || (diff === 0 && base <= from)) diff += 7;
+    base.setDate(base.getDate() + diff);
+    return base;
+  }
+
+  const targetDom = typeof dayOfMonth === "number" && dayOfMonth > 0 ? dayOfMonth : 1;
+  const clamped = clampDayToMonth(base, targetDom);
+  base.setDate(clamped);
+  if (base <= from) {
+    base.setMonth(base.getMonth() + 1);
+    base.setDate(clampDayToMonth(base, targetDom));
+  }
+  return base;
+}
+
+async function createNotification(
+  dbPool: Pool,
+  type: string,
+  channel: string,
+  message: string,
+  metadata?: any
+) {
+  await dbPool.execute(
+    "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
+    [type, channel, message, JSON.stringify(metadata ?? null)]
+  );
+}
+
+export async function runDueSchedules(dbPool: Pool) {
+  const [rows] = await dbPool.query<ScheduleRow[]>(
+    "SELECT * FROM report_schedules WHERE is_active = 1 AND next_run_at <= NOW()"
+  );
+  const settings = await getNotificationSettings(dbPool);
+
+  for (const schedule of rows) {
+    try {
+      const recipientsEmail = schedule.recipients_email
+        ? JSON.parse(schedule.recipients_email)
+        : [];
+      const recipientsTelegram = schedule.recipients_telegram
+        ? JSON.parse(schedule.recipients_telegram)
+        : [];
+
+      const message = `Scheduled delivery: ${schedule.name} (${schedule.frequency})`;
+      const subject = `Schedule: ${schedule.name}`;
+      const attachment = await loadAttachmentFromSchedule(schedule);
+      if (schedule.attachment_path && !attachment && settings.in_app_enabled) {
+        await createNotification(dbPool, "schedule_error", "system", "Attachment missing", {
+          scheduleId: schedule.id,
+          file: schedule.attachment_name,
+        });
+      }
+
+      if (settings.email_enabled && isEmailReady && recipientsEmail.length > 0) {
+        const result = await sendEmail(recipientsEmail, subject, message, attachment || undefined);
+        await createNotification(dbPool, "schedule_delivery", "email", message, {
+          scheduleId: schedule.id,
+          recipients: recipientsEmail,
+          format: schedule.file_format,
+          sent: result.ok,
+          reason: result.ok ? null : result.reason,
+        });
+      }
+
+      if (settings.telegram_enabled && isTelegramReady && recipientsTelegram.length > 0) {
+        const result = await sendTelegram(recipientsTelegram, message, attachment || undefined);
+        await createNotification(dbPool, "schedule_delivery", "telegram", message, {
+          scheduleId: schedule.id,
+          recipients: recipientsTelegram,
+          format: schedule.file_format,
+          sent: result.ok,
+          reason: result.ok ? null : result.reason,
+        });
+      }
+
+      if (isTeamsReady) {
+        const teamsResult = await sendTeams(message, attachment || undefined);
+        await createNotification(dbPool, "schedule_delivery", "teams", message, {
+          scheduleId: schedule.id,
+          format: schedule.file_format,
+          sent: teamsResult.ok,
+          reason: teamsResult.ok ? null : teamsResult.reason,
+        });
+      }
+
+      if (settings.in_app_enabled) {
+        await createNotification(dbPool, "schedule_delivery", "system", message, {
+          scheduleId: schedule.id,
+          format: schedule.file_format,
+        });
+      }
+
+      const nextRun = computeNextRunAt(
+        schedule.frequency,
+        schedule.time_of_day,
+        new Date(),
+        schedule.day_of_week,
+        schedule.day_of_month
+      );
+
+      await dbPool.execute(
+        "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
+        [nextRun, schedule.id]
+      );
+    } catch (err: any) {
+      if (settings.in_app_enabled) {
+        await createNotification(dbPool, "schedule_error", "system", "Schedule run failed", {
+          scheduleId: schedule.id,
+          error: err?.message || String(err),
+        });
+      }
+    }
+  }
+}
+
+export function startScheduler(dbPool: Pool) {
+  const intervalMs = 60 * 1000;
+  setInterval(() => {
+    runDueSchedules(dbPool).catch((err) => {
+      console.error("Scheduler error:", err);
+    });
+  }, intervalMs);
+}
