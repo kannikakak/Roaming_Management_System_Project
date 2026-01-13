@@ -1,92 +1,177 @@
-// List files for a card (GET /api/files?cardId=...)
+import { Request, Response } from "express";
+import { Pool } from "mysql2/promise";
+import fs from "fs/promises";
+import path from "path";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import mammoth from "mammoth";
+
+type ParsedFile = {
+  columns: string[];
+  rows: any[];
+  textContent?: string;
+};
+
+const parseFile = async (file: Express.Multer.File): Promise<ParsedFile> => {
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (ext === ".csv") {
+    const text = await fs.readFile(file.path, "utf8");
+    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+    if (result.errors.length) {
+      throw new Error(`Failed to parse CSV: ${file.originalname}`);
+    }
+    return {
+      columns: result.meta.fields || [],
+      rows: result.data as any[],
+    };
+  }
+
+  if (ext === ".xlsx" || ext === ".xls") {
+    const workbook = XLSX.readFile(file.path);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "-" });
+    const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0] as string[] | undefined;
+    const columns = headerRow || (rows[0] ? Object.keys(rows[0] as Record<string, unknown>) : []);
+    return { columns, rows };
+  }
+
+  if (ext === ".txt") {
+    const textContent = await fs.readFile(file.path, "utf8");
+    return { columns: [], rows: [], textContent };
+  }
+
+  if (ext === ".docx") {
+    const result = await mammoth.extractRawText({ path: file.path });
+    return { columns: [], rows: [], textContent: result.value };
+  }
+
+  throw new Error(`Unsupported file type: ${file.originalname}`);
+};
+
+// List files for a project (GET /api/files?projectId=...)
 export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { cardId } = req.query;
+  const projectId = req.query.projectId || req.query.cardId;
+  if (!projectId) {
+    return res.status(400).json({ message: "Missing projectId" });
+  }
+
   try {
     const [rows]: any = await dbPool.query(
-      'SELECT id, file_name as name, created_at as uploadedAt FROM files WHERE card_id = ? ORDER BY created_at DESC',
-      [cardId]
+      "SELECT id, name, file_type as fileType, uploaded_at as uploadedAt FROM files WHERE project_id = ? ORDER BY uploaded_at DESC",
+      [projectId]
     );
     res.json({ files: rows });
-  } catch (err) {
-    res.status(500).json({ message: 'Database error.' });
+  } catch {
+    res.status(500).json({ message: "Database error." });
   }
 };
 
 // Upload files (POST /api/files/upload)
 export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { cardId } = req.body;
-  if (!req.files || !Array.isArray(req.files) || !cardId) {
-    return res.status(400).json({ message: 'Missing files or cardId', files: req.files, cardId });
+  const { projectId } = req.body;
+  if (!req.files || !Array.isArray(req.files) || !projectId) {
+    return res.status(400).json({ message: "Missing files or projectId" });
   }
+
+  const createdFiles: any[] = [];
+
   try {
     for (const file of req.files as Express.Multer.File[]) {
-      await dbPool.query(
-        'INSERT INTO files (card_id, file_name, file_type, file_path, row_count, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-        [cardId, file.originalname, file.mimetype, file.path, 0, 1]
-      );
+      const parsed = await parseFile(file);
+      const connection = await dbPool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        const [fileResult]: any = await connection.query(
+          "INSERT INTO files (project_id, name, file_type, storage_path, text_content, uploaded_at) VALUES (?, ?, ?, ?, ?, NOW())",
+          [
+            projectId,
+            file.originalname,
+            path.extname(file.originalname).replace(".", "") || "unknown",
+            file.path,
+            parsed.textContent || null,
+          ]
+        );
+        const fileId = fileResult.insertId as number;
+
+        if (parsed.columns.length > 0) {
+          for (let i = 0; i < parsed.columns.length; i++) {
+            await connection.query(
+              "INSERT INTO file_columns (file_id, name, position) VALUES (?, ?, ?)",
+              [fileId, parsed.columns[i], i]
+            );
+          }
+        }
+
+        if (parsed.rows.length > 0) {
+          for (let i = 0; i < parsed.rows.length; i++) {
+            await connection.query(
+              "INSERT INTO file_rows (file_id, row_index, data_json) VALUES (?, ?, ?)",
+              [fileId, i, JSON.stringify(parsed.rows[i])]
+            );
+          }
+        }
+
+        await connection.commit();
+
+        createdFiles.push({
+          id: fileId,
+          name: file.originalname,
+          fileType: path.extname(file.originalname).replace(".", "") || "unknown",
+          uploadedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
     }
-    res.json({ message: 'Files uploaded' });
+
+    res.json({ files: createdFiles });
   } catch (err: any) {
-    console.error('Upload error:', err);
-    res.status(500).json({ message: 'Database error', error: err.message || err });
+    console.error("Upload error:", err);
+    res.status(500).json({ message: "Database error", error: err.message || err });
   }
 };
+
 // Get file data (GET /api/files/:fileId/data)
 export const getFileData = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   try {
-    const [colRows]: any = await dbPool.query('SELECT column_name FROM columns WHERE file_id = ?', [fileId]);
-    const columns = colRows.map((c: any) => c.column_name);
-    const [rowRows]: any = await dbPool.query('SELECT row_data FROM file_rows WHERE file_id = ?', [fileId]);
-    const rows = rowRows.map((r: any) => JSON.parse(r.row_data));
-    res.json({ columns, rows });
-  } catch (err) {
-    res.status(500).json({ message: 'Database error', error: err });
-  }
-};
-import { Request, Response } from 'express';
-import { Pool } from 'mysql2/promise';
-
-// Get files for a card
-export const getFilesByCard = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { card_id } = req.query;
-  try {
-    const [rows] = await dbPool.query('SELECT * FROM files WHERE card_id = ?', [card_id]);
-    res.json(rows);
-  } catch {
-    res.status(500).json({ message: 'Database error.' });
-  }
-};
-
-// Save parsed file data (columns and rows) for a card
-export const saveFileData = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { cardId, columns, rows } = req.body;
-  if (!cardId || !columns || !rows) {
-    return res.status(400).json({ message: 'Missing cardId, columns, or rows' });
-  }
-  try {
-    // Insert file record
-    const [fileResult]: any = await dbPool.query(
-      'INSERT INTO files (card_id, file_name, file_type, file_path, row_count, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-      [cardId, 'manual_upload', 'table', '', rows.length, 1]
+    const [fileRows]: any = await dbPool.query(
+      "SELECT text_content as textContent FROM files WHERE id = ?",
+      [fileId]
     );
-    const fileId = fileResult.insertId;
-    // Insert columns
-    for (const col of columns) {
-      await dbPool.query(
-        'INSERT INTO columns (file_id, column_name, data_type, is_visible, created_at) VALUES (?, ?, ?, ?, NOW())',
-        [fileId, col, 'string', true]
-      );
-    }
-    // Insert rows (as JSON, or you can normalize further)
-    for (const row of rows) {
-      await dbPool.query(
-        'INSERT INTO file_rows (file_id, row_data, created_at) VALUES (?, ?, NOW())',
-        [fileId, JSON.stringify(row)]
-      );
-    }
-    res.json({ message: 'Data saved successfully' });
+    const textContent = fileRows?.[0]?.textContent || null;
+
+    const [colRows]: any = await dbPool.query(
+      "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
+      [fileId]
+    );
+    const columns = colRows.map((c: any) => c.name);
+
+    const [rowRows]: any = await dbPool.query(
+      "SELECT data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC",
+      [fileId]
+    );
+    const rows = rowRows.map((r: any) => JSON.parse(r.data_json));
+
+    res.json({ columns, rows, textContent });
   } catch (err) {
-    res.status(500).json({ message: 'Database error', error: err });
+    res.status(500).json({ message: "Database error", error: err });
+  }
+};
+
+// Delete a file (DELETE /api/files/:fileId)
+export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { fileId } = req.params;
+  try {
+    await dbPool.query("DELETE FROM files WHERE id = ?", [fileId]);
+    res.json({ message: "File deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Database error", error: err });
   }
 };

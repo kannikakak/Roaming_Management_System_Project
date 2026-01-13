@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Papa from 'papaparse';
-import * as XLSX from 'xlsx';
-import mammoth from 'mammoth';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical } from 'lucide-react';
 // --- Add this import ---
@@ -10,60 +7,100 @@ import { logAudit } from '../utils/auditLog';
 type FileData = {
   id: number;
   name: string;
+  fileType?: string;
   columns: string[];
   rows: any[];
   textContent?: string;
   uploadedAt?: string;
+  dataLoaded?: boolean;
 };
 
-const STORAGE_KEY = 'cardDetailFiles';
-
-function saveFilesToStorage(files: FileData[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
-}
-function loadFilesFromStorage(): FileData[] {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
-export function clearFilesStorage() {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
 const CardDetail: React.FC = () => {
-  const { id } = useParams();
+  const { cardId } = useParams();
   const [files, setFiles] = useState<FileData[]>([]);
   const [activeFileId, setActiveFileId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedChartCols, setSelectedChartCols] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [loadingFileId, setLoadingFileId] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<{ [key: string]: number }>({});
   const navigate = useNavigate();
   const location = useLocation();
   const resizingRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
-    const storedFiles = loadFilesFromStorage();
-    setFiles(storedFiles);
+    if (!cardId) return;
+    const controller = new AbortController();
+    setError(null);
 
-    if (location.state?.activeFileId) {
-      setActiveFileId(location.state.activeFileId);
-    } else if (storedFiles.length > 0) {
-      setActiveFileId(storedFiles[0].id);
-    }
-    if (location.state?.selectedChartCols) {
-      setSelectedChartCols(location.state.selectedChartCols);
-    }
-  }, []);
+    fetch(`/api/files?projectId=${cardId}`, { signal: controller.signal })
+      .then(res => res.json())
+      .then(data => {
+        const normalized = (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          fileType: f.fileType,
+          columns: [],
+          rows: [],
+          uploadedAt: f.uploadedAt,
+          dataLoaded: false,
+        }));
+        setFiles(normalized);
+        if (location.state?.activeFileId) {
+          setActiveFileId(location.state.activeFileId);
+        } else if (normalized.length > 0) {
+          setActiveFileId(normalized[0].id);
+        }
+        if (location.state?.selectedChartCols) {
+          setSelectedChartCols(location.state.selectedChartCols);
+        }
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          setError('Failed to load files');
+        }
+      });
+
+    return () => controller.abort();
+  }, [cardId, location.state?.activeFileId, location.state?.selectedChartCols]);
 
   useEffect(() => {
-    saveFilesToStorage(files);
-  }, [files]);
+    if (!activeFileId) return;
+    const target = files.find(f => f.id === activeFileId);
+    if (!target || target.dataLoaded) return;
+
+    const controller = new AbortController();
+    setLoadingFileId(activeFileId);
+    setError(null);
+
+    fetch(`/api/files/${activeFileId}/data`, { signal: controller.signal })
+      .then(res => res.json())
+      .then(data => {
+        setFiles(prev =>
+          prev.map(f =>
+            f.id === activeFileId
+              ? {
+                  ...f,
+                  columns: data.columns || [],
+                  rows: data.rows || [],
+                  textContent: data.textContent || undefined,
+                  dataLoaded: true,
+                }
+              : f
+          )
+        );
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          setError('Failed to load file data');
+        }
+      })
+      .finally(() => setLoadingFileId(null));
+
+    return () => controller.abort();
+  }, [activeFileId, files]);
+
 
   // Column resizing handlers
   const handleMouseDown = (e: React.MouseEvent, column: string) => {
@@ -92,152 +129,67 @@ const CardDetail: React.FC = () => {
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  const handleUpload = (fileList: FileList | null) => {
-    if (!fileList) return;
+  const handleUpload = async (fileList: FileList | null) => {
+    if (!fileList || !cardId) return;
     setUploading(true);
     setError(null);
 
-    Array.from(fileList).forEach((file, index) => {
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      const id = Date.now() + index;
+    const formData = new FormData();
+    formData.append('projectId', cardId);
+    Array.from(fileList).forEach(file => formData.append('files', file));
 
-      if (ext === 'csv') {
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (result) => {
-            if (result.errors.length) {
-              setError(`Failed to parse ${file.name}`);
-              setUploading(false);
-              return;
-            }
-            const newFile: FileData = {
-              id,
-              name: file.name,
-              columns: result.meta.fields || [],
-              rows: result.data as any[],
-              uploadedAt: new Date().toISOString(),
-            };
-            setFiles(prev => [...prev, newFile]);
-            setActiveFileId(id);
-            setUploading(false);
-
-            // --- Audit log for file upload ---
-            logAudit('Upload File', {
-              fileName: file.name,
-              fileType: ext,
-              columns: result.meta.fields || [],
-              rowsCount: (result.data as any[]).length,
-              uploadedAt: newFile.uploadedAt,
-            });
-          }
-        });
-      } else if (ext === 'xlsx' || ext === 'xls') {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const data = new Uint8Array(e.target?.result as ArrayBuffer);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '-' });
-            const columns = worksheet ? XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0] : [];
-            const newFile: FileData = {
-              id,
-              name: file.name,
-              columns: columns as string[] || [],
-              rows: jsonData as any[],
-              uploadedAt: new Date().toISOString(),
-            };
-            setFiles(prev => [...prev, newFile]);
-            setActiveFileId(id);
-            setUploading(false);
-
-            // --- Audit log for file upload ---
-            logAudit('Upload File', {
-              fileName: file.name,
-              fileType: ext,
-              columns: columns || [],
-              rowsCount: (jsonData as any[]).length,
-              uploadedAt: newFile.uploadedAt,
-            });
-          } catch (err) {
-            setError(`Failed to parse ${file.name}`);
-            setUploading(false);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      } else if (ext === 'txt') {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const text = e.target?.result as string;
-          const newFile: FileData = {
-            id,
-            name: file.name,
-            columns: [],
-            rows: [],
-            textContent: text,
-            uploadedAt: new Date().toISOString(),
-          };
-          setFiles(prev => [...prev, newFile]);
-          setActiveFileId(id);
-          setUploading(false);
-
-          // --- Audit log for file upload ---
-          logAudit('Upload File', {
-            fileName: file.name,
-            fileType: ext,
-            uploadedAt: newFile.uploadedAt,
-            textLength: text.length,
-          });
-        };
-        reader.readAsText(file);
-      } else if (ext === 'docx') {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          try {
-            const arrayBuffer = e.target?.result as ArrayBuffer;
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            const newFile: FileData = {
-              id,
-              name: file.name,
-              columns: [],
-              rows: [],
-              textContent: result.value,
-              uploadedAt: new Date().toISOString(),
-            };
-            setFiles(prev => [...prev, newFile]);
-            setActiveFileId(id);
-            setUploading(false);
-
-            // --- Audit log for file upload ---
-            logAudit('Upload File', {
-              fileName: file.name,
-              fileType: ext,
-              uploadedAt: newFile.uploadedAt,
-              textLength: result.value.length,
-            });
-          } catch {
-            setError(`Failed to parse ${file.name}`);
-            setUploading(false);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      } else {
-        setError(`Unsupported file type: ${file.name}`);
-        setUploading(false);
+    try {
+      const res = await fetch('/api/files/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || 'Upload failed');
       }
-    });
+
+      const created = (data.files || []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        fileType: f.fileType,
+        columns: [],
+        rows: [],
+        uploadedAt: f.uploadedAt,
+        dataLoaded: false,
+      }));
+
+      setFiles(prev => [...created, ...prev]);
+      if (created.length > 0) {
+        setActiveFileId(created[0].id);
+      }
+
+      // --- Audit log for file upload ---
+      created.forEach((f: FileData) => {
+        logAudit('Upload File', {
+          fileName: f.name,
+          fileType: f.fileType,
+          uploadedAt: f.uploadedAt,
+        });
+      });
+    } catch (err: any) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const handleDeleteFile = (fileId: number) => {
-    setFiles(prev => {
-      const fileToDelete = prev.find(f => f.id === fileId);
-      const updated = prev.filter(f => f.id !== fileId);
-      if (activeFileId === fileId) {
-        setActiveFileId(updated.length > 0 ? updated[0].id : null);
-        setSelectedChartCols([]);
+  const handleDeleteFile = async (fileId: number) => {
+    const fileToDelete = files.find(f => f.id === fileId);
+    try {
+      const res = await fetch(`/api/files/${fileId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error('Delete failed');
       }
+      setFiles(prev => {
+        const remaining = prev.filter(f => f.id !== fileId);
+        if (activeFileId === fileId) {
+          setActiveFileId(remaining.length > 0 ? remaining[0].id : null);
+          setSelectedChartCols([]);
+        }
+        return remaining;
+      });
 
       // --- Audit log for file delete ---
       if (fileToDelete) {
@@ -247,9 +199,9 @@ const CardDetail: React.FC = () => {
           deletedAt: new Date().toISOString(),
         });
       }
-
-      return updated;
-    });
+    } catch {
+      setError('Failed to delete file');
+    }
   };
 
   const activeFile = files.find(f => f.id === activeFileId);
@@ -280,7 +232,7 @@ const CardDetail: React.FC = () => {
             Back
           </button>
           <h2 className="text-sm font-bold text-amber-600 mb-1">Files</h2>
-          <p className="text-xs text-gray-500">Project #{id}</p>
+          <p className="text-xs text-gray-500">Project #{cardId}</p>
         </div>
 
         {/* Upload Area - Very compact */}
@@ -438,6 +390,13 @@ const CardDetail: React.FC = () => {
                 <Eye className="w-6 h-6 text-gray-400" />
               </div>
               <p className="text-gray-700 text-sm font-semibold">Select a file to view</p>
+            </div>
+          ) : loadingFileId === activeFile.id ? (
+            <div className="h-full flex flex-col items-center justify-center bg-white">
+              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-2">
+                <Eye className="w-6 h-6 text-gray-400" />
+              </div>
+              <p className="text-gray-700 text-sm font-semibold">Loading file data...</p>
             </div>
           ) : (
             <>

@@ -35,8 +35,11 @@ async function setupDatabase() {
 
         console.log('✅ Connected to MySQL');
 
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
+        await connection.query(`USE \`${DB_NAME}\``);
+
         // Read SQL file
-        const sqlFilePath = path.join(__dirname, 'setup-db.sql');
+        const sqlFilePath = path.join(__dirname, 'db', 'schema.sql');
         const sql = fs.readFileSync(sqlFilePath, 'utf8');
 
         // Execute SQL statements

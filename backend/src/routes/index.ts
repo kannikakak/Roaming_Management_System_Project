@@ -5,7 +5,7 @@ import { authRoutes } from "./authRoutes";
 import { dashboardRoutes } from "./dashboardRoutes";
 import { cardRoutes } from "./cardRoutes";
 import { fileRoutes } from "./fileRoutes";
-import { projectRoutes } from "./projectRoutes";
+import projectRoutes from "./projectRoutes";
 
 // ✅ Reports (DB)
 import { reportRoutes } from "./reportRoutes";

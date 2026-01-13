@@ -6,7 +6,10 @@ import path from "path";
 import { dbPool } from "./db";
 import { setRoutes } from "./routes";
 
-// ✅ If your export route is default-exported as a router
+// ✅ project routes
+import projectRoutes from "./routes/projectRoutes";
+
+// ✅ export route
 import exportPptxRoute from "./routes/exportPptx";
 
 dotenv.config();
@@ -55,16 +58,22 @@ const startServer = async () => {
     console.error("❌ Cannot start server without database connection");
     console.error("Make sure:");
     console.error("  1. MySQL is running on port 3306 (XAMPP)");
-    console.error('  2. Database exists (check your DB_NAME in .env)');
+    console.error("  2. Database exists (check your DB_NAME in .env)");
     console.error("  3. Credentials are correct");
     process.exit(1);
   }
 
-  // ✅ Register your app routes (reports, audit, etc.)
+  // ✅ Register your other app routes (reports, audit, etc.)
   setRoutes(app, dbPool);
 
+  // ✅ FIX: Mount project routes so React can call:
+  // GET  /api/projects?user_id=1
+  // POST /api/projects
+  // PUT  /api/projects/:id
+  // DELETE /api/projects/:id
+  app.use("/api/projects", projectRoutes(dbPool));
+
   // ✅ Export PPTX route
-  // Your file should export a router like: export default Router()
   app.use("/api/export", exportPptxRoute);
 
   app.listen(PORT, () => {

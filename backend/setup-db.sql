@@ -1,60 +1,112 @@
--- -- Create Database
--- CREATE DATABASE IF NOT EXISTS roaming_interconnect_system;
--- USE roaming_interconnect_system;
+CREATE DATABASE IF NOT EXISTS roaming;
+USE roaming;
 
--- -- Create Users Table
--- CREATE TABLE IF NOT EXISTS users (
---     id INT AUTO_INCREMENT PRIMARY KEY,
---     username VARCHAR(255) UNIQUE NOT NULL,
---     email VARCHAR(255) UNIQUE NOT NULL,
---     password VARCHAR(255) NOT NULL,
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
--- );
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
 
--- -- Create Transactions Table
--- CREATE TABLE IF NOT EXISTS transactions (
---     id INT AUTO_INCREMENT PRIMARY KEY,
---     user_id INT NOT NULL,
---     transaction_type VARCHAR(50) NOT NULL,
---     amount DECIMAL(10, 2) NOT NULL,
---     status VARCHAR(50) DEFAULT 'pending',
---     description VARCHAR(255),
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
---     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
--- );
+CREATE TABLE IF NOT EXISTS roles (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(64) NOT NULL UNIQUE
+) ENGINE=InnoDB;
 
--- -- Create Roaming Records Table
--- CREATE TABLE IF NOT EXISTS roaming_records (
---     id INT AUTO_INCREMENT PRIMARY KEY,
---     user_id INT NOT NULL,
---     country VARCHAR(100),
---     operator VARCHAR(100),
---     data_used DECIMAL(10, 2),
---     cost DECIMAL(10, 2),
---     period_start DATE,
---     period_end DATE,
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
--- );
+INSERT IGNORE INTO roles (name)
+VALUES ('admin'), ('analyst'), ('viewer');
 
--- -- Create Interconnect Logs Table
--- CREATE TABLE IF NOT EXISTS interconnect_logs (
---     id INT AUTO_INCREMENT PRIMARY KEY,
---     from_operator VARCHAR(100),
---     to_operator VARCHAR(100),
---     duration INT,
---     cost DECIMAL(10, 2),
---     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
--- );
+CREATE TABLE IF NOT EXISTS user_roles (
+  user_id INT NOT NULL,
+  role_id INT NOT NULL,
+  PRIMARY KEY (user_id, role_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
 
--- -- Insert Sample Data
--- INSERT INTO users (username, email, password) VALUES
--- ('admin', 'admin@example.com', 'password123'),
--- ('user1', 'user1@example.com', 'password123');
+CREATE TABLE IF NOT EXISTS projects (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  user_id INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
 
--- INSERT INTO transactions (user_id, transaction_type, amount, status, description) VALUES
--- (1, 'roaming', 50.00, 'completed', 'Roaming charge - Thailand'),
--- (1, 'interconnect', 25.00, 'completed', 'Interconnect charge - Viettel'),
--- (2, 'roaming', 75.00, 'pending', 'Roaming charge - Singapore');
+CREATE TABLE IF NOT EXISTS dashboards (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS cards (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  project_id INT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS files (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  project_id INT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(16) NOT NULL,
+  storage_path VARCHAR(512) NULL,
+  text_content LONGTEXT NULL,
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS file_columns (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  file_id INT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  position INT NOT NULL,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS file_rows (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  file_id INT NOT NULL,
+  row_index INT NOT NULL,
+  data_json JSON NOT NULL,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+  INDEX idx_file_rows_file_id (file_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user VARCHAR(255) NOT NULL,
+  action VARCHAR(255) NOT NULL,
+  details JSON
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS reports (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS report_slides (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  report_id INT NOT NULL,
+  slide_index INT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  subtitle TEXT NULL,
+  summary TEXT NULL,
+  chart_type VARCHAR(64) NULL,
+  category_col VARCHAR(255) NULL,
+  value_cols JSON NULL,
+  chart_image_url VARCHAR(512) NOT NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
