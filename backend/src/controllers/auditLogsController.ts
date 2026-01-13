@@ -3,13 +3,13 @@ import { dbPool } from '../db';
 
 export const createAuditLog = async (req: Request, res: Response) => {
   const { user, action, details } = req.body;
-  if (!user || !action || !details) {
-    return res.status(400).json({ error: 'Missing required fields: user, action, details.' });
+  if (!user || !action) {
+    return res.status(400).json({ error: 'Missing required fields: user, action.' });
   }
   try {
     await dbPool.execute(
       'INSERT INTO audit_logs (user, action, details) VALUES (?, ?, ?)',
-      [user, action, JSON.stringify(details)]
+      [user, action, JSON.stringify(details ?? null)]
     );
     res.status(201).json({ success: true });
   } catch (err: any) {

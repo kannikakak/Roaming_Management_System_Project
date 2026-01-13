@@ -117,7 +117,32 @@ const ChartPage: React.FC = () => {
   };
 
   // ✅ Save chart config (card)
-  const handleSaveChart = () => {
+  const saveChartToDb = async () => {
+    if (!chartRef.current) return;
+    try {
+      const chartImage = await htmlToImage.toPng(chartRef.current, {
+        pixelRatio: 2,
+        backgroundColor: "white",
+      });
+      await fetch("/api/charts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: currentFile?.id || null,
+          fileName: currentFile?.name || currentFile?.fileName || null,
+          chartType,
+          categoryCol,
+          valueCols,
+          selectedCols: currentSelectedCols,
+          chartImage,
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to save chart to DB:", e);
+    }
+  };
+
+  const handleSaveChart = async () => {
     try {
       const existing: SavedChart[] = JSON.parse(localStorage.getItem(LS_KEY) || "[]");
 
@@ -148,6 +173,8 @@ const ChartPage: React.FC = () => {
         fileName,
         selectedCols: currentSelectedCols,
       });
+
+      await saveChartToDb();
     } catch (e) {
       console.error(e);
       alert("Save failed. Your data may be too large for localStorage.");
@@ -219,7 +246,9 @@ const ChartPage: React.FC = () => {
         chartType,
         categoryCol,
         valueCols,
+        selectedCols: currentSelectedCols,
         fileName: currentFile?.name || currentFile?.fileName,
+        fileId: currentFile?.id,
       },
     };
 

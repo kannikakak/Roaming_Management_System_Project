@@ -30,8 +30,14 @@ const AuditLogViewer: React.FC = () => {
   const [dateTo, setDateTo] = useState('');
 
   useEffect(() => {
-    const data = getAuditLogs();
-    setLogs(Array.isArray(data) ? data : []);
+    let mounted = true;
+    getAuditLogs().then((data) => {
+      if (!mounted) return;
+      setLogs(Array.isArray(data) ? data : []);
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Filtering logic

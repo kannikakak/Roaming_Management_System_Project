@@ -104,6 +104,23 @@ CREATE TABLE IF NOT EXISTS report_slides (
   chart_type VARCHAR(64) NULL,
   category_col VARCHAR(255) NULL,
   value_cols JSON NULL,
+  selected_cols JSON NULL,
+  file_id INT NULL,
+  file_name VARCHAR(255) NULL,
   chart_image_url VARCHAR(512) NOT NULL,
-  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS charts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  file_id INT NULL,
+  file_name VARCHAR(255) NULL,
+  chart_type VARCHAR(64) NOT NULL,
+  category_col VARCHAR(255) NULL,
+  value_cols JSON NULL,
+  selected_cols JSON NULL,
+  chart_image_url VARCHAR(512) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

@@ -10,6 +10,8 @@ export type ReportSlide = {
     categoryCol: string;
     valueCols: string[];
     fileName?: string;
+    fileId?: number;
+    selectedCols?: string[];
   };
 };
 

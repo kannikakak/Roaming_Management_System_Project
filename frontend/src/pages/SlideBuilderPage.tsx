@@ -15,6 +15,8 @@ type ReportSlide = {
     categoryCol: string;
     valueCols: string[];
     fileName?: string;
+    fileId?: number;
+    selectedCols?: string[];
   };
 };
 
@@ -67,6 +69,20 @@ const SlideBuilderPage: React.FC = () => {
     }
 
     try {
+      const reportRes = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Roaming Report ${new Date().toISOString().slice(0, 10)}`,
+          slides,
+        }),
+      });
+
+      if (!reportRes.ok) {
+        const msg = await reportRes.text();
+        throw new Error(msg || "Save report failed");
+      }
+
       const res = await fetch("http://localhost:3001/api/export/pptx-multi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

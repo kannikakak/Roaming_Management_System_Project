@@ -2,14 +2,14 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 import Home from "./pages/Home";
-import Dashboard from "./components/Dashboard";
-import CardDetail from "./components/CardDetail";
-import Login from "./components/Login";
-import Register from "./components/Register";
-import ChartPage from "./components/ChartPage";
+import Dashboard from "./pages/Dashboard";
+import CardDetail from "./pages/CardDetail";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import ChartPage from "./pages/ChartPage";
 import MainLayout from "./components/MainLayout";
-import Projects from "./components/Projects";
-import AuditLogViewer from "./components/AuditLogViewer";
+import Projects from "./pages/Projects";
+import AuditLogViewer from "./pages/AuditLogViewer";
 import SlideBuilderPage from "./pages/SlideBuilderPage";
 
 // import TemplatesPage from "./pages/TemplatesPage";

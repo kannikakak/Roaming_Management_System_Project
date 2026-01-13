@@ -15,6 +15,8 @@ type SlidePayload = {
     categoryCol: string;
     valueCols: string[];
     fileName?: string;
+    fileId?: number;
+    selectedCols?: string[];
   };
 };
 
@@ -69,8 +71,8 @@ export function reportRoutes(dbPool: Pool) {
 
           await conn.query(
             `INSERT INTO report_slides
-              (report_id, slide_index, title, subtitle, summary, chart_type, category_col, value_cols, chart_image_url)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (report_id, slide_index, title, subtitle, summary, chart_type, category_col, value_cols, selected_cols, file_id, file_name, chart_image_url)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               reportId,
               i,
@@ -80,6 +82,9 @@ export function reportRoutes(dbPool: Pool) {
               s.chartMeta?.chartType || null,
               s.chartMeta?.categoryCol || null,
               JSON.stringify(s.chartMeta?.valueCols || []),
+              JSON.stringify(s.chartMeta?.selectedCols || []),
+              s.chartMeta?.fileId || null,
+              s.chartMeta?.fileName || null,
               imageUrl,
             ]
           );

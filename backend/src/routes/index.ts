@@ -1,4 +1,4 @@
-import { Express } from "express";
+﻿import { Express } from "express";
 import { Pool } from "mysql2/promise";
 
 import { authRoutes } from "./authRoutes";
@@ -7,10 +7,12 @@ import { cardRoutes } from "./cardRoutes";
 import { fileRoutes } from "./fileRoutes";
 import projectRoutes from "./projectRoutes";
 
-// ✅ Reports (DB)
+import { chartRoutes } from "./chartRoutes";
+import auditLogsRoutes from "./auditLogs";
+// バ. Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
-// ✅ Export route (Router)
+// バ. Export route (Router)
 import exportPptxRoutes from "./exportPptx";
 
 export const setRoutes = (app: Express, dbPool: Pool) => {
@@ -29,9 +31,15 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
   // Files
   app.use("/api/files", fileRoutes(dbPool));
 
+  // Charts
+  app.use("/api/charts", chartRoutes(dbPool));
+
+  // Audit logs
+  app.use("/api/audit-logs", auditLogsRoutes);
+
   // Reports
   app.use("/api/reports", reportRoutes(dbPool));
 
-  // ✅ Export PPTX
+  // バ. Export PPTX
   app.use("/api/export", exportPptxRoutes);
 };
