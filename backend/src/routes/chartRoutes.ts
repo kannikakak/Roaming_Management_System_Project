@@ -2,6 +2,7 @@ import { Router } from "express";
 import path from "path";
 import fs from "fs/promises";
 import { Pool } from "mysql2/promise";
+import { requireAuth, requireRole } from "../middleware/auth";
 
 type ChartPayload = {
   fileId?: number;
@@ -29,9 +30,10 @@ function dataUrlToBuffer(dataUrl: string) {
 
 export function chartRoutes(dbPool: Pool) {
   const router = Router();
+  router.use(requireAuth);
 
   // Save generated chart config (and optional image)
-  router.post("/", async (req, res) => {
+  router.post("/", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const payload = req.body as ChartPayload;
       if (!payload?.chartType) return res.status(400).send("chartType is required");

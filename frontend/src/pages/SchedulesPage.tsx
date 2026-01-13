@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { apiFetch } from "../utils/api";
 
 type Schedule = {
   id: number;
@@ -44,7 +45,7 @@ const SchedulesPage: React.FC = () => {
   const loadSchedules = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/schedules");
+      const res = await apiFetch("/api/schedules");
       const data = await res.json();
       setSchedules(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -86,7 +87,7 @@ const SchedulesPage: React.FC = () => {
       });
       if (attachment) formData.append("file", attachment);
 
-      const res = await fetch("/api/schedules/with-file", {
+      const res = await apiFetch("/api/schedules/with-file", {
         method: "POST",
         body: formData,
       });
@@ -103,7 +104,7 @@ const SchedulesPage: React.FC = () => {
 
   const deleteSchedule = async (id: number) => {
     if (!window.confirm("Delete this schedule?")) return;
-    await fetch(`/api/schedules/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/schedules/${id}`, { method: "DELETE" });
     loadSchedules();
   };
 

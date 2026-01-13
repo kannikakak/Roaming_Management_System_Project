@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { apiFetch } from "../utils/api";
 
 type Notification = {
   id: number;
@@ -21,13 +22,13 @@ const NotificationsPage: React.FC = () => {
   const [settings, setSettings] = useState<Settings | null>(null);
 
   const loadNotifications = async () => {
-    const res = await fetch("/api/notifications");
+    const res = await apiFetch("/api/notifications");
     const data = await res.json();
     setNotifications(Array.isArray(data) ? data : []);
   };
 
   const loadSettings = async () => {
-    const res = await fetch("/api/notification-settings");
+    const res = await apiFetch("/api/notification-settings");
     const data = await res.json();
     if (data) {
       setSettings(data);
@@ -42,7 +43,7 @@ const NotificationsPage: React.FC = () => {
   }, []);
 
   const markRead = async (id: number) => {
-    await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+    await apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
     loadNotifications();
   };
 
@@ -53,9 +54,8 @@ const NotificationsPage: React.FC = () => {
       in_app_enabled: settings?.in_app_enabled ?? 1,
       ...patch,
     };
-    await fetch("/api/notification-settings", {
+    await apiFetch("/api/notification-settings", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         emailEnabled: !!next.email_enabled,
         telegramEnabled: !!next.telegram_enabled,

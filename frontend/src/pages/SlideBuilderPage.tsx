@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, Trash2 } from "lucide-react";
 import { logAudit } from "../utils/auditLog";
+import { apiFetch } from "../utils/api";
 
 type ReportSlide = {
   id: string;
@@ -69,9 +70,8 @@ const SlideBuilderPage: React.FC = () => {
     }
 
     try {
-      const reportRes = await fetch("/api/reports", {
+      const reportRes = await apiFetch("/api/reports", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `Roaming Report ${new Date().toISOString().slice(0, 10)}`,
           slides,
@@ -83,9 +83,8 @@ const SlideBuilderPage: React.FC = () => {
         throw new Error(msg || "Save report failed");
       }
 
-      const res = await fetch("http://localhost:3001/api/export/pptx-multi", {
+      const res = await apiFetch("/api/export/pptx-multi", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           slides,
           fileName: `Roaming_Report_${new Date().toISOString().slice(0, 10)}.pptx`,

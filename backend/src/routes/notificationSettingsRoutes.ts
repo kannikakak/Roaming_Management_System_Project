@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { Pool } from "mysql2/promise";
+import { requireAuth, requireRole } from "../middleware/auth";
 
 export function notificationSettingsRoutes(dbPool: Pool) {
   const router = Router();
+  router.use(requireAuth);
 
   router.get("/", async (req, res) => {
     try {
@@ -17,7 +19,7 @@ export function notificationSettingsRoutes(dbPool: Pool) {
     }
   });
 
-  router.put("/", async (req, res) => {
+  router.put("/", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const { userId, emailEnabled, telegramEnabled, inAppEnabled } = req.body as {
         userId?: number | null;

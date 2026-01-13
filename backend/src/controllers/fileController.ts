@@ -204,3 +204,142 @@ export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) 
     res.status(500).json({ message: "Database error", error: err });
   }
 };
+
+// Update file columns (PATCH /api/files/:fileId/columns)
+export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { fileId } = req.params;
+  const { columns, renameMap } = req.body || {};
+
+  if (!Array.isArray(columns)) {
+    return res.status(400).json({ message: "columns must be an array" });
+  }
+
+  const normalized = columns
+    .map((c: any) => String(c || "").trim())
+    .filter(Boolean);
+
+  if (normalized.length === 0) {
+    return res.status(400).json({ message: "At least one column is required" });
+  }
+
+  const unique = new Set(normalized.map(c => c.toLowerCase()));
+  if (unique.size !== normalized.length) {
+    return res.status(400).json({ message: "Column names must be unique" });
+  }
+
+  const renameEntries = renameMap && typeof renameMap === "object" ? Object.entries(renameMap) : [];
+  const reverseRename = new Map<string, string>();
+  for (const [oldName, newName] of renameEntries) {
+    if (typeof oldName !== "string" || typeof newName !== "string") continue;
+    const cleanedNew = newName.trim();
+    if (!cleanedNew) continue;
+    reverseRename.set(cleanedNew, oldName);
+  }
+
+  const connection = await dbPool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [oldColRows]: any = await connection.query(
+      "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
+      [fileId]
+    );
+    const oldColumns = oldColRows.map((c: any) => c.name);
+
+    const [rowRows]: any = await connection.query(
+      "SELECT id, data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC",
+      [fileId]
+    );
+
+    for (const row of rowRows) {
+      const data = JSON.parse(row.data_json || "{}");
+      const nextRow: Record<string, any> = {};
+
+      for (const col of normalized) {
+        const oldName = reverseRename.get(col);
+        if (oldName && Object.prototype.hasOwnProperty.call(data, oldName)) {
+          nextRow[col] = data[oldName];
+        } else if (Object.prototype.hasOwnProperty.call(data, col)) {
+          nextRow[col] = data[col];
+        } else {
+          nextRow[col] = "-";
+        }
+      }
+
+      await connection.query(
+        "UPDATE file_rows SET data_json = ? WHERE id = ?",
+        [JSON.stringify(nextRow), row.id]
+      );
+    }
+
+    await connection.query("DELETE FROM file_columns WHERE file_id = ?", [fileId]);
+    for (let i = 0; i < normalized.length; i++) {
+      await connection.query(
+        "INSERT INTO file_columns (file_id, name, position) VALUES (?, ?, ?)",
+        [fileId, normalized[i], i]
+      );
+    }
+
+    await connection.commit();
+    res.json({ columns: normalized, previousColumns: oldColumns });
+  } catch (err: any) {
+    await connection.rollback();
+    res.status(500).json({ message: "Failed to update columns", error: err?.message || err });
+  } finally {
+    connection.release();
+  }
+};
+
+// Update file row values for a column (PATCH /api/files/:fileId/rows)
+export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { fileId } = req.params;
+  const { column, updates } = req.body || {};
+
+  if (!column || typeof column !== "string") {
+    return res.status(400).json({ message: "column is required" });
+  }
+  if (!Array.isArray(updates)) {
+    return res.status(400).json({ message: "updates must be an array" });
+  }
+
+  const normalizedUpdates = updates
+    .map((u: any) => ({
+      rowIndex: Number(u?.rowIndex),
+      value: u?.value ?? "-",
+    }))
+    .filter((u: any) => Number.isFinite(u.rowIndex) && u.rowIndex >= 0);
+
+  if (normalizedUpdates.length === 0) {
+    return res.status(400).json({ message: "No valid updates provided" });
+  }
+
+  const connection = await dbPool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    for (const update of normalizedUpdates) {
+      const [rowRows]: any = await connection.query(
+        "SELECT id, data_json FROM file_rows WHERE file_id = ? AND row_index = ? LIMIT 1",
+        [fileId, update.rowIndex]
+      );
+      if (!rowRows?.length) continue;
+
+      const row = rowRows[0];
+      const data = JSON.parse(row.data_json || "{}");
+      data[column] = update.value;
+
+      await connection.query(
+        "UPDATE file_rows SET data_json = ? WHERE id = ?",
+        [JSON.stringify(data), row.id]
+      );
+    }
+
+    await connection.commit();
+    res.json({ ok: true });
+  } catch (err: any) {
+    await connection.rollback();
+    res.status(500).json({ message: "Failed to update rows", error: err?.message || err });
+  } finally {
+    connection.release();
+  }
+};

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, Shield } from 'lucide-react';
+import { apiFetch, setAuthToken } from '../utils/api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -15,13 +16,17 @@ const Login = () => {
     setError('');
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/auth/login', {
+      const response = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
       if (response.ok) {
+        if (data.token) {
+          setAuthToken(data.token);
+          localStorage.setItem('authUser', JSON.stringify(data.user));
+        }
         navigate('/dashboard');
       } else {
         setError(data.message || 'Login failed');

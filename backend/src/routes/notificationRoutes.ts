@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { Pool } from "mysql2/promise";
+import { requireAuth } from "../middleware/auth";
 
 export function notificationRoutes(dbPool: Pool) {
   const router = Router();
+  router.use(requireAuth);
 
   router.get("/", async (_req, res) => {
     try {

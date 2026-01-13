@@ -3,13 +3,14 @@ import { dbPool } from '../db';
 
 export const createAuditLog = async (req: Request, res: Response) => {
   const { user, action, details } = req.body;
-  if (!user || !action) {
-    return res.status(400).json({ error: 'Missing required fields: user, action.' });
+  const actor = user || req.user?.email || "unknown";
+  if (!action) {
+    return res.status(400).json({ error: 'Missing required field: action.' });
   }
   try {
     await dbPool.execute(
       'INSERT INTO audit_logs (user, action, details) VALUES (?, ?, ?)',
-      [user, action, JSON.stringify(details ?? null)]
+      [actor, action, JSON.stringify(details ?? null)]
     );
     res.status(201).json({ success: true });
   } catch (err: any) {
@@ -25,5 +26,20 @@ export const getAuditLogs = async (_req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Audit log fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch audit logs.' });
+  }
+};
+
+export const getMyAuditLogs = async (req: Request, res: Response) => {
+  try {
+    const actor = req.user?.email;
+    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    const [rows] = await dbPool.query(
+      "SELECT * FROM audit_logs WHERE user = ? ORDER BY timestamp DESC",
+      [actor]
+    );
+    res.json(rows);
+  } catch (err: any) {
+    console.error("Audit log fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch audit logs." });
   }
 };

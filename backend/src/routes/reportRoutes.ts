@@ -2,6 +2,7 @@ import { Router } from "express";
 import path from "path";
 import fs from "fs/promises";
 import { Pool } from "mysql2/promise";
+import { requireAuth, requireRole } from "../middleware/auth";
 
 type SlidePayload = {
   id?: string;
@@ -37,9 +38,10 @@ function dataUrlToBuffer(dataUrl: string) {
 
 export function reportRoutes(dbPool: Pool) {
   const router = Router();
+  router.use(requireAuth);
 
   // ✅ Create report + slides (save to DB, store images on server)
-  router.post("/", async (req, res) => {
+  router.post("/", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const { name, slides } = req.body as { name: string; slides: SlidePayload[] };
 
@@ -113,6 +115,32 @@ export function reportRoutes(dbPool: Pool) {
       res.json(rows);
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to list reports");
+    }
+  });
+
+  // ✅ Update report name/status
+  router.put("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
+    try {
+      const reportId = Number(req.params.id);
+      const { name, status } = req.body as { name?: string; status?: string };
+      await dbPool.execute(
+        "UPDATE reports SET name = COALESCE(?, name), status = COALESCE(?, status) WHERE id = ?",
+        [name || null, status || null, reportId]
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to update report");
+    }
+  });
+
+  // ✅ Delete report
+  router.delete("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
+    try {
+      const reportId = Number(req.params.id);
+      await dbPool.execute("DELETE FROM reports WHERE id = ?", [reportId]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to delete report");
     }
   });
 

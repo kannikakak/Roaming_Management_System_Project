@@ -4,6 +4,8 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { computeNextRunAt, ScheduleFrequency } from "../services/scheduler";
+import { requireAuth, requireRole } from "../middleware/auth";
+import { getNotificationSettings } from "../services/notificationSettings";
 
 type SchedulePayload = {
   name: string;
@@ -54,6 +56,7 @@ function toNumber(value: unknown, fallback: number) {
 
 export function scheduleRoutes(dbPool: Pool) {
   const router = Router();
+  router.use(requireAuth);
 
   router.get("/", async (_req, res) => {
     try {
@@ -116,10 +119,24 @@ export function scheduleRoutes(dbPool: Pool) {
       ]
     );
 
-    return result.insertId as number;
+    const scheduleId = result.insertId as number;
+    const settings = await getNotificationSettings(dbPool);
+    if (settings.in_app_enabled) {
+      await dbPool.execute(
+        "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
+        [
+          "schedule_created",
+          "system",
+          `Schedule created: ${payload.name}`,
+          JSON.stringify({ scheduleId, frequency: payload.frequency }),
+        ]
+      );
+    }
+
+    return scheduleId;
   };
 
-  router.post("/", async (req, res) => {
+  router.post("/", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const payload = req.body as SchedulePayload;
       if (!payload?.name || !payload?.targetType || !payload?.targetId) {
@@ -136,7 +153,7 @@ export function scheduleRoutes(dbPool: Pool) {
     }
   });
 
-  router.post("/with-file", upload.single("file"), async (req, res) => {
+  router.post("/with-file", requireRole(["admin", "analyst"]), upload.single("file"), async (req, res) => {
     try {
       const payload = req.body as SchedulePayload;
       if (!payload?.name || !payload?.targetType || !payload?.targetId) {
@@ -153,7 +170,7 @@ export function scheduleRoutes(dbPool: Pool) {
     }
   });
 
-  router.put("/:id", async (req, res) => {
+  router.put("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const id = Number(req.params.id);
       const payload = req.body as SchedulePayload;
@@ -194,7 +211,7 @@ export function scheduleRoutes(dbPool: Pool) {
     }
   });
 
-  router.delete("/:id", async (req, res) => {
+  router.delete("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const id = Number(req.params.id);
       await dbPool.execute("DELETE FROM report_schedules WHERE id = ?", [id]);

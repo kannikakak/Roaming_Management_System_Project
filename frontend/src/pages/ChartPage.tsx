@@ -7,6 +7,9 @@ import {
   Bar,
   AreaChart,
   Area,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
@@ -17,9 +20,10 @@ import {
 import * as htmlToImage from "html-to-image";
 import { Download, ArrowLeft, BarChart3, TrendingUp, Save, FileText } from "lucide-react";
 import { logAudit } from "../utils/auditLog";
+import { apiFetch } from "../utils/api";
 
 const COLORS = ["#EACE5F", "#b89c1d", "#FFD700", "#FFB300", "#FF8C00", "#FFD580", "#F5DEB3"];
-const CHART_TYPES = ["Line", "Bar", "Area"];
+const CHART_TYPES = ["Line", "Bar", "Stacked Bar", "Area", "Pie"];
 
 interface SavedChart {
   id: string;
@@ -107,6 +111,17 @@ const ChartPage: React.FC = () => {
 
   const availableValueCols = currentSelectedCols.filter((c) => c !== categoryCol && isNumericCol(c));
 
+  const pieValueCol = valueCols[0] || availableValueCols[0];
+  const pieData =
+    chartType === "Pie" && pieValueCol
+      ? chartData
+          .map((row: any) => ({
+            name: row[categoryCol],
+            value: Number(row[pieValueCol]),
+          }))
+          .filter((d: any) => !isNaN(d.value))
+      : [];
+
   const handleValueColChange = (col: string) => {
     setValueCols((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
   };
@@ -124,9 +139,8 @@ const ChartPage: React.FC = () => {
         pixelRatio: 2,
         backgroundColor: "white",
       });
-      await fetch("/api/charts", {
+      await apiFetch("/api/charts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId: currentFile?.id || null,
           fileName: currentFile?.name || currentFile?.fileName || null,
@@ -179,6 +193,12 @@ const ChartPage: React.FC = () => {
       console.error(e);
       alert("Save failed. Your data may be too large for localStorage.");
     }
+  };
+
+  const handleDeleteSavedChart = (id: string) => {
+    const updated = savedCharts.filter((chart) => chart.id !== id);
+    setSavedCharts(updated);
+    localStorage.setItem(LS_KEY, JSON.stringify(updated));
   };
 
   // ✅ Load chart
@@ -277,37 +297,64 @@ const ChartPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
+        <div className="mb-6 flex items-center">
+          <button
+            onClick={() => navigate("/projects")}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-white text-amber-800 hover:bg-amber-50 text-sm font-semibold"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to projects
+          </button>
+        </div>
         {/* ✅ ALWAYS show saved cards */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold text-gray-700">Saved Charts</h3>
             <button
               onClick={loadSavedCharts}
-              className="text-sm px-3 py-1 rounded bg-white border hover:bg-gray-50"
+              className="text-xs px-3 py-2 rounded-lg border border-amber-200 bg-white hover:bg-amber-50"
             >
               Refresh
             </button>
           </div>
 
           {savedCharts.length === 0 ? (
-            <div className="bg-white border rounded-lg p-4 text-sm text-gray-600">
-              No saved chart cards yet. Click <b>Save Card</b> to create one.
+            <div className="bg-white border rounded-xl p-4 text-sm text-gray-600">
+              No saved charts yet. Click <b>Save Chart</b> to create one.
             </div>
           ) : (
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {savedCharts.map((chart) => (
                 <div
                   key={chart.id}
-                  className="cursor-pointer bg-white border-2 border-yellow-200 rounded-lg px-6 py-4 shadow hover:shadow-lg transition-all"
-                  onClick={() => handleLoadChart(chart.config)}
-                  title="Click to load this chart"
+                  className="bg-white border border-amber-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all"
                 >
-                  <div className="font-bold text-yellow-700">{chart.name}</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {chart.config.chartType} Chart <br />
-                    X: {chart.config.categoryCol} <br />
-                    Y: {chart.config.valueCols.join(", ")}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="cursor-pointer" onClick={() => handleLoadChart(chart.config)}>
+                      <div className="font-semibold text-amber-800">{chart.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {chart.config.chartType} Chart
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        X: {chart.config.categoryCol}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Y: {chart.config.valueCols.join(", ")}
+                      </div>
+                    </div>
+                    <button
+                      className="text-xs text-red-600 hover:text-red-700"
+                      onClick={() => handleDeleteSavedChart(chart.id)}
+                    >
+                      Delete
+                    </button>
                   </div>
+                  <button
+                    className="mt-3 text-xs w-full border border-amber-200 rounded-lg py-2 text-amber-700 hover:bg-amber-50"
+                    onClick={() => handleLoadChart(chart.config)}
+                  >
+                    Open Chart
+                  </button>
                 </div>
               ))}
             </div>
@@ -332,17 +379,17 @@ const ChartPage: React.FC = () => {
             </div>
 
             {/* Controls */}
-            <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border border-yellow-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-amber-100">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {/* Category */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-gray-600">
                     Category Axis (X)
                   </label>
                   <select
                     value={categoryCol}
                     onChange={(e) => handleCategoryColChange(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm"
                   >
                     {currentSelectedCols.map((col: string) => (
                       <option key={col} value={col}>
@@ -353,12 +400,12 @@ const ChartPage: React.FC = () => {
                 </div>
 
                 {/* Chart type */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Chart Type</label>
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-gray-600">Chart Type</label>
                   <select
                     value={chartType}
                     onChange={(e) => setChartType(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm"
                   >
                     {CHART_TYPES.map((type) => (
                       <option key={type} value={type}>
@@ -368,44 +415,47 @@ const ChartPage: React.FC = () => {
                   </select>
                 </div>
 
-                {/* Buttons */}
-                <div className="md:col-span-2 flex items-end gap-2">
-                  <button
-                    className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-yellow-400 to-amber-500 text-white text-sm font-semibold hover:from-yellow-500 hover:to-amber-600 disabled:opacity-50 flex items-center justify-center gap-2"
-                    onClick={() => exportChartAsImage("png")}
-                    disabled={isExporting}
-                  >
-                    <Download className="w-4 h-4" />
-                    Export PNG
-                  </button>
+                {/* Actions */}
+                <div className="flex flex-col gap-3">
+                  <div className="text-xs font-semibold text-gray-600">Actions</div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-2 gap-2">
+                    <button
+                      className="px-3 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                      onClick={() => exportChartAsImage("png")}
+                      disabled={isExporting}
+                    >
+                      <Download className="w-4 h-4" />
+                      PNG
+                    </button>
 
-                  <button
-                    className="flex-1 px-4 py-2 rounded-lg bg-white border-2 border-yellow-400 text-yellow-700 text-sm font-semibold hover:bg-yellow-50 disabled:opacity-50 flex items-center justify-center gap-2"
-                    onClick={() => exportChartAsImage("jpg")}
-                    disabled={isExporting}
-                  >
-                    <Download className="w-4 h-4" />
-                    Export JPG
-                  </button>
+                    <button
+                      className="px-3 py-2 rounded-lg border border-amber-300 text-amber-700 text-sm font-semibold hover:bg-amber-50 disabled:opacity-50 flex items-center justify-center gap-2"
+                      onClick={() => exportChartAsImage("jpg")}
+                      disabled={isExporting}
+                    >
+                      <Download className="w-4 h-4" />
+                      JPG
+                    </button>
 
-                  <button
-                    className="flex-1 px-4 py-2 rounded-lg bg-yellow-100 border-2 border-yellow-400 text-yellow-700 text-sm font-semibold hover:bg-yellow-200 flex items-center justify-center gap-2"
-                    onClick={handleSaveChart}
-                    type="button"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Card
-                  </button>
+                    <button
+                      className="px-3 py-2 rounded-lg border border-amber-300 text-amber-700 text-sm font-semibold hover:bg-amber-50 flex items-center justify-center gap-2"
+                      onClick={handleSaveChart}
+                      type="button"
+                    >
+                      <Save className="w-4 h-4" />
+                      Save
+                    </button>
 
-                  {/* ✅ YOUR button is back */}
-                  <button
-                    className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 flex items-center justify-center gap-2"
-                    onClick={addToReportDraft}
-                    type="button"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Add to Report
-                  </button>
+                    {/* ?? Add to report */}
+                    <button
+                      className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 flex items-center justify-center gap-2"
+                      onClick={addToReportDraft}
+                      type="button"
+                    >
+                      <FileText className="w-4 h-4" />
+                      Report
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -487,6 +537,25 @@ const ChartPage: React.FC = () => {
                     </BarChart>
                   )}
 
+                  {chartType === "Stacked Bar" && (
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="rect" />
+                      {valueCols.map((col, idx) => (
+                        <Bar
+                          key={col}
+                          dataKey={col}
+                          stackId="stack"
+                          fill={COLORS[idx % COLORS.length]}
+                          radius={[6, 6, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  )}
+
                   {chartType === "Area" && (
                     <AreaChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -505,6 +574,24 @@ const ChartPage: React.FC = () => {
                         />
                       ))}
                     </AreaChart>
+                  )}
+
+                  {chartType === "Pie" && (
+                    <PieChart>
+                      <Tooltip />
+                      <Legend />
+                      <Pie
+                        data={pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        outerRadius={160}
+                        label
+                      >
+                        {pieData.map((_item: any, idx: number) => (
+                          <Cell key={`cell-${idx}`} fill={COLORS[idx % COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </PieChart>
                   )}
                 </ResponsiveContainer>
               </div>

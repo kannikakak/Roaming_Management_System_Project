@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical } from 'lucide-react';
-// --- Add this import ---
+import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical, Plus, Pencil, X } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { logAudit } from '../utils/auditLog';
+import { apiFetch } from '../utils/api';
 
 type FileData = {
   id: number;
@@ -15,6 +17,13 @@ type FileData = {
   dataLoaded?: boolean;
 };
 
+type ColumnEdit = {
+  id: string;
+  name: string;
+  originalName?: string | null;
+  isNew?: boolean;
+};
+
 const CardDetail: React.FC = () => {
   const { cardId } = useParams();
   const [files, setFiles] = useState<FileData[]>([]);
@@ -22,9 +31,25 @@ const CardDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedChartCols, setSelectedChartCols] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterColumn, setFilterColumn] = useState('');
+  const [filterValue, setFilterValue] = useState('');
   const [uploading, setUploading] = useState(false);
   const [loadingFileId, setLoadingFileId] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<{ [key: string]: number }>({});
+  const [isEditingColumns, setIsEditingColumns] = useState(false);
+  const [editorTab, setEditorTab] = useState<'columns' | 'data'>('columns');
+  const [columnEdits, setColumnEdits] = useState<ColumnEdit[]>([]);
+  const [originalColumns, setOriginalColumns] = useState<string[]>([]);
+  const [savingColumns, setSavingColumns] = useState(false);
+  const [columnSearch, setColumnSearch] = useState('');
+  const [bulkFind, setBulkFind] = useState('');
+  const [bulkReplace, setBulkReplace] = useState('');
+  const [editColumnName, setEditColumnName] = useState('');
+  const [rowPage, setRowPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [rowEdits, setRowEdits] = useState<Record<number, string>>({});
+  const [pasteValues, setPasteValues] = useState('');
+  const [savingRows, setSavingRows] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const resizingRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
@@ -34,7 +59,7 @@ const CardDetail: React.FC = () => {
     const controller = new AbortController();
     setError(null);
 
-    fetch(`/api/files?projectId=${cardId}`, { signal: controller.signal })
+    apiFetch(`/api/files?projectId=${cardId}`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
         const normalized = (data.files || []).map((f: any) => ({
@@ -74,7 +99,7 @@ const CardDetail: React.FC = () => {
     setLoadingFileId(activeFileId);
     setError(null);
 
-    fetch(`/api/files/${activeFileId}/data`, { signal: controller.signal })
+    apiFetch(`/api/files/${activeFileId}/data`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
         setFiles(prev =>
@@ -101,8 +126,6 @@ const CardDetail: React.FC = () => {
     return () => controller.abort();
   }, [activeFileId, files]);
 
-
-  // Column resizing handlers
   const handleMouseDown = (e: React.MouseEvent, column: string) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -139,7 +162,7 @@ const CardDetail: React.FC = () => {
     Array.from(fileList).forEach(file => formData.append('files', file));
 
     try {
-      const res = await fetch('/api/files/upload', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/files/upload', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.message || 'Upload failed');
@@ -160,7 +183,6 @@ const CardDetail: React.FC = () => {
         setActiveFileId(created[0].id);
       }
 
-      // --- Audit log for file upload ---
       created.forEach((f: FileData) => {
         logAudit('Upload File', {
           fileName: f.name,
@@ -178,7 +200,7 @@ const CardDetail: React.FC = () => {
   const handleDeleteFile = async (fileId: number) => {
     const fileToDelete = files.find(f => f.id === fileId);
     try {
-      const res = await fetch(`/api/files/${fileId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/files/${fileId}`, { method: 'DELETE' });
       if (!res.ok) {
         throw new Error('Delete failed');
       }
@@ -191,7 +213,6 @@ const CardDetail: React.FC = () => {
         return remaining;
       });
 
-      // --- Audit log for file delete ---
       if (fileToDelete) {
         logAudit('Delete File', {
           fileName: fileToDelete.name,
@@ -204,13 +225,315 @@ const CardDetail: React.FC = () => {
     }
   };
 
+  const handleExportPdf = () => {
+    if (!activeFile) return;
+    if (selectedChartCols.length === 0) {
+      setError('Select at least one column to export.');
+      return;
+    }
+
+    const columnsToExport = selectedChartCols;
+    const body = displayRows.map(row => columnsToExport.map(col => row?.[col] ?? '-'));
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+
+    doc.setFontSize(12);
+    doc.text(activeFile.name || 'Export', 40, 30);
+    autoTable(doc, {
+      head: [columnsToExport],
+      body,
+      startY: 50,
+      styles: { fontSize: 8, cellPadding: 4 },
+      headStyles: { fillColor: [245, 158, 11] },
+    });
+
+    const safeName = (activeFile.name || 'export').replace(/[^\w\-]+/g, '_');
+    doc.save(`${safeName}.pdf`);
+  };
+
+  const getUniqueColumnName = (base: string, existing: string[]) => {
+    const normalized = new Set(existing.map(name => name.trim().toLowerCase()).filter(Boolean));
+    let candidate = base;
+    let index = 2;
+    while (normalized.has(candidate.toLowerCase())) {
+      candidate = `${base} ${index}`;
+      index += 1;
+    }
+    return candidate;
+  };
+
+  const handleAddColumn = () => {
+    setColumnEdits(prev => {
+      const existing = prev.map(col => col.name);
+      const name = getUniqueColumnName('NewColumn', existing);
+      return [
+        ...prev,
+        {
+          id: `new-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name,
+          originalName: null,
+          isNew: true,
+        },
+      ];
+    });
+  };
+
+  const handleBulkRename = () => {
+    if (!bulkFind.trim()) return;
+    const findValue = bulkFind;
+    setColumnEdits(prev =>
+      prev.map(col => ({
+        ...col,
+        name: col.name.includes(findValue)
+          ? col.name.split(findValue).join(bulkReplace)
+          : col.name,
+      }))
+    );
+  };
+
+  const handleRowEdit = (rowIndex: number, value: string) => {
+    setRowEdits(prev => ({ ...prev, [rowIndex]: value }));
+  };
+
+  const handleSaveRows = async () => {
+    if (!activeFile || !editColumnName) return;
+    const updates = Object.entries(rowEdits).map(([rowIndex, value]) => ({
+      rowIndex: Number(rowIndex),
+      value,
+    }));
+    if (updates.length === 0) {
+      setError('No row changes to save.');
+      return;
+    }
+    setSavingRows(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/files/${activeFile.id}/rows`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ column: editColumnName, updates }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || 'Failed to update rows');
+      }
+
+      const refreshed = await apiFetch(`/api/files/${activeFile.id}/data`);
+      const refreshedData = await refreshed.json();
+
+      setFiles(prev =>
+        prev.map(f =>
+          f.id === activeFile.id
+            ? {
+                ...f,
+                columns: refreshedData.columns || [],
+                rows: refreshedData.rows || [],
+                textContent: refreshedData.textContent || f.textContent,
+                dataLoaded: true,
+              }
+            : f
+        )
+      );
+      setRowEdits({});
+    } catch (err: any) {
+      setError(err.message || 'Failed to update rows');
+    } finally {
+      setSavingRows(false);
+    }
+  };
+
+  const handleApplyPaste = () => {
+    if (!activeFile || !editColumnName) return;
+    const lines = pasteValues
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+
+    if (lines.length === 0) {
+      setError('Paste values to apply.');
+      return;
+    }
+
+    const updates: Record<number, string> = {};
+    const startIndex = 0;
+    for (let i = 0; i < lines.length; i += 1) {
+      updates[startIndex + i] = lines[i];
+    }
+    setRowEdits(prev => ({ ...updates, ...prev }));
+  };
+
+  const handleDownloadTemplate = () => {
+    if (!activeFile || !editColumnName) return;
+    const header = `row_index,${editColumnName}`;
+    const rows = (activeFile.rows || []).map((_: any, idx: number) => `${idx},`);
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(activeFile.name || 'template').replace(/[^\w\-]+/g, '_')}_template.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUpdateColumnName = (id: string, name: string) => {
+    setColumnEdits(prev =>
+      prev.map(col => (col.id === id ? { ...col, name } : col))
+    );
+  };
+
+  const handleRemoveColumn = (id: string) => {
+    setColumnEdits(prev => prev.filter(col => col.id !== id));
+  };
+
+  const handleCancelColumns = () => {
+    setColumnEdits(
+      originalColumns.map((name, index) => ({
+        id: `orig-${index}`,
+        name,
+        originalName: name,
+        isNew: false,
+      }))
+    );
+    setIsEditingColumns(false);
+    setError(null);
+  };
+
+  const handleSaveColumns = async () => {
+    if (!activeFile) return;
+    const cleaned = columnEdits.map(col => col.name.trim()).filter(Boolean);
+    const unique = new Set(cleaned.map(name => name.toLowerCase()));
+    if (cleaned.length === 0) {
+      setError('At least one column is required.');
+      return;
+    }
+    let normalizedColumns = cleaned;
+    if (unique.size !== cleaned.length) {
+      const next: string[] = [];
+      const seen = new Set<string>();
+      for (const name of cleaned) {
+        let candidate = name;
+        let index = 2;
+        while (seen.has(candidate.toLowerCase())) {
+          candidate = `${name} ${index}`;
+          index += 1;
+        }
+        next.push(candidate);
+        seen.add(candidate.toLowerCase());
+      }
+      normalizedColumns = next;
+      setColumnEdits(prev =>
+        prev.map((col, idx) => ({
+          ...col,
+          name: normalizedColumns[idx] || col.name,
+        }))
+      );
+    }
+
+    const renameMap: Record<string, string> = {};
+    columnEdits.forEach((col, idx) => {
+      const nextName = normalizedColumns[idx] || col.name.trim();
+      if (col.originalName && col.originalName.trim() !== col.name.trim()) {
+        renameMap[col.originalName] = nextName;
+      }
+    });
+
+    setSavingColumns(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/files/${activeFile.id}/columns`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columns: normalizedColumns, renameMap }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || 'Failed to update columns');
+      }
+
+      const refreshed = await apiFetch(`/api/files/${activeFile.id}/data`);
+      const refreshedData = await refreshed.json();
+
+      setFiles(prev =>
+        prev.map(f =>
+          f.id === activeFile.id
+            ? {
+                ...f,
+                columns: refreshedData.columns || [],
+                rows: refreshedData.rows || [],
+                textContent: refreshedData.textContent || f.textContent,
+                dataLoaded: true,
+              }
+            : f
+        )
+      );
+
+      setSelectedChartCols(prev =>
+        prev
+          .map(col => renameMap[col] || col)
+          .filter(col => cleaned.includes(col))
+      );
+      setColumnWidths({});
+      setIsEditingColumns(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update columns');
+    } finally {
+      setSavingColumns(false);
+    }
+  };
+
   const activeFile = files.find(f => f.id === activeFileId);
 
-  const filteredRows = activeFile?.rows.filter(row =>
-    Object.values(row).some(val =>
-      String(val).toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  ) || [];
+  useEffect(() => {
+    if (!activeFile) return;
+    const nextColumns = activeFile.columns || [];
+    setOriginalColumns(nextColumns);
+    setColumnEdits(
+      nextColumns.map((name, index) => ({
+        id: `${activeFile.id}-${index}`,
+        name,
+        originalName: name,
+        isNew: false,
+      }))
+    );
+    setFilterColumn(nextColumns[0] || '');
+    setFilterValue('');
+    setEditColumnName(nextColumns[0] || '');
+    setRowPage(1);
+    setRowEdits({});
+    setPasteValues('');
+  }, [activeFileId, activeFile?.columns?.join('|')]);
+
+  useEffect(() => {
+    if (activeFile?.columns?.length && !activeFile.columns.includes(editColumnName)) {
+      setEditColumnName(activeFile.columns[0]);
+      setRowPage(1);
+      setRowEdits({});
+    }
+  }, [activeFile?.columns?.join('|'), editColumnName]);
+
+  useEffect(() => {
+    const totalRows = activeFile?.rows?.length || 0;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    if (rowPage > totalPages) {
+      setRowPage(totalPages);
+    }
+  }, [activeFile?.rows?.length, pageSize, rowPage]);
+
+  const baseRows = activeFile?.rows || [];
+  const searchedRows = searchTerm
+    ? baseRows.filter(row =>
+        Object.values(row).some(val =>
+          String(val).toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      )
+    : baseRows;
+  const displayRows = filterColumn && filterValue
+    ? searchedRows.filter(row =>
+        String(row?.[filterColumn] ?? '')
+          .toLowerCase()
+          .includes(filterValue.toLowerCase())
+      )
+    : searchedRows;
 
   const getFileIcon = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase();
@@ -219,31 +542,29 @@ const CardDetail: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar - Much smaller */}
-      <aside className="w-48 bg-white flex flex-col border-r border-gray-200">
-        {/* Sidebar Header - Very compact */}
-        <div className="p-2 border-b border-gray-200 bg-white">
+    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-amber-50 to-white">
+      <aside className="w-64 bg-white/80 backdrop-blur flex flex-col border-r border-amber-100 shadow-sm">
+        <div className="p-4 border-b border-amber-100">
           <button
             onClick={() => navigate('/projects')}
-            className="flex items-center gap-1 text-gray-600 hover:text-gray-900 mb-2 font-medium text-xs"
+            className="flex items-center gap-2 text-amber-700 hover:text-amber-900 mb-3 font-semibold text-sm"
           >
-            <ArrowLeft className="w-3 h-3" />
-            Back
+            <ArrowLeft className="w-4 h-4" />
+            Back to projects
           </button>
-          <h2 className="text-sm font-bold text-amber-600 mb-1">Files</h2>
-          <p className="text-xs text-gray-500">Project #{cardId}</p>
+          <h2 className="text-lg font-bold text-amber-800">Files</h2>
+          <p className="text-xs text-gray-500 mt-1">Project #{cardId}</p>
         </div>
 
-        {/* Upload Area - Very compact */}
-        <div className="p-2 border-b border-gray-200">
-          <label className="flex flex-col items-center justify-center border-2 border-dashed border-amber-300 rounded-lg p-2 cursor-pointer bg-amber-50">
-            <div className="w-6 h-6 rounded-full bg-amber-400 flex items-center justify-center mb-1">
-              <Upload className="w-3 h-3 text-white" />
+        <div className="p-4 border-b border-amber-100">
+          <label className="flex flex-col items-center justify-center border-2 border-dashed border-amber-300 rounded-xl p-4 cursor-pointer bg-amber-50/80 hover:bg-amber-50 transition">
+            <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center mb-2 shadow-sm">
+              <Upload className="w-4 h-4 text-white" />
             </div>
-            <span className="text-xs font-semibold text-amber-900">
-              {uploading ? 'Uploading...' : 'Add Files'}
+            <span className="text-sm font-semibold text-amber-900">
+              {uploading ? 'Uploading...' : 'Add files'}
             </span>
+            <span className="text-[11px] text-amber-700 mt-1">CSV, XLSX, TXT, DOCX</span>
             <input
               type="file"
               multiple
@@ -255,46 +576,52 @@ const CardDetail: React.FC = () => {
           </label>
         </div>
 
-        {/* File List - Compact */}
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 overflow-y-auto p-3">
           {files.length === 0 ? (
-            <div className="text-center mt-4">
-              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-1">
-                <FileSpreadsheet className="w-4 h-4 text-gray-400" />
+            <div className="text-center mt-10">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-2">
+                <FileSpreadsheet className="w-5 h-5 text-amber-500" />
               </div>
-              <p className="text-xs font-medium text-gray-600">No files</p>
+              <p className="text-sm font-semibold text-gray-700">No files yet</p>
+              <p className="text-xs text-gray-500 mt-1">Upload data to start exploring</p>
             </div>
           ) : (
-            <ul className="space-y-1">
+            <ul className="space-y-2">
               {files.map(file => {
                 const Icon = getFileIcon(file.name);
                 const isActive = activeFileId === file.id;
-                
+
                 return (
                   <li
                     key={file.id}
-                    className={`group relative rounded p-1 cursor-pointer border text-xs ${
-                      isActive 
-                        ? 'bg-amber-50 border-amber-300' 
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                    className={`group relative rounded-lg p-3 cursor-pointer border transition ${
+                      isActive
+                        ? 'bg-amber-50 border-amber-300 shadow-sm'
+                        : 'bg-white border-gray-200 hover:border-amber-200 hover:bg-amber-50/40'
                     }`}
                     onClick={() => setActiveFileId(file.id)}
                   >
-                    <div className="flex items-center gap-1">
-                      <Icon className={`w-3 h-3 ${isActive ? 'text-amber-600' : 'text-gray-600'}`} />
+                    <div className="flex items-start gap-2">
+                      <div className={`mt-0.5 rounded-md p-1 ${isActive ? 'bg-amber-100' : 'bg-gray-100'}`}>
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-amber-700' : 'text-gray-600'}`} />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <p className={`font-semibold truncate ${isActive ? 'text-amber-900' : 'text-gray-900'}`}>
+                        <p className={`font-semibold truncate text-sm ${isActive ? 'text-amber-900' : 'text-gray-900'}`}>
                           {file.name}
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          {file.fileType?.toUpperCase() || 'FILE'} {file.uploadedAt ? `- ${new Date(file.uploadedAt).toLocaleDateString()}` : ''}
                         </p>
                       </div>
                       <button
-                        className="p-0.5 rounded hover:bg-red-50 opacity-0 group-hover:opacity-100"
+                        className="p-1 rounded hover:bg-red-50 opacity-0 group-hover:opacity-100 transition"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteFile(file.id);
                         }}
+                        aria-label="Delete file"
                       >
-                        <Trash2 className="w-3 h-3 text-red-500" />
+                        <Trash2 className="w-4 h-4 text-red-500" />
                       </button>
                     </div>
                   </li>
@@ -305,34 +632,52 @@ const CardDetail: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden bg-white">
-        {/* Header - Single line, very compact */}
-        <header className="bg-white border-b border-gray-200 px-4 py-2">
-          <div className="flex items-center justify-between">
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <header className="bg-white/90 backdrop-blur border-b border-amber-100 px-6 py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3">
-              <h1 className="text-base font-bold text-amber-600">
-                {activeFile?.name || 'Select a file'}
-              </h1>
-              {activeFile && activeFile.columns.length > 0 && (
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <span>{activeFile.columns.length} columns</span>
-                  <span>·</span>
-                  <span>{activeFile.rows.length} rows</span>
-                </div>
-              )}
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                <FileSpreadsheet className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-gray-900">
+                  {activeFile?.name || 'Select a file'}
+                </h1>
+                {activeFile && activeFile.columns.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mt-1">
+                    <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200">
+                      {activeFile.columns.length} columns
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200">
+                      {activeFile.rows.length} rows
+                    </span>
+                    {selectedChartCols.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
+                        {selectedChartCols.length} selected
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button className="px-2 py-1 rounded font-medium flex items-center gap-1 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs">
-                <Download className="w-3 h-3" />
-                Export
+          </div>
+        </header>
+
+        {activeFile && activeFile.columns.length > 0 && (
+          <div className="bg-white/90 backdrop-blur border-b border-amber-100 px-6 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm shadow-sm"
+                onClick={handleExportPdf}
+              >
+                <Download className="w-4 h-4" />
+                Export PDF
               </button>
               {activeFile && activeFile.columns.length > 0 && (
                 <button
-                  className="px-2 py-1 rounded font-semibold flex items-center gap-1 bg-amber-400 text-white hover:bg-amber-500 disabled:opacity-50 text-xs"
+                  className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm shadow-sm"
                   disabled={selectedChartCols.length === 0}
                   onClick={() => {
-                    // --- Audit log for chart generation ---
                     logAudit('Generate Chart', {
                       fileName: activeFile.name,
                       fileId: activeFile.id,
@@ -347,143 +692,405 @@ const CardDetail: React.FC = () => {
                     });
                   }}
                 >
-                  <BarChart3 className="w-3 h-3" />
-                  Generate Chart
+                  <BarChart3 className="w-4 h-4" />
+                  Generate chart
                   {selectedChartCols.length > 0 && (
-                    <span className="ml-1 px-1 py-0.5 bg-white/20 rounded text-xs">
+                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
                       {selectedChartCols.length}
                     </span>
                   )}
                 </button>
               )}
-            </div>
-          </div>
-        </header>
-
-        {/* Search Bar - Single line */}
-        {activeFile && activeFile.columns.length > 0 && (
-          <div className="bg-white border-b border-gray-200 px-4 py-2">
-            <div className="flex items-center gap-2">
-              <div className="flex-1 relative">
-                <Search className="w-3 h-3 absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <button
+                className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-amber-200 text-amber-800 hover:bg-amber-50 text-sm shadow-sm"
+                onClick={() => setIsEditingColumns(prev => !prev)}
+              >
+                <Pencil className="w-4 h-4" />
+                {isEditingColumns ? 'Close editor' : 'Edit columns'}
+              </button>
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-amber-600" />
                 <input
                   type="text"
-                  placeholder="Search in table data..."
-                  className="w-full pl-7 pr-3 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 text-xs"
+                  placeholder="Search any value, partner, country, or service type..."
+                  className="w-full pl-10 pr-3 py-2.5 border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm bg-amber-50/40"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                 />
               </div>
-              <button className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-xs font-medium text-gray-700">
-                <Filter className="w-3 h-3" />
-                Filter
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-amber-600" />
+                  <select
+                    className="pl-9 pr-3 py-2.5 border border-amber-200 rounded-xl bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    value={filterColumn}
+                    onChange={e => setFilterColumn(e.target.value)}
+                  >
+                    {activeFile.columns.map(col => (
+                      <option key={col} value={col}>{col}</option>
+                    ))}
+                  </select>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Filter value..."
+                  className="pl-3 pr-3 py-2.5 border border-amber-200 rounded-xl bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  value={filterValue}
+                  onChange={e => setFilterValue(e.target.value)}
+                />
+                <button
+                  className="px-3 py-2.5 border border-amber-200 rounded-xl hover:bg-amber-50 flex items-center gap-2 text-sm font-semibold text-amber-800"
+                  onClick={() => setFilterValue('')}
+                >
+                  <X className="w-4 h-4" />
+                  Clear
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Content Area - Full height */}
         <div className="flex-1 overflow-hidden">
           {!activeFile ? (
-            <div className="h-full flex flex-col items-center justify-center bg-white">
-              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-2">
-                <Eye className="w-6 h-6 text-gray-400" />
+            <div className="h-full flex flex-col items-center justify-center">
+              <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-3">
+                <Eye className="w-6 h-6 text-amber-600" />
               </div>
-              <p className="text-gray-700 text-sm font-semibold">Select a file to view</p>
+              <p className="text-gray-800 text-sm font-semibold">Select a file to view data</p>
+              <p className="text-xs text-gray-500 mt-1">Your table preview will appear here</p>
             </div>
           ) : loadingFileId === activeFile.id ? (
-            <div className="h-full flex flex-col items-center justify-center bg-white">
-              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-2">
-                <Eye className="w-6 h-6 text-gray-400" />
+            <div className="h-full flex flex-col items-center justify-center">
+              <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-3">
+                <Eye className="w-6 h-6 text-amber-600" />
               </div>
-              <p className="text-gray-700 text-sm font-semibold">Loading file data...</p>
+              <p className="text-gray-800 text-sm font-semibold">Loading file data...</p>
+              <p className="text-xs text-gray-500 mt-1">This can take a moment for large files</p>
             </div>
           ) : (
             <>
               {activeFile.columns.length > 0 ? (
-                <div className="h-full overflow-auto">
-                  <table className="w-full border-collapse">
-                    <thead className="bg-amber-400 sticky top-0 z-10">
-                      <tr>
-                        {activeFile.columns.map((col, index) => {
-                          const isSelected = selectedChartCols.includes(col);
-                          const width = columnWidths[col] || 120;
-                          return (
-                            <th
-                              key={col}
-                              className={`relative px-2 py-1 text-left font-semibold cursor-pointer border-r border-amber-300 last:border-r-0 ${
-                                isSelected ? 'bg-amber-600' : ''
-                              }`}
-                              style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }}
-                              onClick={() => {
-                                setSelectedChartCols(prev =>
-                                  prev.includes(col)
-                                    ? prev.filter(c => c !== col)
-                                    : [...prev, col]
-                                );
+                <div className="h-full px-6 py-4">
+                  {isEditingColumns && (
+                    <div className="rounded-xl border border-amber-100 bg-white shadow-sm p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-900">Editor</h3>
+                          <p className="text-xs text-gray-500">Manage columns or edit data values.</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className={`px-3 py-2 rounded-lg text-sm font-semibold border ${editorTab === 'columns' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50'}`}
+                            onClick={() => setEditorTab('columns')}
+                            type="button"
+                          >
+                            Columns
+                          </button>
+                          <button
+                            className={`px-3 py-2 rounded-lg text-sm font-semibold border ${editorTab === 'data' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-50'}`}
+                            onClick={() => setEditorTab('data')}
+                            type="button"
+                          >
+                            Data
+                          </button>
+                        </div>
+                      </div>
+
+                      {editorTab === 'columns' && (
+                        <>
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <button
+                              className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-amber-200 text-amber-800 hover:bg-amber-50 text-sm"
+                              onClick={handleAddColumn}
+                              type="button"
+                            >
+                              <Plus className="w-4 h-4" />
+                              Add column
+                            </button>
+                            <button
+                              className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm"
+                              onClick={handleSaveColumns}
+                              disabled={savingColumns}
+                            >
+                              Save changes
+                            </button>
+                            <button
+                              className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm"
+                              onClick={handleCancelColumns}
+                              disabled={savingColumns}
+                            >
+                              Cancel
+                            </button>
+                            <div className="flex-1 min-w-[200px]" />
+                            <input
+                              type="text"
+                              placeholder="Search columns..."
+                              value={columnSearch}
+                              onChange={e => setColumnSearch(e.target.value)}
+                              className="px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Find"
+                              value={bulkFind}
+                              onChange={e => setBulkFind(e.target.value)}
+                              className="px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Replace"
+                              value={bulkReplace}
+                              onChange={e => setBulkReplace(e.target.value)}
+                              className="px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                            <button
+                              className="px-3 py-2 rounded-lg font-semibold border border-amber-200 text-amber-800 hover:bg-amber-50 text-sm"
+                              onClick={handleBulkRename}
+                              type="button"
+                            >
+                              Apply
+                            </button>
+                          </div>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                              <p className="text-xs font-semibold text-gray-600 mb-2">Previous columns</p>
+                              <div className="flex flex-wrap gap-2">
+                                {originalColumns.map(col => (
+                                  <span key={col} className="px-2 py-1 rounded-full bg-white border border-gray-200 text-xs text-gray-700">
+                                    {col}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-3">
+                              <p className="text-xs font-semibold text-amber-800 mb-2">Current columns</p>
+                              <div className="space-y-2 max-h-80 overflow-auto pr-1">
+                                {columnEdits
+                                  .filter(col => col.name.toLowerCase().includes(columnSearch.toLowerCase()))
+                                  .map(col => (
+                                    <div key={col.id} className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        value={col.name}
+                                        onChange={e => handleUpdateColumnName(col.id, e.target.value)}
+                                        className="flex-1 px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                      />
+                                      {col.isNew && (
+                                        <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                                          New
+                                        </span>
+                                      )}
+                                      <button
+                                        className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                                        onClick={() => handleRemoveColumn(col.id)}
+                                        aria-label="Remove column"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {editorTab === 'data' && (
+                        <div className="mt-4 space-y-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="text-xs font-semibold text-gray-600">Edit column</label>
+                            <select
+                              className="px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                              value={editColumnName}
+                              onChange={e => {
+                                setEditColumnName(e.target.value);
+                                setRowEdits({});
+                                setRowPage(1);
                               }}
                             >
-                              <div className="flex items-center gap-1 text-white text-xs overflow-hidden">
-                                {isSelected ? <CheckSquare className="w-3 h-3 flex-shrink-0" /> : <Square className="w-3 h-3 flex-shrink-0" />}
-                                <span className="truncate">{col}</span>
-                              </div>
-                              {/* Resize handle */}
-                              <div
-                                className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-white/20 flex items-center justify-center"
-                                onMouseDown={(e) => handleMouseDown(e, col)}
+                              {activeFile.columns.map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))}
+                            </select>
+                            <div className="flex-1 min-w-[120px]" />
+                            <button
+                              className="px-3 py-2 rounded-lg font-semibold border border-amber-200 text-amber-800 hover:bg-amber-50 text-sm"
+                              onClick={handleDownloadTemplate}
+                              type="button"
+                            >
+                              Download template
+                            </button>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                              <p className="text-xs font-semibold text-gray-600 mb-2">Paste values (one per line)</p>
+                              <textarea
+                                value={pasteValues}
+                                onChange={e => setPasteValues(e.target.value)}
+                                className="w-full min-h-[140px] px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                placeholder="Value 1&#10;Value 2&#10;Value 3"
+                              />
+                              <button
+                                className="mt-2 px-3 py-2 rounded-lg font-semibold bg-amber-500 text-white hover:bg-amber-600 text-sm"
+                                onClick={handleApplyPaste}
+                                type="button"
                               >
-                                <GripVertical className="w-2 h-2 text-white/50" />
-                              </div>
-                            </th>
-                          );
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(searchTerm ? filteredRows : activeFile.rows).length === 0 ? (
-                        <tr>
-                          <td colSpan={activeFile.columns.length} className="px-2 py-4 text-center">
-                            <div className="flex flex-col items-center">
-                              <Search className="w-4 h-4 text-gray-400 mb-1" />
-                              <p className="text-gray-500 text-xs">
-                                {searchTerm ? 'No results' : 'No data'}
-                              </p>
+                                Apply to rows
+                              </button>
                             </div>
-                          </td>
-                        </tr>
-                      ) : (
-                        (searchTerm ? filteredRows : activeFile.rows).map((row, i) => (
-                          <tr
-                            key={i}
-                            className={`border-b border-gray-100 hover:bg-amber-50/50 ${
-                              i % 2 === 0 ? 'bg-white' : 'bg-amber-50/30'
-                            }`}
-                          >
-                            {activeFile.columns.map((col, colIndex) => {
-                              const width = columnWidths[col] || 120;
+                            <div className="rounded-lg border border-amber-100 bg-white p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs font-semibold text-gray-600">Row editor</p>
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className="px-2 py-1 rounded border border-amber-200 text-xs"
+                                    value={pageSize}
+                                    onChange={e => setPageSize(Number(e.target.value))}
+                                  >
+                                    {[10, 20, 50].map(size => (
+                                      <option key={size} value={size}>{size} / page</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    className="px-2 py-1 rounded border border-amber-200 text-xs hover:bg-amber-50"
+                                    onClick={() => setRowPage(prev => Math.max(1, prev - 1))}
+                                    type="button"
+                                  >
+                                    Prev
+                                  </button>
+                                  <button
+                                    className="px-2 py-1 rounded border border-amber-200 text-xs hover:bg-amber-50"
+                                    onClick={() => setRowPage(prev => prev + 1)}
+                                    type="button"
+                                  >
+                                    Next
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="max-h-64 overflow-auto">
+                                {(activeFile.rows || [])
+                                  .slice((rowPage - 1) * pageSize, rowPage * pageSize)
+                                  .map((row: any, index: number) => {
+                                    const rowIndex = (rowPage - 1) * pageSize + index;
+                                    const currentValue = rowEdits[rowIndex] ?? row?.[editColumnName] ?? '';
+                                    return (
+                                      <div key={rowIndex} className="flex items-center gap-2 mb-2">
+                                        <span className="w-14 text-xs text-gray-500">#{rowIndex + 1}</span>
+                                        <input
+                                          type="text"
+                                          value={currentValue}
+                                          onChange={e => handleRowEdit(rowIndex, e.target.value)}
+                                          className="flex-1 px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                              <button
+                                className="mt-3 px-3 py-2 rounded-lg font-semibold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm"
+                                onClick={handleSaveRows}
+                                disabled={savingRows}
+                                type="button"
+                              >
+                                Save row changes
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!isEditingColumns && (
+                    <div className="h-full rounded-xl border border-amber-100 shadow-sm overflow-hidden bg-white">
+                      <div className="h-full overflow-auto">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-gradient-to-r from-amber-500 to-amber-400 sticky top-0 z-10">
+                          <tr>
+                            {activeFile.columns.map((col) => {
+                              const isSelected = selectedChartCols.includes(col);
+                              const width = columnWidths[col] || 140;
                               return (
-                                <td 
-                                  key={col} 
-                                  className={`px-2 py-1 text-gray-800 text-xs border-r border-gray-100 last:border-r-0 ${
-                                    colIndex === 0 ? 'font-semibold' : ''
+                                <th
+                                  key={col}
+                                  className={`relative px-3 py-2 text-left font-semibold cursor-pointer border-r border-amber-300 last:border-r-0 ${
+                                    isSelected ? 'bg-amber-600' : ''
                                   }`}
                                   style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }}
+                                  onClick={() => {
+                                    setSelectedChartCols(prev =>
+                                      prev.includes(col)
+                                        ? prev.filter(c => c !== col)
+                                        : [...prev, col]
+                                    );
+                                  }}
                                 >
-                                  <div className="truncate" title={row[col] ?? '-'}>
-                                    {row[col] ?? '-'}
+                                  <div className="flex items-center gap-2 text-white text-xs overflow-hidden">
+                                    {isSelected ? <CheckSquare className="w-4 h-4 flex-shrink-0" /> : <Square className="w-4 h-4 flex-shrink-0" />}
+                                    <span className="truncate">{col}</span>
                                   </div>
-                                </td>
+                                  <div
+                                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-white/20 flex items-center justify-center"
+                                    onMouseDown={(e) => handleMouseDown(e, col)}
+                                  >
+                                    <GripVertical className="w-2.5 h-2.5 text-white/70" />
+                                  </div>
+                                </th>
                               );
                             })}
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {displayRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={activeFile.columns.length} className="px-3 py-10 text-center">
+                                <div className="flex flex-col items-center">
+                                  <Search className="w-5 h-5 text-gray-400 mb-2" />
+                                  <p className="text-gray-600 text-sm font-semibold">
+                                    {searchTerm || filterValue ? 'No results found' : 'No data available'}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-1">Try a different search or upload data</p>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            displayRows.map((row, i) => (
+                              <tr
+                                key={i}
+                                className={`border-b border-amber-50 hover:bg-amber-50/60 ${
+                                  i % 2 === 0 ? 'bg-white' : 'bg-amber-50/30'
+                                }`}
+                              >
+                                {activeFile.columns.map((col, colIndex) => {
+                                  const width = columnWidths[col] || 140;
+                                  return (
+                                    <td
+                                      key={col}
+                                      className={`px-3 py-2 text-gray-800 text-xs border-r border-amber-50 last:border-r-0 ${
+                                        colIndex === 0 ? 'font-semibold text-gray-900' : ''
+                                      }`}
+                                      style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }}
+                                    >
+                                      <div className="truncate" title={row[col] ?? '-'}>
+                                        {row[col] ?? '-'}
+                                      </div>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="h-full p-4 overflow-auto">
-                  <div className="bg-gray-50 rounded p-3 border border-gray-200 h-full">
+                <div className="h-full p-6 overflow-auto">
+                  <div className="bg-white rounded-xl p-4 border border-amber-100 shadow-sm h-full">
                     <pre className="text-xs whitespace-pre-wrap text-gray-800 font-mono">
                       {activeFile.textContent}
                     </pre>
@@ -494,13 +1101,14 @@ const CardDetail: React.FC = () => {
           )}
         </div>
       </main>
-      
-      {/* Error notification - Fixed position */}
+
       {error && (
-        <div className="fixed bottom-4 right-4 p-2 bg-red-50 border border-red-200 rounded flex items-start gap-1 max-w-xs z-50">
-          <span>⚠️</span>
+        <div className="fixed bottom-4 right-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 max-w-xs z-50 shadow-sm">
+          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+            <FileText className="w-4 h-4 text-red-600" />
+          </div>
           <div>
-            <p className="font-semibold text-red-900 text-xs">Error</p>
+            <p className="font-semibold text-red-900 text-sm">Error</p>
             <p className="text-red-700 text-xs">{error}</p>
           </div>
         </div>

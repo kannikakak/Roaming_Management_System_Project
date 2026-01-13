@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 import Home from "./pages/Home";
@@ -12,10 +12,26 @@ import Projects from "./pages/Projects";
 import AuditLogViewer from "./pages/AuditLogViewer";
 import SlideBuilderPage from "./pages/SlideBuilderPage";
 import SchedulesPage from "./pages/SchedulesPage";
-import NotificationsPage from "./pages/NotificationsPage";
+import AccountSettingsPage from "./pages/AccountSettingsPage";
+import ReportsLibraryPage from "./pages/ReportsLibraryPage";
+import DataExplorerPage from "./pages/DataExplorerPage";
+import DeliveryHistoryPage from "./pages/DeliveryHistoryPage";
+import MyActivityPage from "./pages/MyActivityPage";
+import TemplateManagerPage from "./pages/TemplateManagerPage";
+import UserManagementPage from "./pages/UserManagementPage";
+import SystemHealthPage from "./pages/SystemHealthPage";
+import { getAuthToken } from "./utils/api";
 
 // import TemplatesPage from "./pages/TemplatesPage";
 // import ReportBuilderPage from "./pages/ReportBuilderPage";
+
+const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const token = getAuthToken();
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+};
 
 const App: React.FC = () => (
   <Router>
@@ -29,54 +45,65 @@ const App: React.FC = () => (
       <Route
         path="/dashboard"
         element={
-          <MainLayout>
-            <Dashboard />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <Dashboard />
+            </MainLayout>
+          </RequireAuth>
         }
       />
 
       <Route
         path="/card/:cardId"
         element={
-          <MainLayout>
+          <RequireAuth>
             <CardDetail />
-          </MainLayout>
+          </RequireAuth>
         }
       />
 
       <Route
         path="/home"
         element={
-          <MainLayout>
-            <Home />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <Home />
+            </MainLayout>
+          </RequireAuth>
         }
       />
 
       <Route
         path="/chart"
         element={
-          <MainLayout>
-            <ChartPage />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <ChartPage />
+            </MainLayout>
+          </RequireAuth>
         }
       />
 
       <Route
         path="/charts"
         element={
-          <MainLayout>
-            <ChartPage />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <ChartPage />
+            </MainLayout>
+          </RequireAuth>
         }
       />
 
       <Route
         path="/projects"
         element={
-          <MainLayout>
+          <RequireAuth>
+            <MainLayout>
             <Projects />
-          </MainLayout>
+            </MainLayout>
+          </RequireAuth>
+
         }
       />
 
@@ -85,52 +112,132 @@ const App: React.FC = () => (
       <Route
         path="/card-detail"
         element={
-          <MainLayout>
+          <RequireAuth>
             <CardDetail />
-          </MainLayout>
+          </RequireAuth>
         }
       />
 
       <Route
         path="/audit-log"
         element={
-          <MainLayout>
-            <AuditLogViewer />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <AuditLogViewer />
+            </MainLayout>
+          </RequireAuth>
         }
       />
       <Route
         path="/schedules"
         element={
-          <MainLayout>
-            <SchedulesPage />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <SchedulesPage />
+            </MainLayout>
+          </RequireAuth>
         }
       />
       <Route
-        path="/notifications"
+        path="/slide-builder"
         element={
-          <MainLayout>
-            <NotificationsPage />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <SlideBuilderPage />
+            </MainLayout>
+          </RequireAuth>
         }
       />
       <Route
-  path="/slide-builder"
-  element={
-    <MainLayout>
-      <SlideBuilderPage />
-    </MainLayout>
-  }
-/>
+        path="/reports-library"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <ReportsLibraryPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/data-explorer"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <DataExplorerPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/delivery-history"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <DeliveryHistoryPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/my-activity"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <MyActivityPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/templates"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <TemplateManagerPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <UserManagementPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/system-health"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <SystemHealthPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/account"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <AccountSettingsPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
 
       {/* Templates */}
       {/* <Route
         path="/templates"
         element={
-          <MainLayout>
-            <TemplatesPage />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <TemplatesPage />
+            </MainLayout>
+          </RequireAuth>
         }
       /> */}
 
@@ -138,9 +245,11 @@ const App: React.FC = () => (
       {/* <Route
         path="/report-builder/:templateId"
         element={
-          <MainLayout>
-            <ReportBuilderPage />
-          </MainLayout>
+          <RequireAuth>
+            <MainLayout>
+              <ReportBuilderPage />
+            </MainLayout>
+          </RequireAuth>
         }
       /> */}
 

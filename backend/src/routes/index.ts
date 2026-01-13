@@ -12,10 +12,13 @@ import auditLogsRoutes from "./auditLogs";
 import { scheduleRoutes } from "./scheduleRoutes";
 import { notificationRoutes } from "./notificationRoutes";
 import { notificationSettingsRoutes } from "./notificationSettingsRoutes";
-// バ. Reports (DB)
+import templateRoutes from "./templateRoutes";
+import { adminUserRoutes } from "./adminUserRoutes";
+import { systemRoutes } from "./systemRoutes";
+// ✅ Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
-// バ. Export route (Router)
+// ✅ Export route (Router)
 import exportPptxRoutes from "./exportPptx";
 
 export const setRoutes = (app: Express, dbPool: Pool) => {
@@ -49,9 +52,18 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
   // Notification settings
   app.use("/api/notification-settings", notificationSettingsRoutes(dbPool));
 
+  // Templates
+  app.use("/api/templates", templateRoutes);
+
+  // Admin users
+  app.use("/api/admin/users", adminUserRoutes(dbPool));
+
+  // System
+  app.use("/api/system", systemRoutes(dbPool));
+
   // Reports
   app.use("/api/reports", reportRoutes(dbPool));
 
-  // バ. Export PPTX
+  // ✅ Export PPTX
   app.use("/api/export", exportPptxRoutes);
 };
