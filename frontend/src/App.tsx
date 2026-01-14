@@ -12,6 +12,7 @@ import Projects from "./pages/Projects";
 import AuditLogViewer from "./pages/AuditLogViewer";
 import SlideBuilderPage from "./pages/SlideBuilderPage";
 import SchedulesPage from "./pages/SchedulesPage";
+import AiChartsPage from "./pages/AiChartsPage";
 import AccountSettingsPage from "./pages/AccountSettingsPage";
 import ReportsLibraryPage from "./pages/ReportsLibraryPage";
 import DataExplorerPage from "./pages/DataExplorerPage";
@@ -90,6 +91,17 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <ChartPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/ai-charts"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <AiChartsPage />
             </MainLayout>
           </RequireAuth>
         }

@@ -18,7 +18,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import * as htmlToImage from "html-to-image";
-import { Download, ArrowLeft, BarChart3, TrendingUp, Save, FileText } from "lucide-react";
+import { Download, ArrowLeft, BarChart3, TrendingUp, Save, FileText, Users, Copy, RefreshCw } from "lucide-react";
 import { logAudit } from "../utils/auditLog";
 import { apiFetch } from "../utils/api";
 
@@ -40,12 +40,16 @@ interface SavedChart {
 
 const LS_KEY = "savedCharts";
 const DRAFT_KEY = "reportDraftSlides";
+const COLLAB_KEY = "chartSessionId";
+const SYNC_INTERVAL_MS = 5000;
+const LOCAL_EDIT_GRACE_MS = 2000;
 
 const ChartPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { file: initialFile, selectedCols: initialSelectedCols } = (location.state || {}) as any;
+  const { file: initialFile, selectedCols: initialSelectedCols, chartType: initialChartType } =
+    (location.state || {}) as any;
 
   const chartRef = useRef<HTMLDivElement | null>(null);
 
@@ -56,8 +60,16 @@ const ChartPage: React.FC = () => {
 
   const [categoryCol, setCategoryCol] = useState<string>(initialSelectedCols?.[0] || "");
   const [valueCols, setValueCols] = useState<string[]>(initialSelectedCols?.slice(1) || []);
-  const [chartType, setChartType] = useState<string>("Line");
+  const [chartType, setChartType] = useState<string>(initialChartType || "Line");
   const [isExporting, setIsExporting] = useState(false);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const lastLocalEditAt = useRef(0);
+  const suppressSync = useRef(false);
+  const syncTimer = useRef<number | null>(null);
 
   // ✅ helper to load charts anytime
   const loadSavedCharts = useCallback(() => {
@@ -93,6 +105,159 @@ const ChartPage: React.FC = () => {
     return () => window.removeEventListener("focus", onFocus);
   }, [loadSavedCharts]);
 
+  const loadFileData = async (
+    fileId: number,
+    fileName?: string,
+    selected?: string[]
+  ) => {
+    const res = await apiFetch(`/api/files/${fileId}/data`);
+    if (!res.ok) throw new Error("Failed to load file data.");
+    const data = await res.json();
+    const nextFile = {
+      id: fileId,
+      name: fileName || `File ${fileId}`,
+      rows: data.rows || [],
+    };
+    setCurrentFile(nextFile);
+    if (Array.isArray(selected) && selected.length > 0) {
+      setCurrentSelectedCols(selected);
+    } else if (Array.isArray(data.columns)) {
+      setCurrentSelectedCols(data.columns);
+    }
+  };
+
+  const buildSessionState = (override: Partial<any> = {}) => ({
+    fileId: override.fileId ?? currentFile?.id ?? null,
+    fileName: override.fileName ?? currentFile?.name ?? currentFile?.fileName ?? null,
+    chartType: override.chartType ?? chartType,
+    categoryCol: override.categoryCol ?? categoryCol,
+    valueCols: override.valueCols ?? valueCols,
+    selectedCols: override.selectedCols ?? currentSelectedCols,
+  });
+
+  const applySessionState = async (state: any) => {
+    if (state?.fileId) {
+      await loadFileData(state.fileId, state.fileName, state.selectedCols);
+    }
+    if (Array.isArray(state?.selectedCols) && state.selectedCols.length > 0) {
+      setCurrentSelectedCols(state.selectedCols);
+    }
+    if (state?.categoryCol) setCategoryCol(state.categoryCol);
+    if (Array.isArray(state?.valueCols)) setValueCols(state.valueCols);
+    if (state?.chartType) setChartType(state.chartType);
+  };
+
+  const loadSession = async (id: number, options: { silent?: boolean } = {}) => {
+    if (!options.silent) setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const res = await apiFetch(`/api/collab-sessions/${id}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (data.type && data.type !== "chart") {
+        throw new Error("This collaboration link is not for Charts.");
+      }
+      suppressSync.current = true;
+      await applySessionState(data.state || {});
+      setLastSyncAt(new Date());
+    } catch (err: any) {
+      setSyncError(err.message || "Failed to sync session.");
+    } finally {
+      suppressSync.current = false;
+      if (!options.silent) setIsSyncing(false);
+    }
+  };
+
+  const scheduleSessionUpdate = (override: Partial<any> = {}) => {
+    if (!sessionId || suppressSync.current) return;
+    lastLocalEditAt.current = Date.now();
+    if (syncTimer.current) window.clearTimeout(syncTimer.current);
+    const state = buildSessionState(override);
+    syncTimer.current = window.setTimeout(async () => {
+      try {
+        await apiFetch(`/api/collab-sessions/${sessionId}`, {
+          method: "PUT",
+          body: JSON.stringify({ state }),
+        });
+        setLastSyncAt(new Date());
+      } catch (err: any) {
+        setSyncError(err.message || "Failed to update session.");
+      }
+    }, 400);
+  };
+
+  const startCollaboration = async () => {
+    if (!currentFile?.id) {
+      setSyncError("Select a file before starting collaboration.");
+      return;
+    }
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const res = await apiFetch("/api/collab-sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "chart",
+          state: buildSessionState(),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const id = Number(data.id);
+      if (!Number.isFinite(id)) throw new Error("Invalid session ID.");
+      setSessionId(id);
+      localStorage.setItem(COLLAB_KEY, String(id));
+      navigate(`/charts?sessionId=${id}`, { replace: true });
+      await loadSession(id);
+    } catch (err: any) {
+      setSyncError(err.message || "Failed to start collaboration.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    if (!sessionId) return;
+    const shareUrl = `${window.location.origin}/charts?sessionId=${sessionId}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopyNotice("Link copied.");
+    } catch {
+      setCopyNotice("Unable to copy link.");
+    }
+    window.setTimeout(() => setCopyNotice(null), 2000);
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const paramId = params.get("sessionId");
+    const storedId = localStorage.getItem(COLLAB_KEY);
+    const resolved = paramId || storedId;
+    if (resolved) {
+      const parsedId = Number(resolved);
+      if (Number.isFinite(parsedId)) {
+        setSessionId(parsedId);
+        localStorage.setItem(COLLAB_KEY, String(parsedId));
+        if (!paramId) {
+          navigate(`/charts?sessionId=${parsedId}`, { replace: true });
+          return;
+        }
+        loadSession(parsedId);
+        return;
+      }
+    }
+    setSessionId(null);
+  }, [location.search, navigate]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const intervalId = window.setInterval(() => {
+      if (Date.now() - lastLocalEditAt.current < LOCAL_EDIT_GRACE_MS) return;
+      loadSession(sessionId, { silent: true });
+    }, SYNC_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [sessionId]);
+
   // Chart data
   const chartData =
     currentFile && currentSelectedCols.length > 0
@@ -123,12 +288,25 @@ const ChartPage: React.FC = () => {
       : [];
 
   const handleValueColChange = (col: string) => {
-    setValueCols((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
+    setValueCols((prev) => {
+      const next = prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col];
+      scheduleSessionUpdate({ valueCols: next });
+      return next;
+    });
   };
 
   const handleCategoryColChange = (col: string) => {
     setCategoryCol(col);
-    setValueCols((prev) => prev.filter((c) => c !== col));
+    setValueCols((prev) => {
+      const next = prev.filter((c) => c !== col);
+      scheduleSessionUpdate({ categoryCol: col, valueCols: next });
+      return next;
+    });
+  };
+
+  const handleChartTypeChange = (value: string) => {
+    setChartType(value);
+    scheduleSessionUpdate({ chartType: value });
   };
 
   // ✅ Save chart config (card)
@@ -274,8 +452,29 @@ const ChartPage: React.FC = () => {
 
     const existing = JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]");
     const updated = [...existing, slide];
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(updated));
+    const collabReportId = localStorage.getItem("reportDraftId");
 
+    if (collabReportId) {
+      try {
+        await apiFetch(`/api/reports/${collabReportId}/slides`, {
+          method: "POST",
+          body: JSON.stringify({ slides: [slide] }),
+        });
+        logAudit("Add Slide To Shared Draft", {
+          reportId: collabReportId,
+          chartType,
+          categoryCol,
+          valueCols,
+          fileName: currentFile?.name || currentFile?.fileName,
+        });
+        navigate(`/slide-builder?reportId=${collabReportId}`);
+        return;
+      } catch (err) {
+        console.error("Failed to append slide to shared draft:", err);
+      }
+    }
+
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(updated));
     logAudit("Add Slide To Draft", {
       slidesCount: updated.length,
       chartType,
@@ -404,7 +603,7 @@ const ChartPage: React.FC = () => {
                   <label className="block text-xs font-semibold text-gray-600">Chart Type</label>
                   <select
                     value={chartType}
-                    onChange={(e) => setChartType(e.target.value)}
+                    onChange={(e) => handleChartTypeChange(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm"
                   >
                     {CHART_TYPES.map((type) => (

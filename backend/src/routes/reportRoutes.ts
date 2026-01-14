@@ -133,6 +133,122 @@ export function reportRoutes(dbPool: Pool) {
     }
   });
 
+  // Add slides to an existing report (collaboration)
+  router.post("/:id/slides", requireRole(["admin", "analyst"]), async (req, res) => {
+    try {
+      const reportId = Number(req.params.id);
+      const { slides } = req.body as { slides: SlidePayload[] };
+      if (!Array.isArray(slides) || slides.length === 0) {
+        return res.status(400).send("slides is required");
+      }
+
+      const uploadsDir = await ensureUploadsDir();
+      const conn = await dbPool.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        const [maxRows] = await conn.query<any[]>(
+          "SELECT MAX(slide_index) as maxIndex FROM report_slides WHERE report_id = ?",
+          [reportId]
+        );
+        const currentMax = Number(maxRows?.[0]?.maxIndex ?? -1);
+        let nextIndex = Number.isFinite(currentMax) ? currentMax + 1 : 0;
+
+        for (const s of slides) {
+          if (!s.chartImage) throw new Error("Slide chartImage missing");
+
+          const { buffer, ext } = dataUrlToBuffer(s.chartImage);
+          const fileName = `report_${reportId}_slide_${nextIndex + 1}.${ext}`;
+          const filePath = path.join(uploadsDir, fileName);
+          await fs.writeFile(filePath, buffer);
+
+          const imageUrl = `/uploads/reports/${fileName}`;
+
+          await conn.query(
+            `INSERT INTO report_slides
+              (report_id, slide_index, title, subtitle, summary, chart_type, category_col, value_cols, selected_cols, file_id, file_name, chart_image_url)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              reportId,
+              nextIndex,
+              s.title || `Slide ${nextIndex + 1}`,
+              s.subtitle || "",
+              s.summary || "",
+              s.chartMeta?.chartType || null,
+              s.chartMeta?.categoryCol || null,
+              JSON.stringify(s.chartMeta?.valueCols || []),
+              JSON.stringify(s.chartMeta?.selectedCols || []),
+              s.chartMeta?.fileId || null,
+              s.chartMeta?.fileName || null,
+              imageUrl,
+            ]
+          );
+
+          nextIndex += 1;
+        }
+
+        await conn.query("UPDATE reports SET updated_at = NOW() WHERE id = ?", [reportId]);
+        await conn.commit();
+        res.json({ ok: true });
+      } catch (e) {
+        await conn.rollback();
+        throw e;
+      } finally {
+        conn.release();
+      }
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to add slides");
+    }
+  });
+
+  // Update one slide in a report (collaboration)
+  router.put("/:id/slides/:index", requireRole(["admin", "analyst"]), async (req, res) => {
+    try {
+      const reportId = Number(req.params.id);
+      const slideIndex = Number(req.params.index);
+      const { title, subtitle, summary } = req.body as {
+        title?: string;
+        subtitle?: string;
+        summary?: string;
+      };
+
+      await dbPool.execute(
+        "UPDATE report_slides SET title = ?, subtitle = ?, summary = ? WHERE report_id = ? AND slide_index = ?",
+        [title ?? "", subtitle ?? "", summary ?? "", reportId, slideIndex]
+      );
+      await dbPool.execute("UPDATE reports SET updated_at = NOW() WHERE id = ?", [reportId]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to update slide");
+    }
+  });
+
+  // Delete one slide in a report (collaboration)
+  router.delete("/:id/slides/:index", requireRole(["admin", "analyst"]), async (req, res) => {
+    const reportId = Number(req.params.id);
+    const slideIndex = Number(req.params.index);
+    const conn = await dbPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute(
+        "DELETE FROM report_slides WHERE report_id = ? AND slide_index = ?",
+        [reportId, slideIndex]
+      );
+      await conn.execute(
+        "UPDATE report_slides SET slide_index = slide_index - 1 WHERE report_id = ? AND slide_index > ?",
+        [reportId, slideIndex]
+      );
+      await conn.execute("UPDATE reports SET updated_at = NOW() WHERE id = ?", [reportId]);
+      await conn.commit();
+      res.json({ ok: true });
+    } catch (err: any) {
+      await conn.rollback();
+      res.status(500).send(err.message || "Failed to delete slide");
+    } finally {
+      conn.release();
+    }
+  });
+
   // ✅ Delete report
   router.delete("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
     try {

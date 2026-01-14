@@ -1,4 +1,4 @@
-﻿import { Express } from "express";
+import { Express } from "express";
 import { Pool } from "mysql2/promise";
 
 import { authRoutes } from "./authRoutes";
@@ -15,10 +15,12 @@ import { notificationSettingsRoutes } from "./notificationSettingsRoutes";
 import templateRoutes from "./templateRoutes";
 import { adminUserRoutes } from "./adminUserRoutes";
 import { systemRoutes } from "./systemRoutes";
-// ✅ Reports (DB)
+import { collabRoutes } from "./collabRoutes";
+import { dataQaRoutes } from "./dataQaRoutes";
+// ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
-// ✅ Export route (Router)
+// ? Export route (Router)
 import exportPptxRoutes from "./exportPptx";
 
 export const setRoutes = (app: Express, dbPool: Pool) => {
@@ -64,6 +66,12 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
   // Reports
   app.use("/api/reports", reportRoutes(dbPool));
 
-  // ✅ Export PPTX
+  // Collaboration sessions
+  app.use("/api/collab-sessions", collabRoutes(dbPool));
+
+  // Data Q&A
+  app.use("/api/data-qa", dataQaRoutes(dbPool));
+
+  // ? Export PPTX
   app.use("/api/export", exportPptxRoutes);
 };
