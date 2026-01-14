@@ -4,8 +4,9 @@ import cors from 'cors';
 import { dbPool } from './db';
 import { setRoutes } from './routes/index';
 import dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;

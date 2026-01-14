@@ -13,7 +13,7 @@ import projectRoutes from "./routes/projectRoutes";
 // ✅ export route
 import exportPptxRoute from "./routes/exportPptx";
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
