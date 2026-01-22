@@ -10,6 +10,12 @@ const AccountSettingsPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorQr, setTwoFactorQr] = useState<string | null>(null);
+  const [twoFactorSecret, setTwoFactorSecret] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorDisableCode, setTwoFactorDisableCode] = useState("");
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -20,6 +26,7 @@ const AccountSettingsPage: React.FC = () => {
         setName(data.name || "");
         setEmail(data.email || "");
         setAvatar(data.profileImageUrl || null);
+        setTwoFactorEnabled(Boolean(data.twoFactorEnabled));
         localStorage.setItem("authUser", JSON.stringify({
           id: data.id,
           name: data.name,
@@ -104,6 +111,83 @@ const AccountSettingsPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || "Password update failed");
     }
+  };
+
+  const handleSetupTwoFactor = async () => {
+    setError("");
+    setMessage("");
+    setTwoFactorLoading(true);
+    try {
+      const res = await apiFetch("/api/auth/2fa/setup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "2FA setup failed");
+      setTwoFactorQr(data.qrCodeDataUrl || null);
+      setTwoFactorSecret(data.secret || null);
+      setTwoFactorCode("");
+      setMessage("Scan the QR code and enter a verification code.");
+    } catch (err: any) {
+      setError(err.message || "2FA setup failed");
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleEnableTwoFactor = async () => {
+    setError("");
+    setMessage("");
+    if (!twoFactorCode) {
+      setError("Enter the verification code");
+      return;
+    }
+    setTwoFactorLoading(true);
+    try {
+      const res = await apiFetch("/api/auth/2fa/enable", {
+        method: "POST",
+        body: JSON.stringify({ code: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "2FA enable failed");
+      setTwoFactorEnabled(true);
+      setTwoFactorQr(null);
+      setTwoFactorSecret(null);
+      setTwoFactorCode("");
+      setMessage("Two-factor authentication enabled.");
+    } catch (err: any) {
+      setError(err.message || "2FA enable failed");
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleDisableTwoFactor = async () => {
+    setError("");
+    setMessage("");
+    if (!twoFactorDisableCode) {
+      setError("Enter the verification code");
+      return;
+    }
+    setTwoFactorLoading(true);
+    try {
+      const res = await apiFetch("/api/auth/2fa/disable", {
+        method: "POST",
+        body: JSON.stringify({ code: twoFactorDisableCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "2FA disable failed");
+      setTwoFactorEnabled(false);
+      setTwoFactorDisableCode("");
+      setMessage("Two-factor authentication disabled.");
+    } catch (err: any) {
+      setError(err.message || "2FA disable failed");
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleCancelTwoFactorSetup = () => {
+    setTwoFactorQr(null);
+    setTwoFactorSecret(null);
+    setTwoFactorCode("");
   };
 
   const handleDeleteImage = async () => {
@@ -247,6 +331,95 @@ const AccountSettingsPage: React.FC = () => {
           >
             Update Password
           </button>
+        </div>
+
+        <div className="bg-white border border-amber-100 rounded-2xl p-6 shadow-sm mt-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Two-Factor Authentication</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Add an extra security step with an authenticator app.
+          </p>
+
+          {twoFactorEnabled ? (
+            <div className="space-y-3">
+              <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                Two-factor authentication is enabled.
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Verification Code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={twoFactorDisableCode}
+                  onChange={(e) => setTwoFactorDisableCode(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2"
+                  placeholder="Enter 6-digit code"
+                />
+              </div>
+              <button
+                onClick={handleDisableTwoFactor}
+                disabled={twoFactorLoading}
+                className="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-semibold hover:bg-red-50 disabled:opacity-60"
+              >
+                {twoFactorLoading ? "Disabling..." : "Disable 2FA"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {!twoFactorQr && (
+                <button
+                  onClick={handleSetupTwoFactor}
+                  disabled={twoFactorLoading}
+                  className="px-4 py-2 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 disabled:opacity-60"
+                >
+                  {twoFactorLoading ? "Preparing..." : "Enable 2FA"}
+                </button>
+              )}
+
+              {twoFactorQr && (
+                <div className="space-y-4">
+                  <div className="flex flex-col items-center gap-3">
+                    <img src={twoFactorQr} alt="2FA QR" className="w-40 h-40" />
+                    {twoFactorSecret && (
+                      <div className="text-xs text-gray-500">
+                        Manual code: <span className="font-mono">{twoFactorSecret}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      Verification Code
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2"
+                      placeholder="Enter 6-digit code"
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      onClick={handleEnableTwoFactor}
+                      disabled={twoFactorLoading}
+                      className="px-4 py-2 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {twoFactorLoading ? "Verifying..." : "Verify & Enable"}
+                    </button>
+                    <button
+                      onClick={handleCancelTwoFactorSetup}
+                      type="button"
+                      className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
+import bcrypt from "bcryptjs";
+import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst } from "../constants/roles";
 
 type UserSchemaInfo = {
   hasFullName: boolean;
@@ -106,5 +108,128 @@ export const updateUserStatus = (dbPool: Pool) => async (req: Request, res: Resp
     return res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ message: err.message || "Failed to update status" });
+  }
+};
+
+export const createUser = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { name, email, password, role, isActive } = req.body as {
+    name?: string;
+    email?: string;
+    password?: string;
+    role?: string;
+    isActive?: boolean;
+  };
+  if (!name || !email || !password || !role) {
+    return res.status(400).json({ message: "name, email, password, and role are required" });
+  }
+  const normalizedRole = normalizeRoleConst(role);
+  if (!normalizedRole) {
+    return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
+  }
+  try {
+    const schema = await getUserSchemaInfo(dbPool);
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    if (schema.hasUserRolesTable && schema.hasRolesTable) {
+      const conn = await dbPool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [roleRows]: any = await conn.query(
+          "SELECT id FROM roles WHERE LOWER(name) = ? LIMIT 1",
+          [normalizedRole]
+        );
+        if (!roleRows.length) {
+          await conn.rollback();
+          return res.status(400).json({ message: "Invalid role" });
+        }
+        const roleId = roleRows[0].id as number;
+        const nameCol = schema.hasFullName ? "full_name" : "name";
+        const [result]: any = await conn.query(
+          `INSERT INTO users (${nameCol}, email, password_hash${schema.hasIsActive ? ", is_active" : ""}, created_at) VALUES (?, ?, ?, ${schema.hasIsActive ? "?" : ""}, NOW())`,
+          schema.hasIsActive ? [name, email, hashedPassword, isActive ? 1 : 0] : [name, email, hashedPassword]
+        );
+        const userId = result.insertId as number;
+        await conn.query("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", [userId, roleId]);
+        await conn.commit();
+        return res.status(201).json({ id: userId });
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
+
+    const nameCol = schema.hasFullName ? "full_name" : "name";
+    const roleCol = schema.hasRole ? "role" : null;
+    const statusCol = schema.hasIsActive ? "is_active" : null;
+    const columns = [nameCol, "email", schema.hasRole ? "password" : "password", ...(roleCol ? [roleCol] : []), ...(statusCol ? [statusCol] : []), "created_at", "updated_at"];
+    const placeholders = ["?", "?", "?", ...(roleCol ? ["?"] : []), ...(statusCol ? ["?"] : []), "NOW()", "NOW()"];
+    const values: any[] = [name, email, hashedPassword, ...(roleCol ? [normalizedRole] : []), ...(statusCol ? [isActive ? 1 : 0] : [])];
+    const [result]: any = await dbPool.query(
+      `INSERT INTO users (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`,
+      values
+    );
+    return res.status(201).json({ id: result.insertId });
+  } catch (err: any) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(400).json({ message: "Email already exists." });
+    }
+    return res.status(500).json({ message: err.message || "Failed to create user" });
+  }
+};
+
+export const updateUser = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const userId = Number(req.params.id);
+  const { name, email, role, isActive } = req.body as {
+    name?: string;
+    email?: string;
+    role?: string;
+    isActive?: boolean;
+  };
+  try {
+    const schema = await getUserSchemaInfo(dbPool);
+    const updates: string[] = [];
+    const params: any[] = [];
+    if (name) {
+      const nameCol = schema.hasFullName ? "full_name" : "name";
+      updates.push(`${nameCol} = ?`);
+      params.push(name);
+    }
+    if (email) {
+      updates.push("email = ?");
+      params.push(email);
+    }
+    if (schema.hasIsActive && typeof isActive === "boolean") {
+      updates.push("is_active = ?");
+      params.push(isActive ? 1 : 0);
+    }
+    if (updates.length) {
+      params.push(userId);
+      await dbPool.query(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`, params);
+    }
+
+    if (role) {
+      const normalizedRole = normalizeRoleConst(role);
+      if (!normalizedRole) {
+        return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
+      }
+      if (schema.hasUserRolesTable && schema.hasRolesTable) {
+        const [roles]: any = await dbPool.query("SELECT id FROM roles WHERE LOWER(name) = ? LIMIT 1", [normalizedRole]);
+        if (!roles.length) return res.status(400).json({ message: "Invalid role" });
+        const roleId = roles[0].id as number;
+        await dbPool.query("DELETE FROM user_roles WHERE user_id = ?", [userId]);
+        await dbPool.query("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", [userId, roleId]);
+      } else if (schema.hasRole) {
+        await dbPool.query("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, userId]);
+      }
+    }
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(400).json({ message: "Email already exists." });
+    }
+    return res.status(500).json({ message: err.message || "Failed to update user" });
   }
 };

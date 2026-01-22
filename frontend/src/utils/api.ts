@@ -1,6 +1,6 @@
 const DEFAULT_DEV_BACKEND = "http://localhost:3001";
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   const envBase = process.env.REACT_APP_API_URL;
   if (envBase) return envBase.replace(/\/$/, "");
   if (typeof window === "undefined") return "";

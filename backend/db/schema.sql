@@ -5,8 +5,14 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   profile_image_url VARCHAR(512) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  auth_provider VARCHAR(32) NOT NULL DEFAULT 'local',
+  microsoft_sub VARCHAR(128) NULL,
+  two_factor_secret VARCHAR(255) NULL,
+  two_factor_enabled TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+CREATE UNIQUE INDEX idx_users_microsoft_sub ON users (microsoft_sub);
 
 CREATE TABLE IF NOT EXISTS roles (
   id INT AUTO_INCREMENT PRIMARY KEY,

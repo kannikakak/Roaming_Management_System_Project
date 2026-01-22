@@ -2,7 +2,21 @@ import { Router } from 'express';
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { register, login, getMe, updateProfile, changePassword, uploadProfileImage, deleteProfileImage } from '../controllers/authController';
+import {
+  register,
+  login,
+  getMe,
+  updateProfile,
+  changePassword,
+  uploadProfileImage,
+  deleteProfileImage,
+  setupTwoFactor,
+  enableTwoFactor,
+  disableTwoFactor,
+  verifyTwoFactorLogin,
+  startMicrosoftLogin,
+  handleMicrosoftCallback,
+} from '../controllers/authController';
 import { Pool } from 'mysql2/promise';
 import { requireAuth } from "../middleware/auth";
 
@@ -14,10 +28,16 @@ export const authRoutes = (dbPool: Pool) => {
 
   router.post('/register', register(dbPool));
   router.post('/login', login(dbPool));
+  router.get('/microsoft/login', startMicrosoftLogin());
+  router.get('/microsoft/callback', handleMicrosoftCallback(dbPool));
+  router.post('/2fa/verify', verifyTwoFactorLogin(dbPool));
   router.get('/me', requireAuth, getMe(dbPool));
   router.put('/profile', requireAuth, updateProfile(dbPool));
   router.put('/password', requireAuth, changePassword(dbPool));
   router.post('/profile-image', requireAuth, upload.single("image"), uploadProfileImage(dbPool));
   router.delete('/profile-image', requireAuth, deleteProfileImage(dbPool));
+  router.post('/2fa/setup', requireAuth, setupTwoFactor(dbPool));
+  router.post('/2fa/enable', requireAuth, enableTwoFactor(dbPool));
+  router.post('/2fa/disable', requireAuth, disableTwoFactor(dbPool));
   return router;
 };

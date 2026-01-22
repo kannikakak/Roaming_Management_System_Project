@@ -5,6 +5,7 @@ export type AuthUser = {
   id: number;
   email: string;
   role: string;
+  roles?: string[];
 };
 
 type JwtPayload = AuthUser & {
@@ -26,6 +27,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
       id: payload.id,
       email: payload.email,
       role: payload.role,
+      roles: Array.isArray((payload as any).roles)
+        ? ((payload as any).roles as string[])
+        : undefined,
     };
     return next();
   } catch {
@@ -36,7 +40,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 export function requireRole(roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     const role = req.user?.role;
-    if (!role || !roles.includes(role)) {
+    const userRoles = req.user?.roles || (role ? [role] : []);
+    const hasAny = userRoles.some((r) => roles.includes(r));
+    if (!hasAny) {
       return res.status(403).json({ message: "Forbidden" });
     }
     return next();

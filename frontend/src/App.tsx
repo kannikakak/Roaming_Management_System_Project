@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import CardDetail from "./pages/CardDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import AuthCallback from "./pages/AuthCallback";
 import ChartPage from "./pages/ChartPage";
 import MainLayout from "./components/MainLayout";
 import Projects from "./pages/Projects";
@@ -41,6 +42,7 @@ const App: React.FC = () => (
       <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/auth/microsoft/callback" element={<AuthCallback />} />
 
       {/* Protected routes with sidebar */}
       <Route

@@ -22,8 +22,11 @@
     "multer": "^2.0.2",
     "mysql2": "^3.16.0",
     "nodemailer": "^7.0.12",
+    "openid-client": "^5.7.1",
     "papaparse": "^5.5.3",
     "pptxgenjs": "^4.0.1",
+    "qrcode": "^1.5.4",
+    "speakeasy": "^2.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -36,6 +39,8 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^16.18.126",
     "@types/nodemailer": "^7.0.5",
+    "@types/qrcode": "^1.5.5",
+    "@types/speakeasy": "^2.0.5",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
