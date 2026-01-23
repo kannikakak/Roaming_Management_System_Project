@@ -3,3 +3,16 @@
 
 # Ignore node modules
 node_modules/
+
+# Build outputs
+frontend/build/
+frontend/dist/
+backend/dist/
+
+# Uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+!backend/uploads/charts/.gitkeep
+!backend/uploads/reports/.gitkeep
+!backend/uploads/schedules/.gitkeep
+!backend/uploads/profile/.gitkeep
