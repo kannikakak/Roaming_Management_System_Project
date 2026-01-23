@@ -20,7 +20,11 @@ This is the backend for the Roaming & Interconnect Dashboard project. It is buil
    npm install
    ```
 
-3. Configure the database connection in `src/app.ts` by updating the MySQL connection settings.
+3. Configure the database connection in `.env` (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT).
+4. Create the database schema from the single source file:
+   ```
+   npx ts-node setup-database.ts
+   ```
 
 ## Running the Application
 
@@ -29,7 +33,7 @@ To start the backend server, run:
 npm start
 ```
 
-The server will be running on `http://localhost:3000` by default.
+The server will be running on `http://localhost:3000` by default (or `PORT` from `.env`).
 
 ## API Endpoints
 
