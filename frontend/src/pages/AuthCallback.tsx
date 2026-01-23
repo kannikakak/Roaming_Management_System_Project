@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { apiFetch, setAuthToken } from "../utils/api";
+import { apiFetch, setAuthToken, setRefreshToken } from "../utils/api";
 
 const AuthCallback: React.FC = () => {
   const location = useLocation();
@@ -9,6 +9,7 @@ const AuthCallback: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const token = params.get("token");
+    const refreshToken = params.get("refreshToken");
     const mfaToken = params.get("mfaToken");
     const error = params.get("error");
 
@@ -26,6 +27,9 @@ const AuthCallback: React.FC = () => {
     }
 
     setAuthToken(token);
+    if (refreshToken) {
+      setRefreshToken(refreshToken);
+    }
     apiFetch("/api/auth/me")
       .then((res) => res.json())
       .then((data) => {

@@ -12,6 +12,9 @@ import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, p
 
 const jwtSecret = (process.env.JWT_SECRET || "dev_secret_change_me") as jwt.Secret;
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+const refreshTokenSecret = (process.env.REFRESH_TOKEN_SECRET || jwtSecret) as jwt.Secret;
+const refreshTokenExpiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || "30d";
+const selfRegisterRoles = process.env.SELF_REGISTER_ROLES || "viewer";
 const mfaTokenExpiresIn = process.env.MFA_TOKEN_EXPIRES_IN || "10m";
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 const msTenantId = process.env.MS_TENANT_ID || "common";
@@ -32,6 +35,7 @@ type UserSchemaInfo = {
   hasIsActive: boolean;
   hasUserRolesTable: boolean;
   hasRolesTable: boolean;
+  hasRefreshTokensTable: boolean;
   hasAuthProvider: boolean;
   hasMicrosoftSub: boolean;
   hasTwoFactorSecret: boolean;
@@ -61,6 +65,7 @@ async function getUserSchemaInfo(dbPool: Pool): Promise<UserSchemaInfo> {
     hasIsActive: names.has("is_active"),
     hasUserRolesTable: tableNames.has("user_roles"),
     hasRolesTable: tableNames.has("roles"),
+    hasRefreshTokensTable: tableNames.has("refresh_tokens"),
     hasAuthProvider: names.has("auth_provider"),
     hasMicrosoftSub: names.has("microsoft_sub"),
     hasTwoFactorSecret: names.has("two_factor_secret"),
@@ -74,6 +79,16 @@ function createAuthToken(userId: number, email: string, roles: Role[]) {
   const primary = roles[0] ?? ensureRole(undefined);
   const options: jwt.SignOptions = { expiresIn: jwtExpiresIn as any };
   return jwt.sign({ id: userId, email, role: primary, roles }, jwtSecret, options);
+}
+
+function createRefreshToken(userId: number, email: string, roles: Role[]) {
+  const primary = roles[0] ?? ensureRole(undefined);
+  const options: jwt.SignOptions = { expiresIn: refreshTokenExpiresIn as any };
+  return jwt.sign(
+    { id: userId, email, role: primary, roles, jti: crypto.randomUUID() },
+    refreshTokenSecret,
+    options
+  );
 }
 
 function createMfaToken(userId: number, email: string, roles: Role[]) {
@@ -96,6 +111,113 @@ function buildUserPayload(user: any, role: string, schema: UserSchemaInfo, roles
     profileImageUrl,
     twoFactorEnabled: schema.hasTwoFactorEnabled ? Boolean(user.two_factor_enabled) : false,
   };
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function getTokenExpiryDate(token: string) {
+  const decoded = jwt.decode(token) as { exp?: number } | null;
+  if (decoded?.exp) {
+    return new Date(decoded.exp * 1000);
+  }
+  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+}
+
+function getSelfRegisterRoles(): Role[] {
+  const roles = selfRegisterRoles
+    .split(",")
+    .map((r) => normalizeRoleConst(r.trim()))
+    .filter((r): r is Role => Boolean(r));
+  return roles.length ? roles : [ensureRole(undefined)];
+}
+
+async function storeRefreshToken(
+  dbPool: Pool,
+  schema: UserSchemaInfo,
+  userId: number,
+  token: string
+) {
+  if (!schema.hasRefreshTokensTable) {
+    await ensureRefreshTokensTable(dbPool, schema);
+  }
+  const tokenHash = hashToken(token);
+  const expiresAt = getTokenExpiryDate(token);
+  await dbPool.query(
+    "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+    [userId, tokenHash, expiresAt]
+  );
+}
+
+async function issueTokens(
+  dbPool: Pool,
+  schema: UserSchemaInfo,
+  userId: number,
+  email: string,
+  roles: Role[]
+) {
+  const token = createAuthToken(userId, email, roles);
+  const refreshToken = createRefreshToken(userId, email, roles);
+  await storeRefreshToken(dbPool, schema, userId, refreshToken);
+  return { token, refreshToken };
+}
+
+async function loadUserForToken(dbPool: Pool, schema: UserSchemaInfo, userId: number) {
+  if (schema.hasFullName && schema.hasUserRolesTable && schema.hasRolesTable) {
+    const selectProfile = schema.hasProfileImageUrl ? ", u.profile_image_url" : "";
+    const selectIsActive = schema.hasIsActive ? ", u.is_active" : "";
+    const selectTwoFactor = schema.hasTwoFactorEnabled ? ", u.two_factor_enabled" : "";
+    const [rows]: any = await dbPool.query(
+      `SELECT u.id, u.full_name, u.email${selectProfile}${selectIsActive}${selectTwoFactor},
+              GROUP_CONCAT(r.name) as roles
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
+       WHERE u.id = ?
+       GROUP BY u.id`,
+      [userId]
+    );
+    if (!rows.length) return null;
+    const user = rows[0];
+    if (schema.hasIsActive && user.is_active === 0) return null;
+    const primaryRole = pickRoleFromCsv(user.roles, "viewer");
+    const roles: Role[] = String(user.roles || "")
+      .split(",")
+      .map((r: string) => normalizeRoleConst(r))
+      .filter((r): r is Role => Boolean(r));
+    const rolesArr = roles.length ? roles : [primaryRole];
+    return { id: user.id, email: user.email, roles: rolesArr };
+  }
+
+  const selectIsActive = schema.hasIsActive ? ", is_active" : "";
+  const [rows]: any = await dbPool.query(
+    `SELECT id, email, role${selectIsActive} FROM users WHERE id = ?`,
+    [userId]
+  );
+  if (!rows.length) return null;
+  const user = rows[0];
+  if (schema.hasIsActive && user.is_active === 0) return null;
+  const role = ensureRole(user.role);
+  return { id: user.id, email: user.email, roles: [role] };
+}
+
+async function ensureRefreshTokensTable(dbPool: Pool, schema: UserSchemaInfo) {
+  if (schema.hasRefreshTokensTable) return;
+  await dbPool.query(
+    `CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      token_hash VARCHAR(128) NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      revoked_at DATETIME NULL,
+      replaced_by_token_hash VARCHAR(128) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB`
+  );
+  schema.hasRefreshTokensTable = true;
+  if (schemaCache.info) schemaCache.info.hasRefreshTokensTable = true;
 }
 
 function getFrontendCallbackUrl() {
@@ -134,11 +256,15 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const schema = await getUserSchemaInfo(dbPool);
+    const allowedSelfRegisterRoles = getSelfRegisterRoles();
 
     if (schema.hasFullName && schema.hasPasswordHash && schema.hasUserRolesTable && schema.hasRolesTable) {
       const normalizedRole = normalizeRoleConst(String(role));
       if (!normalizedRole) {
         return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
+      }
+      if (!allowedSelfRegisterRoles.includes(normalizedRole)) {
+        return res.status(403).json({ message: "Role not allowed for self-registration." });
       }
       const conn = await dbPool.getConnection();
       try {
@@ -176,6 +302,9 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
       const normalizedRole = normalizeRoleConst(String(role));
       if (!normalizedRole) {
         return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
+      }
+      if (!allowedSelfRegisterRoles.includes(normalizedRole)) {
+        return res.status(403).json({ message: "Role not allowed for self-registration." });
       }
       await dbPool.query(
         "INSERT INTO users (`name`, `email`, `password`, `role`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, NOW(), NOW())",
@@ -246,10 +375,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         });
       }
 
-      const token = createAuthToken(user.id, user.email, rolesArr);
+      const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
       res.json({
         message: "Login successful.",
         token,
+        refreshToken,
         user: buildUserPayload(user, primaryRole, schema, rolesArr),
       });
     } else if (schema.hasName && schema.hasPassword && schema.hasRole) {
@@ -286,10 +416,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         });
       }
 
-      const token = createAuthToken(user.id, user.email, rolesArr);
+      const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
       res.json({
         message: "Login successful.",
         token,
+        refreshToken,
         user: buildUserPayload(user, role, schema, rolesArr),
       });
     } else {
@@ -610,10 +741,11 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
       .map((r: string) => normalizeRoleConst(r))
       .filter((r): r is Role => Boolean(r));
     const rolesArr = roles.length ? roles : [primaryRole];
-    const token = createAuthToken(user.id, user.email, rolesArr);
+    const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
     return res.json({
       message: "Login successful.",
       token,
+      refreshToken,
       user: buildUserPayload(user, primaryRole, schema, rolesArr),
     });
   }
@@ -643,10 +775,11 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
     if (!isValid) return res.status(400).json({ message: "Invalid verification code." });
 
     const role = ensureRole(user.role);
-    const token = createAuthToken(user.id, user.email, [role]);
+    const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, [role]);
     return res.json({
       message: "Login successful.",
       token,
+      refreshToken,
       user: buildUserPayload(user, role, schema, [role]),
     });
   }
@@ -833,8 +966,10 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
         return res.redirect(`${redirectBase}?mfaToken=${encodeURIComponent(mfaToken)}`);
       }
 
-      const token = createAuthToken(user.id, user.email, rolesArr);
-      return res.redirect(`${redirectBase}?token=${encodeURIComponent(token)}`);
+      const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
+      return res.redirect(
+        `${redirectBase}?token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}`
+      );
     }
 
     if (schema.hasName && schema.hasRole) {
@@ -911,8 +1046,10 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
         return res.redirect(`${redirectBase}?mfaToken=${encodeURIComponent(mfaToken)}`);
       }
 
-      const token = createAuthToken(user.id, user.email, [role]);
-      return res.redirect(`${redirectBase}?token=${encodeURIComponent(token)}`);
+      const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, [role]);
+      return res.redirect(
+        `${redirectBase}?token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}`
+      );
     }
 
     return res.redirect(`${redirectBase}?error=User%20schema%20missing`);
@@ -920,4 +1057,73 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
     console.error("Microsoft login error:", err);
     return res.redirect(`${redirectBase}?error=Microsoft%20login%20failed`);
   }
+};
+
+export const refreshToken = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { refreshToken: token } = req.body as { refreshToken?: string };
+  if (!token) {
+    return res.status(400).json({ message: "refreshToken is required." });
+  }
+
+  let payload: any = null;
+  try {
+    payload = jwt.verify(token, refreshTokenSecret) as any;
+  } catch {
+    return res.status(401).json({ message: "Invalid refresh token." });
+  }
+
+  const schema = await getUserSchemaInfo(dbPool);
+  if (!schema.hasRefreshTokensTable) {
+    await ensureRefreshTokensTable(dbPool, schema);
+  }
+
+  const tokenHash = hashToken(token);
+  const [rows]: any = await dbPool.query(
+    "SELECT id, user_id, revoked_at, expires_at FROM refresh_tokens WHERE token_hash = ? LIMIT 1",
+    [tokenHash]
+  );
+  if (!rows.length) {
+    return res.status(401).json({ message: "Invalid refresh token." });
+  }
+  const record = rows[0];
+  if (record.revoked_at || (record.expires_at && new Date(record.expires_at) <= new Date())) {
+    return res.status(401).json({ message: "Refresh token expired or revoked." });
+  }
+
+  const user = await loadUserForToken(dbPool, schema, Number(record.user_id));
+  if (!user || !payload?.id || payload.id !== user.id) {
+    return res.status(401).json({ message: "Invalid refresh token." });
+  }
+
+  const { token: newAccessToken, refreshToken: newRefreshToken } = await issueTokens(
+    dbPool,
+    schema,
+    user.id,
+    user.email,
+    user.roles
+  );
+  const newTokenHash = hashToken(newRefreshToken);
+  await dbPool.query(
+    "UPDATE refresh_tokens SET revoked_at = NOW(), replaced_by_token_hash = ? WHERE id = ?",
+    [newTokenHash, record.id]
+  );
+
+  return res.json({ token: newAccessToken, refreshToken: newRefreshToken });
+};
+
+export const logout = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { refreshToken: token } = req.body as { refreshToken?: string };
+  if (!token) {
+    return res.status(400).json({ message: "refreshToken is required." });
+  }
+  const schema = await getUserSchemaInfo(dbPool);
+  if (!schema.hasRefreshTokensTable) {
+    await ensureRefreshTokensTable(dbPool, schema);
+  }
+  const tokenHash = hashToken(token);
+  await dbPool.query(
+    "UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = ? AND revoked_at IS NULL",
+    [tokenHash]
+  );
+  return res.json({ ok: true });
 };

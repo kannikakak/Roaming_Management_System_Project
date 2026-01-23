@@ -35,6 +35,34 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
+const getStoredUser = () => {
+  const raw = localStorage.getItem("authUser");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const hasRole = (user: any, roles: string[]) => {
+  if (!user) return false;
+  const roleList = Array.isArray(user.roles) ? user.roles : [user.role].filter(Boolean);
+  return roleList.some((role: string) => roles.includes(role));
+};
+
+const RequireRole: React.FC<{ roles: string[]; children: React.ReactNode }> = ({ roles, children }) => {
+  const token = getAuthToken();
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  const user = getStoredUser();
+  if (!hasRole(user, roles)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+};
+
 const App: React.FC = () => (
   <Router>
     <Routes>
@@ -137,7 +165,9 @@ const App: React.FC = () => (
         element={
           <RequireAuth>
             <MainLayout>
-              <AuditLogViewer />
+              <RequireRole roles={["admin"]}>
+                <AuditLogViewer />
+              </RequireRole>
             </MainLayout>
           </RequireAuth>
         }
@@ -217,7 +247,9 @@ const App: React.FC = () => (
         element={
           <RequireAuth>
             <MainLayout>
-              <UserManagementPage />
+              <RequireRole roles={["admin"]}>
+                <UserManagementPage />
+              </RequireRole>
             </MainLayout>
           </RequireAuth>
         }
@@ -227,7 +259,9 @@ const App: React.FC = () => (
         element={
           <RequireAuth>
             <MainLayout>
-              <SystemHealthPage />
+              <RequireRole roles={["admin"]}>
+                <SystemHealthPage />
+              </RequireRole>
             </MainLayout>
           </RequireAuth>
         }

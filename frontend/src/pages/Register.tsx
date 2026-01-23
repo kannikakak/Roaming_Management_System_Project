@@ -61,8 +61,6 @@ const Register = () => {
   };
 
   const roles = [
-    { value: 'admin', label: 'Admin', description: 'Full system access' },
-    { value: 'analyst', label: 'Analyst', description: 'Data analysis access' },
     { value: 'viewer', label: 'Viewer', description: 'Read-only access' }
   ];
 
@@ -221,7 +219,7 @@ const Register = () => {
           </button>
         </div>
         <div className="mt-4 text-center text-xs text-gray-400">
-          Demo: Use any email (include "admin" for Admin role)
+          Roles beyond Viewer are assigned by an administrator.
         </div>
       </div>
     </div>

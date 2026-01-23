@@ -13,6 +13,17 @@ type ParsedFile = {
   textContent?: string;
 };
 
+type QualityMetrics = {
+  score: number;
+  trustLevel: "High" | "Medium" | "Low";
+  missingRate: number;
+  duplicateRate: number;
+  invalidRate: number;
+  schemaInconsistencyRate: number;
+  totalRows: number;
+  totalColumns: number;
+};
+
 const parseFile = async (file: Express.Multer.File): Promise<ParsedFile> => {
   const ext = path.extname(file.originalname).toLowerCase();
 
@@ -51,6 +62,141 @@ const parseFile = async (file: Express.Multer.File): Promise<ParsedFile> => {
   throw new Error(`Unsupported file type: ${file.originalname}`);
 };
 
+const normalizeValue = (value: any) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value).trim();
+  if (!str || str === "-" || str.toLowerCase() === "null" || str.toLowerCase() === "nan") {
+    return "";
+  }
+  return str;
+};
+
+const isNumeric = (value: string) => /^-?\d+(\.\d+)?$/.test(value);
+
+const computeQualityMetrics = (columns: string[], rows: any[]): QualityMetrics => {
+  const totalRows = rows.length;
+  const totalColumns = columns.length;
+  if (totalRows === 0 || totalColumns === 0) {
+    return {
+      score: 0,
+      trustLevel: "Low",
+      missingRate: 1,
+      duplicateRate: 0,
+      invalidRate: 0,
+      schemaInconsistencyRate: 0,
+      totalRows,
+      totalColumns,
+    };
+  }
+
+  let missingCount = 0;
+  let duplicateCount = 0;
+  let extraKeyRows = 0;
+  const signatures = new Map<string, number>();
+
+  const numericStats = columns.map(() => ({ numeric: 0, nonMissing: 0, invalid: 0 }));
+
+  for (const row of rows) {
+    const rowObj = row && typeof row === "object" ? row : {};
+    const keys = Object.keys(rowObj);
+    if (keys.some((k) => !columns.includes(k))) {
+      extraKeyRows += 1;
+    }
+
+    const signatureParts: string[] = [];
+    columns.forEach((col, idx) => {
+      const value = normalizeValue(rowObj[col]);
+      signatureParts.push(value);
+      if (!value) {
+        missingCount += 1;
+        return;
+      }
+      numericStats[idx].nonMissing += 1;
+      if (isNumeric(value)) {
+        numericStats[idx].numeric += 1;
+      }
+    });
+
+    const signature = signatureParts.join("|");
+    const prev = signatures.get(signature) || 0;
+    signatures.set(signature, prev + 1);
+  }
+
+  signatures.forEach((count) => {
+    if (count > 1) duplicateCount += count - 1;
+  });
+
+  let invalidCount = 0;
+  let numericCells = 0;
+  for (let i = 0; i < columns.length; i++) {
+    const stat = numericStats[i];
+    if (stat.nonMissing === 0) continue;
+    const numericRatio = stat.numeric / stat.nonMissing;
+    if (numericRatio >= 0.7) {
+      numericCells += stat.nonMissing;
+    }
+  }
+
+  if (numericCells > 0) {
+    for (const row of rows) {
+      const rowObj = row && typeof row === "object" ? row : {};
+      columns.forEach((col, idx) => {
+        const stat = numericStats[idx];
+        if (stat.nonMissing === 0) return;
+        const numericRatio = stat.numeric / stat.nonMissing;
+        if (numericRatio < 0.7) return;
+        const value = normalizeValue(rowObj[col]);
+        if (!value) return;
+        if (!isNumeric(value)) invalidCount += 1;
+      });
+    }
+  }
+
+  const missingRate = totalRows && totalColumns ? missingCount / (totalRows * totalColumns) : 0;
+  const duplicateRate = totalRows ? duplicateCount / totalRows : 0;
+  const invalidRate = numericCells ? invalidCount / numericCells : 0;
+  const schemaInconsistencyRate = totalRows ? extraKeyRows / totalRows : 0;
+
+  const penalty =
+    missingRate * 40 +
+    duplicateRate * 20 +
+    invalidRate * 20 +
+    schemaInconsistencyRate * 20;
+  const score = Math.max(0, Math.min(100, Math.round((100 - penalty * 100) * 10) / 10));
+  const trustLevel = score >= 80 ? "High" : score >= 50 ? "Medium" : "Low";
+
+  return {
+    score,
+    trustLevel,
+    missingRate,
+    duplicateRate,
+    invalidRate,
+    schemaInconsistencyRate,
+    totalRows,
+    totalColumns,
+  };
+};
+
+const ensureQualityTable = async (dbPool: Pool) => {
+  await dbPool.query(
+    `CREATE TABLE IF NOT EXISTS data_quality_scores (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      file_id INT NOT NULL UNIQUE,
+      score DECIMAL(5,2) NOT NULL,
+      trust_level VARCHAR(16) NOT NULL,
+      missing_rate DECIMAL(6,4) NOT NULL DEFAULT 0,
+      duplicate_rate DECIMAL(6,4) NOT NULL DEFAULT 0,
+      invalid_rate DECIMAL(6,4) NOT NULL DEFAULT 0,
+      schema_inconsistency_rate DECIMAL(6,4) NOT NULL DEFAULT 0,
+      total_rows INT NOT NULL DEFAULT 0,
+      total_columns INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB`
+  );
+};
+
 // List files for a project (GET /api/files?projectId=...)
 export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
   const projectId = req.query.projectId || req.query.cardId;
@@ -59,8 +205,14 @@ export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) =
   }
 
   try {
+    await ensureQualityTable(dbPool);
     const [rows]: any = await dbPool.query(
-      "SELECT id, name, file_type as fileType, uploaded_at as uploadedAt FROM files WHERE project_id = ? ORDER BY uploaded_at DESC",
+      `SELECT f.id, f.name, f.file_type as fileType, f.uploaded_at as uploadedAt,
+              q.score as qualityScore, q.trust_level as trustLevel
+       FROM files f
+       LEFT JOIN data_quality_scores q ON q.file_id = f.id
+       WHERE f.project_id = ?
+       ORDER BY f.uploaded_at DESC`,
       [projectId]
     );
     res.json({ files: rows });
@@ -78,10 +230,12 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
 
   const createdFiles: any[] = [];
   const settings = await getNotificationSettings(dbPool);
+  await ensureQualityTable(dbPool);
 
   try {
     for (const file of req.files as Express.Multer.File[]) {
       const parsed = await parseFile(file);
+      const quality = computeQualityMetrics(parsed.columns, parsed.rows);
       const connection = await dbPool.getConnection();
       try {
         await connection.beginTransaction();
@@ -116,6 +270,33 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
           }
         }
 
+        await connection.query(
+          `INSERT INTO data_quality_scores
+            (file_id, score, trust_level, missing_rate, duplicate_rate, invalid_rate, schema_inconsistency_rate, total_rows, total_columns)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+            score = VALUES(score),
+            trust_level = VALUES(trust_level),
+            missing_rate = VALUES(missing_rate),
+            duplicate_rate = VALUES(duplicate_rate),
+            invalid_rate = VALUES(invalid_rate),
+            schema_inconsistency_rate = VALUES(schema_inconsistency_rate),
+            total_rows = VALUES(total_rows),
+            total_columns = VALUES(total_columns),
+            updated_at = CURRENT_TIMESTAMP`,
+          [
+            fileId,
+            quality.score,
+            quality.trustLevel,
+            quality.missingRate,
+            quality.duplicateRate,
+            quality.invalidRate,
+            quality.schemaInconsistencyRate,
+            quality.totalRows,
+            quality.totalColumns,
+          ]
+        );
+
         await connection.commit();
 
         createdFiles.push({
@@ -123,6 +304,8 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
           name: file.originalname,
           fileType: path.extname(file.originalname).replace(".", "") || "unknown",
           uploadedAt: new Date().toISOString(),
+          qualityScore: quality.score,
+          trustLevel: quality.trustLevel,
         });
 
         if (settings.in_app_enabled) {
@@ -170,11 +353,27 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
 export const getFileData = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   try {
+    await ensureQualityTable(dbPool);
     const [fileRows]: any = await dbPool.query(
-      "SELECT text_content as textContent FROM files WHERE id = ?",
+      `SELECT f.text_content as textContent, q.score as qualityScore, q.trust_level as trustLevel,
+              q.missing_rate as missingRate, q.duplicate_rate as duplicateRate, q.invalid_rate as invalidRate,
+              q.schema_inconsistency_rate as schemaInconsistencyRate
+       FROM files f
+       LEFT JOIN data_quality_scores q ON q.file_id = f.id
+       WHERE f.id = ?`,
       [fileId]
     );
     const textContent = fileRows?.[0]?.textContent || null;
+    const quality = fileRows?.[0]
+      ? {
+          qualityScore: fileRows[0].qualityScore,
+          trustLevel: fileRows[0].trustLevel,
+          missingRate: fileRows[0].missingRate,
+          duplicateRate: fileRows[0].duplicateRate,
+          invalidRate: fileRows[0].invalidRate,
+          schemaInconsistencyRate: fileRows[0].schemaInconsistencyRate,
+        }
+      : null;
 
     const [colRows]: any = await dbPool.query(
       "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
@@ -188,7 +387,7 @@ export const getFileData = (dbPool: Pool) => async (req: Request, res: Response)
     );
     const rows = rowRows.map((r: any) => JSON.parse(r.data_json));
 
-    res.json({ columns, rows, textContent });
+    res.json({ columns, rows, textContent, quality });
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
   }

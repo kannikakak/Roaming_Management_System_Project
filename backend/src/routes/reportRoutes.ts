@@ -110,9 +110,20 @@ export function reportRoutes(dbPool: Pool) {
   router.get("/", async (_req, res) => {
     try {
       const [rows] = await dbPool.query(
-        "SELECT id, name, status, created_at, updated_at FROM reports ORDER BY id DESC"
+        `SELECT r.id, r.name, r.status, r.created_at, r.updated_at,
+                AVG(q.score) as qualityScore
+         FROM reports r
+         LEFT JOIN report_slides s ON s.report_id = r.id
+         LEFT JOIN data_quality_scores q ON q.file_id = s.file_id
+         GROUP BY r.id
+         ORDER BY r.id DESC`
       );
-      res.json(rows);
+      const withTrust = (rows as any[]).map((r) => {
+        const score = r.qualityScore !== null ? Number(r.qualityScore) : null;
+        const trustLevel = score === null ? null : score >= 80 ? "High" : score >= 50 ? "Medium" : "Low";
+        return { ...r, qualityScore: score, trustLevel };
+      });
+      res.json(withTrust);
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to list reports");
     }
@@ -265,17 +276,36 @@ export function reportRoutes(dbPool: Pool) {
     try {
       const reportId = Number(req.params.id);
       const [reports] = await dbPool.query<any[]>(
-        "SELECT id, name, status, created_at, updated_at FROM reports WHERE id=?",
+        `SELECT r.id, r.name, r.status, r.created_at, r.updated_at,
+                AVG(q.score) as qualityScore
+         FROM reports r
+         LEFT JOIN report_slides s ON s.report_id = r.id
+         LEFT JOIN data_quality_scores q ON q.file_id = s.file_id
+         WHERE r.id = ?
+         GROUP BY r.id`,
         [reportId]
       );
       if (!reports.length) return res.status(404).send("Report not found");
 
       const [slides] = await dbPool.query<any[]>(
-        "SELECT * FROM report_slides WHERE report_id=? ORDER BY slide_index ASC",
+        `SELECT s.*, q.score as qualityScore, q.trust_level as trustLevel
+         FROM report_slides s
+         LEFT JOIN data_quality_scores q ON q.file_id = s.file_id
+         WHERE s.report_id=?
+         ORDER BY s.slide_index ASC`,
         [reportId]
       );
 
-      res.json({ report: reports[0], slides });
+      const report = reports[0];
+      const score = report.qualityScore !== null ? Number(report.qualityScore) : null;
+      res.json({
+        report: {
+          ...report,
+          qualityScore: score,
+          trustLevel: score === null ? null : score >= 80 ? "High" : score >= 50 ? "Medium" : "Low",
+        },
+        slides,
+      });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to load report");
     }

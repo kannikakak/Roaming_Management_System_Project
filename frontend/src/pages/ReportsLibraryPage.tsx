@@ -7,6 +7,8 @@ type Report = {
   status: string;
   created_at: string;
   updated_at: string;
+  qualityScore?: number | null;
+  trustLevel?: "High" | "Medium" | "Low" | null;
 };
 
 type ReportSlide = {
@@ -109,6 +111,7 @@ const ReportsLibraryPage: React.FC = () => {
                 <tr className="text-left text-gray-600">
                   <th className="py-2">Name</th>
                   <th>Status</th>
+                  <th>Quality</th>
                   <th>Updated</th>
                   <th></th>
                 </tr>
@@ -118,6 +121,11 @@ const ReportsLibraryPage: React.FC = () => {
                   <tr key={r.id} className="border-t hover:bg-amber-50/40">
                     <td className="py-2 font-semibold">{r.name}</td>
                     <td>{r.status}</td>
+                    <td>
+                      {typeof r.qualityScore === "number"
+                        ? `${r.qualityScore}% • ${r.trustLevel || "Unknown"}`
+                        : "N/A"}
+                    </td>
                     <td>{r.updated_at ? new Date(r.updated_at).toLocaleString() : "-"}</td>
                     <td className="text-right space-x-3">
                       <button className="text-amber-700" onClick={() => openReport(r)}>

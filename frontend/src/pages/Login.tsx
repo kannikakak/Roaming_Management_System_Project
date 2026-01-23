@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, Shield } from 'lucide-react';
-import { apiFetch, getApiBaseUrl, setAuthToken } from '../utils/api';
+import { apiFetch, getApiBaseUrl, setAuthToken, setRefreshToken } from '../utils/api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -34,12 +34,17 @@ const Login = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setError('Email and password are required.');
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: trimmedEmail, password }),
       });
       const data = await response.json();
       if (response.ok) {
@@ -50,6 +55,9 @@ const Login = () => {
         }
         if (data.token) {
           setAuthToken(data.token);
+          if (data.refreshToken) {
+            setRefreshToken(data.refreshToken);
+          }
           localStorage.setItem('authUser', JSON.stringify(data.user));
         }
         navigate('/dashboard');
@@ -78,6 +86,9 @@ const Login = () => {
       if (response.ok) {
         if (data.token) {
           setAuthToken(data.token);
+          if (data.refreshToken) {
+            setRefreshToken(data.refreshToken);
+          }
           localStorage.setItem('authUser', JSON.stringify(data.user));
         }
         navigate('/dashboard');
@@ -228,7 +239,7 @@ const Login = () => {
           </button>
         </div>
         <div className="mt-4 text-center text-xs text-gray-400">
-          Demo: Use any email (include "admin" for Admin role)
+          Demo: Use your assigned account credentials.
         </div>
       </div>
     </div>

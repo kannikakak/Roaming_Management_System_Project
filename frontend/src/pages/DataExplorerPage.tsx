@@ -2,7 +2,14 @@ import React, { useEffect, useState } from "react";
 import { apiFetch } from "../utils/api";
 
 type Project = { id: number; name: string };
-type FileItem = { id: number; name: string; fileType?: string; uploadedAt?: string };
+type FileItem = {
+  id: number;
+  name: string;
+  fileType?: string;
+  uploadedAt?: string;
+  qualityScore?: number | null;
+  trustLevel?: "High" | "Medium" | "Low" | null;
+};
 
 const DataExplorerPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -12,6 +19,7 @@ const DataExplorerPage: React.FC = () => {
   const [columns, setColumns] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [quality, setQuality] = useState<any | null>(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("authUser");
@@ -37,6 +45,7 @@ const DataExplorerPage: React.FC = () => {
     setColumns(data.columns || []);
     setPreview((data.rows || []).slice(0, 20));
     setSelectedFile(files.find((f) => f.id === fileId) || null);
+    setQuality(data.quality || null);
   };
 
   return (
@@ -77,11 +86,28 @@ const DataExplorerPage: React.FC = () => {
                   >
                     <div className="flex flex-col">
                       <span className="font-medium text-gray-800">{f.name}</span>
-                      <div className="text-xs text-gray-500">
-                        {f.fileType ? f.fileType.toUpperCase() : "FILE"}
-                        {f.uploadedAt ? ` • ${new Date(f.uploadedAt).toLocaleDateString()}` : ""}
-                      </div>
+                    <div className="text-xs text-gray-500">
+                      {f.fileType ? f.fileType.toUpperCase() : "FILE"}
+                      {f.uploadedAt ? ` • ${new Date(f.uploadedAt).toLocaleDateString()}` : ""}
                     </div>
+                    <div className="mt-1 text-xs">
+                      {typeof f.qualityScore === "number" ? (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full border ${
+                            f.qualityScore >= 80
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : f.qualityScore >= 50
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : "bg-red-50 text-red-700 border-red-200"
+                          }`}
+                        >
+                          {f.qualityScore}% • {f.trustLevel || "Unknown"}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">Quality: N/A</span>
+                      )}
+                    </div>
+                  </div>
                     <button
                       className="text-amber-700 font-semibold"
                       onClick={() => loadPreview(f.id)}
@@ -125,6 +151,11 @@ const DataExplorerPage: React.FC = () => {
                   <div className="text-xs text-gray-500">
                     {selectedFile ? `File: ${selectedFile.name}` : "File selected"}
                   </div>
+                  {quality?.qualityScore !== undefined && (
+                    <div className="text-xs text-gray-500">
+                      Quality: {quality.qualityScore ?? "N/A"}% • {quality.trustLevel || "Unknown"}
+                    </div>
+                  )}
                   <button
                     className="text-amber-700 text-xs font-semibold"
                     onClick={() => setIsPreviewOpen(true)}

@@ -73,6 +73,7 @@ export default function Dashboard() {
   const [activity, setActivity] = useState<AuditLogEntry[]>([]);
   const [deliveries, setDeliveries] = useState<NotificationItem[]>([]);
   const [projectFileCounts, setProjectFileCounts] = useState<{ id: number; count: number }[]>([]);
+  const [avgQualityScore, setAvgQualityScore] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -91,13 +92,26 @@ export default function Dashboard() {
         const filePromises = (projectsData || []).map((p: Project) =>
           apiFetch(`/api/files?projectId=${p.id}`)
             .then((r) => r.json())
-            .then((d) => ({ id: p.id, count: (d.files || []).length }))
-            .catch(() => ({ id: p.id, count: 0 }))
+            .then((d) => ({
+              id: p.id,
+              count: (d.files || []).length,
+              qualityScores: (d.files || [])
+                .map((f: any) => (typeof f.qualityScore === "number" ? f.qualityScore : null))
+                .filter((v: number | null) => v !== null),
+            }))
+            .catch(() => ({ id: p.id, count: 0, qualityScores: [] }))
         );
         const counts = await Promise.all(filePromises);
         if (!mounted) return;
         setProjectFileCounts(counts);
         setFilesCount(counts.reduce((sum, c) => sum + c.count, 0));
+        const allScores = counts.flatMap((c) => c.qualityScores || []);
+        if (allScores.length) {
+          const avg = allScores.reduce((sum, v) => sum + v, 0) / allScores.length;
+          setAvgQualityScore(Math.round(avg * 10) / 10);
+        } else {
+          setAvgQualityScore(null);
+        }
 
         const reportsRes = await apiFetch("/api/reports");
         const reportsData = await reportsRes.json();
@@ -220,6 +234,28 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-xs text-gray-400 mt-4">Automation running</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500">Data Quality</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {avgQualityScore === null ? "N/A" : `${avgQualityScore}%`}
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
+                <ArrowUpRight className="w-6 h-6" color={ACCENT} />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-4">
+              {avgQualityScore === null
+                ? "No scored files yet"
+                : avgQualityScore >= 80
+                  ? "Trust level: High"
+                  : avgQualityScore >= 50
+                    ? "Trust level: Medium"
+                    : "Trust level: Low"}
+            </p>
           </div>
         </section>
 

@@ -3,7 +3,8 @@ import { Pool } from "mysql2/promise";
 import { requireAuth } from "../middleware/auth";
 
 type AskPayload = {
-  fileId: number;
+  fileId?: number;
+  projectId?: number;
   question: string;
 };
 
@@ -236,13 +237,330 @@ export function dataQaRoutes(dbPool: Pool) {
   router.post("/ask", async (req, res) => {
     const payload = req.body as AskPayload;
     const fileId = Number(payload?.fileId);
+    const projectId = Number(payload?.projectId);
     const questionRaw = String(payload?.question || "").trim();
 
-    if (!Number.isFinite(fileId) || fileId <= 0) {
-      return res.status(400).json({ message: "fileId is required" });
+    if ((!Number.isFinite(fileId) || fileId <= 0) && (!Number.isFinite(projectId) || projectId <= 0)) {
+      return res.status(400).json({ message: "fileId or projectId is required" });
     }
     if (!questionRaw) {
       return res.status(400).json({ message: "question is required" });
+    }
+
+    if (!Number.isFinite(fileId) || fileId <= 0) {
+      const [fileRows]: any = await dbPool.query(
+        "SELECT id, name, file_type FROM files WHERE project_id = ? ORDER BY uploaded_at DESC",
+        [projectId]
+      );
+      const files = Array.isArray(fileRows) ? fileRows : [];
+      if (files.length === 0) {
+        return res.status(404).json({ message: "No files found for this project." });
+      }
+
+      const intent = detectIntent(questionRaw);
+      const questionNorm = normalizeText(questionRaw);
+      const lowerQuestion = questionRaw.toLowerCase();
+
+      const allColumns = new Set<string>();
+      const perFileColumns = new Map<number, string[]>();
+      for (const file of files) {
+        const [colRows]: any = await dbPool.query(
+          "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
+          [file.id]
+        );
+        const columns = colRows.map((row: any) => row.name).filter(Boolean);
+        perFileColumns.set(file.id, columns);
+        columns.forEach((c: string) => allColumns.add(c));
+      }
+
+      if (intent.type === "columns") {
+        const columns = Array.from(allColumns);
+        const preview = columns.slice(0, 8);
+        const extra = columns.length > preview.length ? columns.length - preview.length : 0;
+        const list = preview.length ? `: ${preview.join(", ")}${extra ? ` and ${extra} more` : ""}` : "";
+        return res.json({
+          answer: `Across ${files.length} files, there are ${columns.length} unique columns${list}.`,
+          intent: "columns",
+          columns,
+        });
+      }
+
+      if (intent.type === "rows") {
+        let total = 0;
+        for (const file of files) {
+          const [[rowCount]]: any = await dbPool.query(
+            "SELECT COUNT(*) as count FROM file_rows WHERE file_id = ?",
+            [file.id]
+          );
+          total += Number(rowCount?.count ?? 0);
+        }
+        return res.json({
+          answer: `There are ${total} rows across ${files.length} files.`,
+          intent: "rows",
+          value: total,
+        });
+      }
+
+      const aggregatedItems = new Map<string, number>();
+      let aggregatedValue = 0;
+      let aggregatedCount = 0;
+      let selectedColumnAny = "";
+      let matchedFilter: { column: string; value: string } | null = null;
+      let matchedFiles = 0;
+
+      for (const file of files) {
+        const columns = perFileColumns.get(file.id) || [];
+        if (columns.length === 0) continue;
+
+        const groupByColumn = findGroupByColumn(questionRaw, columns);
+        let filter = findFilter(questionRaw, columns);
+        let selectedColumn = filter?.column || pickColumn(questionNorm, columns);
+
+        if (!selectedColumn && intent.type === "count") {
+          const impliedValue = extractValueHint(questionRaw);
+          if (impliedValue) {
+            const inferred = await inferColumnByValue(dbPool, file.id, columns, impliedValue);
+            if (inferred?.column) {
+              selectedColumn = inferred.column;
+              filter = { column: inferred.column, value: inferred.value };
+            }
+          }
+        }
+
+        if (groupByColumn) {
+          const wantsTop = /\btop\b/.test(lowerQuestion);
+          const groupLimit = wantsTop ? intent.topN : 12;
+          const limit = Math.max(1, Math.min(20, groupLimit));
+          const groupExpr =
+            "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+          const groupPath = buildJsonPath(groupByColumn);
+          const groupMetric = intent.type === "distinct" ? "count" : intent.type;
+
+          if (["sum", "avg", "min", "max"].includes(groupMetric)) {
+            const measureQuestion = questionRaw.split(/\bby\b|\bper\b/)[0] || questionRaw;
+            const measureColumns = columns.filter((c) => c !== groupByColumn);
+            let measureColumn = pickColumn(normalizeText(measureQuestion), measureColumns);
+            if (!measureColumn) {
+              measureColumn = pickColumn(questionNorm, measureColumns);
+            }
+            if (!measureColumn) {
+              continue;
+            }
+
+            const measureExpr =
+              "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+            const sql = `
+              SELECT
+                groupValue as value,
+                SUM(CASE WHEN measureValue REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN 1 ELSE 0 END) as numericCount,
+                SUM(CASE WHEN measureValue REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(measureValue AS DECIMAL(20,6)) END) as sum,
+                AVG(CASE WHEN measureValue REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(measureValue AS DECIMAL(20,6)) END) as avg,
+                MIN(CASE WHEN measureValue REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(measureValue AS DECIMAL(20,6)) END) as min,
+                MAX(CASE WHEN measureValue REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(measureValue AS DECIMAL(20,6)) END) as max
+              FROM (
+                SELECT ${groupExpr} as groupValue, ${measureExpr} as measureValue
+                FROM file_rows
+                WHERE file_id = ?
+              ) t
+              WHERE groupValue IS NOT NULL
+              GROUP BY groupValue
+              HAVING numericCount > 0
+              ORDER BY ${groupMetric} ${groupMetric === "min" ? "ASC" : "DESC"}
+              LIMIT ?
+            `;
+            const [rows]: any = await dbPool.query(sql, [groupPath, buildJsonPath(measureColumn), file.id, limit]);
+            for (const row of rows || []) {
+              const value = String(row.value);
+              const next = Number(row[groupMetric] || 0);
+              aggregatedItems.set(value, (aggregatedItems.get(value) || 0) + next);
+            }
+            selectedColumnAny = measureColumn;
+            if (!matchedFilter && filter) matchedFilter = filter;
+            matchedFiles += 1;
+            continue;
+          }
+
+          const sql = `
+            SELECT groupValue as value, COUNT(*) as count
+            FROM (
+              SELECT ${groupExpr} as groupValue
+              FROM file_rows
+              WHERE file_id = ?
+            ) t
+            WHERE groupValue IS NOT NULL
+            GROUP BY groupValue
+            ORDER BY count DESC
+            LIMIT ?
+          `;
+          const [rows]: any = await dbPool.query(sql, [groupPath, file.id, limit]);
+          for (const row of rows || []) {
+            const value = String(row.value);
+            const next = Number(row.count || 0);
+            aggregatedItems.set(value, (aggregatedItems.get(value) || 0) + next);
+          }
+          selectedColumnAny = groupByColumn;
+          if (!matchedFilter && filter) matchedFilter = filter;
+          matchedFiles += 1;
+          continue;
+        }
+
+        if (!selectedColumn) continue;
+        selectedColumnAny = selectedColumn;
+        if (!matchedFilter && filter) matchedFilter = filter;
+
+        const jsonPath = buildJsonPath(selectedColumn);
+        const valueExpr =
+          "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+        const baseQuery = `SELECT ${valueExpr} as value FROM file_rows WHERE file_id = ?`;
+
+        if (intent.type === "count") {
+          const sql = filter?.value
+            ? `SELECT COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL AND LOWER(value) = LOWER(?)`
+            : `SELECT COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL`;
+          const params = filter?.value
+            ? [jsonPath, file.id, filter.value]
+            : [jsonPath, file.id];
+          const [[row]]: any = await dbPool.query(sql, params);
+          aggregatedValue += Number(row?.count ?? 0);
+          matchedFiles += 1;
+          continue;
+        }
+
+        if (intent.type === "distinct") {
+          const sql = `SELECT COUNT(DISTINCT value) as count FROM (${baseQuery}) t WHERE value IS NOT NULL`;
+          const [[row]]: any = await dbPool.query(sql, [jsonPath, file.id]);
+          aggregatedValue += Number(row?.count ?? 0);
+          matchedFiles += 1;
+          continue;
+        }
+
+        if (intent.type === "top") {
+          const sql = `SELECT value, COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL GROUP BY value ORDER BY count DESC LIMIT ?`;
+          const [rows]: any = await dbPool.query(sql, [jsonPath, file.id, intent.topN]);
+          for (const row of rows || []) {
+            const value = String(row.value);
+            const next = Number(row.count || 0);
+            aggregatedItems.set(value, (aggregatedItems.get(value) || 0) + next);
+          }
+          matchedFiles += 1;
+          continue;
+        }
+
+        if (["sum", "avg", "min", "max"].includes(intent.type)) {
+          const sql = `
+            SELECT
+              COUNT(*) as total,
+              SUM(CASE WHEN value REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN 1 ELSE 0 END) as numericCount,
+              SUM(CASE WHEN value REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(value AS DECIMAL(20,6)) ELSE 0 END) as sum,
+              AVG(CASE WHEN value REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(value AS DECIMAL(20,6)) END) as avg,
+              MIN(CASE WHEN value REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(value AS DECIMAL(20,6)) END) as min,
+              MAX(CASE WHEN value REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(value AS DECIMAL(20,6)) END) as max
+            FROM (${baseQuery}) t
+            WHERE value IS NOT NULL
+          `;
+          const [[row]]: any = await dbPool.query(sql, [jsonPath, file.id]);
+          const numericCount = Number(row?.numericCount ?? 0);
+          if (numericCount === 0) continue;
+          matchedFiles += 1;
+          aggregatedCount += numericCount;
+          if (intent.type === "sum") {
+            aggregatedValue += Number(row.sum || 0);
+          } else if (intent.type === "avg") {
+            aggregatedValue += Number(row.avg || 0) * numericCount;
+          } else if (intent.type === "min") {
+            const value = Number(row.min);
+            if (Number.isFinite(value)) {
+              aggregatedValue = aggregatedCount === numericCount ? value : Math.min(aggregatedValue, value);
+            }
+          } else if (intent.type === "max") {
+            const value = Number(row.max);
+            if (Number.isFinite(value)) {
+              aggregatedValue = aggregatedCount === numericCount ? value : Math.max(aggregatedValue, value);
+            }
+          }
+        }
+      }
+
+      if (matchedFiles === 0) {
+        return res.json({
+          answer:
+            "I could not match a column across your files. Try mentioning a column name from Data Explorer.",
+          intent: "unknown",
+        });
+      }
+
+      if (intent.type === "top" || intent.type === "group") {
+        const items = Array.from(aggregatedItems.entries())
+          .map(([value, count]) => ({ value, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, intent.topN);
+        const list = items.length
+          ? items.map((item) => `${item.value} (${item.count})`).join(", ")
+          : "No values found.";
+        return res.json({
+          answer: `Across ${matchedFiles} files, top values of "${selectedColumnAny}": ${list}`,
+          intent: intent.type,
+          column: selectedColumnAny,
+          items,
+        });
+      }
+
+      if (intent.type === "count") {
+        const target = matchedFilter?.value ? `"${matchedFilter.value}"` : `non-empty "${selectedColumnAny}"`;
+        return res.json({
+          answer: `There are ${aggregatedValue} rows with ${target} across ${matchedFiles} files.`,
+          intent: "count",
+          column: selectedColumnAny,
+          filter: matchedFilter?.value ? { value: matchedFilter.value } : null,
+          value: aggregatedValue,
+        });
+      }
+
+      if (intent.type === "distinct") {
+        return res.json({
+          answer: `"${selectedColumnAny}" has ${aggregatedValue} distinct values across ${matchedFiles} files.`,
+          intent: "distinct",
+          column: selectedColumnAny,
+          value: aggregatedValue,
+        });
+      }
+
+      if (intent.type === "sum") {
+        return res.json({
+          answer: `The total of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(aggregatedValue)}.`,
+          intent: "sum",
+          column: selectedColumnAny,
+          value: aggregatedValue,
+        });
+      }
+
+      if (intent.type === "avg") {
+        const avgValue = aggregatedCount > 0 ? aggregatedValue / aggregatedCount : 0;
+        return res.json({
+          answer: `The average of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(avgValue)}.`,
+          intent: "avg",
+          column: selectedColumnAny,
+          value: avgValue,
+        });
+      }
+
+      if (intent.type === "min") {
+        return res.json({
+          answer: `The minimum of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(aggregatedValue)}.`,
+          intent: "min",
+          column: selectedColumnAny,
+          value: aggregatedValue,
+        });
+      }
+
+      if (intent.type === "max") {
+        return res.json({
+          answer: `The maximum of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(aggregatedValue)}.`,
+          intent: "max",
+          column: selectedColumnAny,
+          value: aggregatedValue,
+        });
+      }
     }
 
     const [[fileRow]]: any = await dbPool.query(

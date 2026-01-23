@@ -9,7 +9,7 @@ export function adminUserRoutes(dbPool: Pool) {
 
   router.get("/", listUsers(dbPool));
   router.post("/", createUser(dbPool));
-  router.put(":id", updateUser(dbPool));
+  router.put("/:id", updateUser(dbPool));
   router.put("/:id/role", updateUserRole(dbPool));
   router.put("/:id/status", updateUserStatus(dbPool));
 

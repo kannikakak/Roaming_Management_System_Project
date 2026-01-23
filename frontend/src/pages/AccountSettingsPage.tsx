@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { apiFetch, clearAuthToken } from "../utils/api";
+import { apiFetch, clearAuthToken, clearRefreshToken } from "../utils/api";
 
 const AccountSettingsPage: React.FC = () => {
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -211,6 +211,7 @@ const AccountSettingsPage: React.FC = () => {
 
   const handleLogout = () => {
     clearAuthToken();
+    clearRefreshToken();
     localStorage.removeItem("authUser");
     window.location.href = "/login";
   };

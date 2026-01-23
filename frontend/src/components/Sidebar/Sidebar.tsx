@@ -29,8 +29,8 @@ const navItems = [
   { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
   { label: 'Delivery History', icon: <History size={20} />, path: '/delivery-history' },
   { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
-  { label: 'Users', icon: <Users size={20} />, path: '/users' },
-  { label: 'System Health', icon: <ShieldCheck size={20} />, path: '/system-health' },
+  { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
+  { label: 'System Health', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
   { label: 'Account', icon: <User size={20} />, path: '/account' },
 ];
 
@@ -40,6 +40,11 @@ const Sidebar: React.FC = () => {
   const storedUser = localStorage.getItem("authUser");
   const user = storedUser ? JSON.parse(storedUser) : null;
   const avatar = user?.profileImageUrl || null;
+  const userRoles = Array.isArray(user?.roles)
+    ? user.roles
+    : user?.role
+      ? [user.role]
+      : [];
   const initials = user?.name
     ? user.name
         .split(" ")
@@ -51,6 +56,7 @@ const Sidebar: React.FC = () => {
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
+    localStorage.removeItem("refreshToken");
     localStorage.removeItem("authUser");
     navigate("/login");
   };
@@ -64,15 +70,20 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
       <nav className="flex-1 px-2 space-y-1">
-        {navItems.map(item => (
-          <SidebarItem
-            key={item.label}
-            icon={item.icon}
-            label={item.label}
-            active={location.pathname.startsWith(item.path)}
-            onClick={() => navigate(item.path)}
-          />
-        ))}
+        {navItems
+          .filter((item) => {
+            if (!item.roles || item.roles.length === 0) return true;
+            return userRoles.some((role: string) => item.roles?.includes(role));
+          })
+          .map(item => (
+            <SidebarItem
+              key={item.label}
+              icon={item.icon}
+              label={item.label}
+              active={location.pathname.startsWith(item.path)}
+              onClick={() => navigate(item.path)}
+            />
+          ))}
       </nav>
       <div className="px-4 pb-6 mt-auto">
         <div className="bg-white/80 border border-amber-100 rounded-xl p-3 shadow-sm">

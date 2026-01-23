@@ -25,7 +25,6 @@ const AiChartsPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [fileId, setFileId] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [qaItems, setQaItems] = useState<QaItem[]>([]);
@@ -49,14 +48,13 @@ const AiChartsPage: React.FC = () => {
     setError("");
   };
 
-  const buildKey = (activeFileId: number | null, text: string) =>
-    `${activeFileId ?? "none"}:${text.trim().toLowerCase()}`;
+  const buildKey = (activeProjectId: number | null, text: string) =>
+    `${activeProjectId ?? "none"}:${text.trim().toLowerCase()}`;
 
   const loadFiles = useCallback(
     async (options: { keepSelection?: boolean } = {}) => {
       if (!projectId) {
         setFiles([]);
-        setFileId(null);
         return;
       }
       try {
@@ -66,20 +64,15 @@ const AiChartsPage: React.FC = () => {
         setFiles(nextFiles);
 
         if (nextFiles.length === 0) {
-          setFileId(null);
           return;
         }
 
-        const selectedExists = nextFiles.some((f: FileItem) => f.id === fileId);
-        if (options.keepSelection && selectedExists) return;
-        if (!selectedExists) {
-          setFileId(nextFiles[0].id);
-        }
+        if (options.keepSelection) return;
       } catch {
         setFiles([]);
       }
     },
-    [projectId, fileId]
+    [projectId]
   );
 
   useEffect(() => {
@@ -115,7 +108,7 @@ const AiChartsPage: React.FC = () => {
     setLoading(false);
     resetQaState();
     lastAskedKeyRef.current = "";
-  }, [fileId]);
+  }, [projectId]);
 
   const chartData = useMemo(
     () =>
@@ -127,9 +120,9 @@ const AiChartsPage: React.FC = () => {
   );
 
   const submitQuestion = async (raw: string, options: { force?: boolean } = {}) => {
-    if (!fileId) {
+    if (!projectId) {
       resetQaState();
-      setError("Select a file first.");
+      setError("Select a project first.");
       return;
     }
     const trimmed = raw.trim();
@@ -139,7 +132,7 @@ const AiChartsPage: React.FC = () => {
       return;
     }
 
-    const key = buildKey(fileId, trimmed);
+    const key = buildKey(projectId, trimmed);
     if (!options.force && key === lastAskedKeyRef.current) {
       return;
     }
@@ -154,7 +147,7 @@ const AiChartsPage: React.FC = () => {
     try {
       const res = await apiFetch("/api/data-qa/ask", {
         method: "POST",
-        body: JSON.stringify({ fileId, question: trimmed }),
+        body: JSON.stringify({ projectId, question: trimmed }),
         signal: controller.signal,
       });
       const data = await res.json();
@@ -200,10 +193,10 @@ const AiChartsPage: React.FC = () => {
 
   useEffect(() => {
     if (!autoAsk) return;
-    if (!fileId) return;
+    if (!projectId) return;
     const trimmed = question.trim();
     if (!trimmed) return;
-    const key = buildKey(fileId, trimmed);
+    const key = buildKey(projectId, trimmed);
     if (key === lastAskedKeyRef.current) return;
 
     if (debounceRef.current) {
@@ -218,7 +211,7 @@ const AiChartsPage: React.FC = () => {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [autoAsk, fileId, question]);
+  }, [autoAsk, projectId, question]);
 
   useEffect(() => {
     return () => {
@@ -268,20 +261,13 @@ const AiChartsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-gray-600">File</label>
+              <label className="text-xs font-semibold text-gray-600">Files</label>
               <div className="flex items-center gap-2">
-                <select
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={fileId ?? ""}
-                  onChange={(e) => setFileId(Number(e.target.value))}
-                  disabled={files.length === 0}
-                >
-                  {files.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="w-full border rounded-lg px-3 py-2 text-sm text-gray-700 bg-gray-50">
+                  {files.length === 0
+                    ? "No files uploaded yet"
+                    : `All ${files.length} uploaded files in this project`}
+                </div>
                 <button
                   type="button"
                   onClick={() => loadFiles({ keepSelection: true })}
@@ -317,18 +303,18 @@ const AiChartsPage: React.FC = () => {
         <div className="bg-white border rounded-2xl p-5">
           <form onSubmit={askQuestion} className="space-y-3">
             <div className="flex flex-col md:flex-row gap-3">
-              <input
-                className="flex-1 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
-                placeholder="Example: Top 5 values of Service"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                disabled={files.length === 0}
-              />
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-semibold shadow disabled:opacity-60"
-                disabled={loading || files.length === 0}
-              >
+                <input
+                  className="flex-1 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  placeholder="Example: Top 5 values of Service"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  disabled={files.length === 0}
+                />
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-semibold shadow disabled:opacity-60"
+                  disabled={loading || files.length === 0}
+                >
                 {loading ? "Asking..." : "Ask"}
               </button>
             </div>
