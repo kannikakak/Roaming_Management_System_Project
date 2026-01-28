@@ -232,3 +232,53 @@ CREATE TABLE IF NOT EXISTS collaboration_sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS ingestion_sources (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  type VARCHAR(16) NOT NULL,
+  connection_config JSON NOT NULL,
+  file_pattern VARCHAR(255) NULL,
+  poll_interval_minutes INT NOT NULL DEFAULT 5,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  project_id INT NOT NULL,
+  last_scan_at DATETIME NULL,
+  last_error TEXT NULL,
+  created_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS ingestion_files (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source_id INT NOT NULL,
+  remote_path VARCHAR(1024) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_size BIGINT NOT NULL DEFAULT 0,
+  last_modified DATETIME NULL,
+  checksum_sha256 CHAR(64) NULL,
+  staging_path VARCHAR(1024) NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'NEW',
+  error_message TEXT NULL,
+  first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at DATETIME NULL,
+  FOREIGN KEY (source_id) REFERENCES ingestion_sources(id) ON DELETE CASCADE,
+  INDEX idx_ingestion_files_source (source_id),
+  INDEX idx_ingestion_files_status (status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS ingestion_jobs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source_id INT NOT NULL,
+  file_id INT NOT NULL,
+  attempt INT NOT NULL DEFAULT 1,
+  started_at DATETIME NULL,
+  finished_at DATETIME NULL,
+  result VARCHAR(16) NULL,
+  logs_reference VARCHAR(512) NULL,
+  FOREIGN KEY (source_id) REFERENCES ingestion_sources(id) ON DELETE CASCADE,
+  FOREIGN KEY (file_id) REFERENCES ingestion_files(id) ON DELETE CASCADE,
+  INDEX idx_ingestion_jobs_result (result)
+) ENGINE=InnoDB;

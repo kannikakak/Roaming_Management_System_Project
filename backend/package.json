@@ -6,7 +6,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "encrypt-rows": "ts-node scripts/encrypt-existing-rows.ts"
+    "encrypt-rows": "ts-node scripts/encrypt-existing-rows.ts",
+    "ingest-watch": "ts-node src/workers/ingestionWatcher.ts"
   },
   "dependencies": {
     "axios": "^1.13.2",

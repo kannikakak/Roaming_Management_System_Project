@@ -20,12 +20,17 @@ const getPreferredTheme = (): Theme => {
 };
 
 const applyThemeClass = (theme: Theme) => {
-  const root = document.documentElement;
-  if (theme === "dark") {
-    root.classList.add("dark");
-  } else {
-    root.classList.remove("dark");
-  }
+  const toggleClass = (el: HTMLElement | null) => {
+    if (!el) return;
+    if (theme === "dark") {
+      el.classList.add("dark");
+    } else {
+      el.classList.remove("dark");
+    }
+  };
+
+  toggleClass(document.documentElement);
+  toggleClass(document.body);
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

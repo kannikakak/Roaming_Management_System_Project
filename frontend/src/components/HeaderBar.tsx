@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Bell, Moon, Search, Sun } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import { apiFetch } from "../utils/api";
-import { useTheme } from "../theme/ThemeProvider";
+import ThemeToggle from "./ThemeToggle";
 
 const titleMap: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -41,7 +41,6 @@ const HeaderBar: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const { theme, toggleTheme } = useTheme();
 
   const title = useMemo(() => {
     const path = location.pathname;
@@ -110,17 +109,7 @@ const HeaderBar: React.FC = () => {
           </form>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={toggleTheme}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-amber-200 bg-white hover:bg-amber-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {theme === "dark" ? (
-              <Sun className="w-5 h-5 text-amber-400" />
-            ) : (
-              <Moon className="w-5 h-5 text-amber-700" />
-            )}
-          </button>
+          <ThemeToggle className="w-10 h-10" />
           <div className="relative">
           <button
             className="relative inline-flex items-center justify-center w-10 h-10 rounded-full border border-amber-200 bg-white hover:bg-amber-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"

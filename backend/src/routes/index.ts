@@ -19,6 +19,7 @@ import { collabRoutes } from "./collabRoutes";
 import { dataQaRoutes } from "./dataQaRoutes";
 import { searchRoutes } from "./searchRoutes";
 import { exportRoutes } from "./exportRoutes";
+import { ingestionSourceRoutes } from "./ingestionSourceRoutes";
 // ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -82,4 +83,7 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // ? Export PPTX
   app.use("/api/export", exportPptxRoutes);
+
+  // Ingestion sources
+  app.use("/api/sources", ingestionSourceRoutes(dbPool));
 };

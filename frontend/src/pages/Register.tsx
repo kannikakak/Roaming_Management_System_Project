@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail, User, Shield, UserCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import ThemeToggle from '../components/ThemeToggle';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -65,23 +66,26 @@ const Register = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-amber-50 via-white to-amber-100">
-      <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-xl p-8 space-y-8">
+    <div className="relative min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-amber-50 via-white to-amber-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle className="w-10 h-10" />
+      </div>
+      <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-xl p-8 space-y-8 border border-amber-100 dark:border-white/10 dark:bg-gray-900/80 dark:text-gray-100">
         <div className="flex flex-col items-center">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-amber-100 rounded-xl mb-4">
             <Shield className="w-8 h-8 text-amber-600" />
           </div>
-          <h2 className="text-3xl font-bold text-amber-600 mb-1">Cellcard</h2>
-          <h3 className="text-xl font-semibold text-amber-500 mb-2">Roaming Analytics Platform</h3>
-          <p className="text-gray-500 text-sm mb-2">Sign up to manage your telecom data</p>
+          <h2 className="text-3xl font-bold text-amber-600 mb-1 dark:text-amber-300">Cellcard</h2>
+          <h3 className="text-xl font-semibold text-amber-500 mb-2 dark:text-amber-300">Roaming Analytics Platform</h3>
+          <p className="text-gray-500 text-sm mb-2 dark:text-gray-300">Sign up to manage your telecom data</p>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">Welcome!</h1>
-          <p className="text-sm text-gray-600 text-center mb-6">Create your account to access the dashboard</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome!</h1>
+          <p className="text-sm text-gray-600 text-center mb-6 dark:text-gray-300">Create your account to access the dashboard</p>
         </div>
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 p-3 mb-2 text-center">
-            <span className="text-sm text-red-700">{error}</span>
+          <div className="rounded-lg bg-red-50 border border-red-200 p-3 mb-2 text-center dark:bg-red-900/60 dark:border-red-400/50">
+            <span className="text-sm text-red-700 dark:text-red-200">{error}</span>
           </div>
         )}
         <div className="space-y-4">
@@ -92,7 +96,7 @@ const Register = () => {
               type="text"
               value={formData.name}
               onChange={handleChange}
-              className="block w-full rounded-lg border border-gray-300 pl-10 pr-3 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition"
+              className="block w-full rounded-lg border border-gray-300 pl-10 pr-3 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
               placeholder="Full Name"
             />
             <span className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -106,7 +110,7 @@ const Register = () => {
               type="email"
               value={formData.email}
               onChange={handleChange}
-              className="block w-full rounded-lg border border-gray-300 pl-10 pr-3 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition"
+              className="block w-full rounded-lg border border-gray-300 pl-10 pr-3 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
               placeholder="Email Address"
             />
             <span className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -120,7 +124,7 @@ const Register = () => {
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
               onChange={handleChange}
-              className="block w-full rounded-lg border border-gray-300 pl-10 pr-12 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition"
+              className="block w-full rounded-lg border border-gray-300 pl-10 pr-12 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
               placeholder="Password (min 8 chars)"
             />
             <span className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -141,7 +145,7 @@ const Register = () => {
               type={showConfirmPassword ? 'text' : 'password'}
               value={formData.confirmPassword}
               onChange={handleChange}
-              className="block w-full rounded-lg border border-gray-300 pl-10 pr-12 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition"
+              className="block w-full rounded-lg border border-gray-300 pl-10 pr-12 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
               placeholder="Confirm Password"
             />
             <span className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -161,7 +165,7 @@ const Register = () => {
               name="role"
               value={formData.role}
               onChange={handleChange}
-              className="block w-full rounded-lg border border-gray-300 pl-10 pr-10 py-3 text-gray-900 focus:border-amber-500 focus:ring-amber-500 transition bg-white"
+              className="block w-full rounded-lg border border-gray-300 pl-10 pr-10 py-3 text-gray-900 focus:border-amber-500 focus:ring-amber-500 transition bg-white dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-500"
             >
               {roles.map(role => (
                 <option key={role.value} value={role.value}>
@@ -185,10 +189,21 @@ const Register = () => {
               type="checkbox"
               className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
             />
-            <label htmlFor="terms" className="ml-2 text-sm text-gray-600">
+            <label htmlFor="terms" className="ml-2 text-sm text-gray-600 dark:text-gray-300">
               I agree to the{' '}
-              <button type="button" className="text-amber-600 underline hover:text-amber-700">Terms</button> &amp;{' '}
-              <button type="button" className="text-amber-600 underline hover:text-amber-700">Privacy</button>
+              <button
+                type="button"
+                className="text-amber-600 underline hover:text-amber-700 dark:text-amber-300 dark:hover:text-amber-200"
+              >
+                Terms
+              </button>{' '}
+              &amp;{' '}
+              <button
+                type="button"
+                className="text-amber-600 underline hover:text-amber-700 dark:text-amber-300 dark:hover:text-amber-200"
+              >
+                Privacy
+              </button>
             </label>
           </div>
           <button

@@ -41,6 +41,9 @@ type QualityMetrics = {
   totalColumns: number;
 };
 
+type IngestFileInput = Pick<Express.Multer.File, "path" | "originalname"> &
+  Partial<Pick<Express.Multer.File, "mimetype" | "size" | "filename" | "destination" | "fieldname" | "encoding">>;
+
 const parseCsvStream = (filePath: string, fileName: string, config: UploadConfig) =>
   new Promise<ParsedFile>((resolve, reject) => {
     const rows: any[] = [];
@@ -283,96 +286,37 @@ const insertRowsInBatches = async (
   }
 };
 
-// List files for a project (GET /api/files?projectId=...)
-export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const rawProjectId = req.query.projectId as string | undefined;
-  const rawCardId = req.query.cardId as string | undefined;
-
-  // Resolve projectId; many callers pass cardId by mistake
-  let projectIdNum: number | null = null;
-  try {
-    if (rawProjectId) {
-      const n = Number(rawProjectId);
-      projectIdNum = Number.isFinite(n) ? n : null;
-    } else if (rawCardId) {
-      const cardNum = Number(rawCardId);
-      if (Number.isFinite(cardNum)) {
-        const [rows]: any = await dbPool.query(
-          "SELECT project_id FROM cards WHERE id = ? LIMIT 1",
-          [cardNum]
-        );
-        projectIdNum = rows?.[0]?.project_id ?? null;
-      }
-    }
-
-    if (!projectIdNum) {
-      return res.status(400).json({ message: "Missing or invalid projectId/cardId" });
-    }
-
-    await ensureQualityTable(dbPool);
-    const [rows]: any = await dbPool.query(
-      `SELECT f.id, f.name, f.file_type as fileType, f.uploaded_at as uploadedAt,
-              q.score as qualityScore, q.trust_level as trustLevel
-       FROM files f
-       LEFT JOIN data_quality_scores q ON q.file_id = f.id
-       WHERE f.project_id = ?
-       ORDER BY f.uploaded_at DESC`,
-      [projectIdNum]
-    );
-    res.json({ files: rows });
-  } catch {
-    res.status(500).json({ message: "Database error." });
+const ingestFiles = async (
+  dbPool: Pool,
+  projectId: number,
+  files: IngestFileInput[],
+  uploadSchema: ReturnType<typeof resolveUploadSchema>,
+  options: { emitNotifications?: boolean } = {}
+) => {
+  if (!files || files.length === 0) {
+    throw new Error("Missing files");
   }
-};
 
-// Upload files (POST /api/files/upload)
-export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { projectId: rawProjectId, cardId: rawCardId } = req.body || {};
   const uploadConfig = getUploadConfig();
-  const uploadSchema = resolveUploadSchema(req.body || {});
   const encryptionKey = getEncryptionKey();
-
-  // Accept either projectId or cardId; resolve to projectId
-  let projectId: number | null = null;
-  if (rawProjectId != null) {
-    const n = Number(rawProjectId);
-    projectId = Number.isFinite(n) ? n : null;
-  } else if (rawCardId != null) {
-    const cardNum = Number(rawCardId);
-    if (Number.isFinite(cardNum)) {
-      try {
-        const [rows]: any = await dbPool.query(
-          "SELECT project_id FROM cards WHERE id = ? LIMIT 1",
-          [cardNum]
-        );
-        projectId = rows?.[0]?.project_id ?? null;
-      } catch {
-        projectId = null;
-      }
-    }
-  }
-
-  if (!req.files || !Array.isArray(req.files) || !projectId) {
-    return res.status(400).json({ message: "Missing files or projectId/cardId" });
-  }
-
   const overallStart = Date.now();
   const createdFiles: any[] = [];
-  const settings = await getNotificationSettings(dbPool);
+  const emitNotifications = options.emitNotifications !== false;
+  const settings = emitNotifications ? await getNotificationSettings(dbPool) : null;
   await ensureQualityTable(dbPool);
 
   const committedPaths = new Set<string>();
   const usedNames = new Set<string>();
   const resolveUniqueName = async (
     connection: any,
-    projectId: number,
+    projectIdArg: number,
     desired: string
   ): Promise<string> => {
     const normalized = desired.trim();
     if (!usedNames.has(normalized)) {
       const [[existing]]: any = await connection.query(
         "SELECT id FROM files WHERE project_id = ? AND name = ? LIMIT 1",
-        [projectId, normalized]
+        [projectIdArg, normalized]
       );
       if (!existing?.id) {
         usedNames.add(normalized);
@@ -387,7 +331,7 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
       if (usedNames.has(candidate)) continue;
       const [[existing]]: any = await connection.query(
         "SELECT id FROM files WHERE project_id = ? AND name = ? LIMIT 1",
-        [projectId, candidate]
+        [projectIdArg, candidate]
       );
       if (!existing?.id) {
         usedNames.add(candidate);
@@ -396,9 +340,10 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
     }
     throw new Error(`File name already exists: ${normalized}`);
   };
+
   try {
     const prepared: Array<{
-      file: Express.Multer.File;
+      file: IngestFileInput;
       safeName: string;
       fileType: string;
       columns: string[];
@@ -408,7 +353,7 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
       timings: FileTimings;
     }> = [];
 
-    for (const file of req.files as Express.Multer.File[]) {
+    for (const file of files) {
       const fileStart = Date.now();
       const safeName = sanitizeFileName(file.originalname);
       const fileType = path.extname(safeName).replace(".", "").toLowerCase() || "unknown";
@@ -419,7 +364,7 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
         throw new Error(scanResult.error || "Malware scan failed");
       }
 
-      const parsed = await parseFile(file, uploadConfig);
+      const parsed = await parseFile(file as Express.Multer.File, uploadConfig);
       const parseMs = Date.now() - fileStart;
       const normalized = validateAndNormalizeData(parsed.columns, parsed.rows, uploadSchema, uploadConfig);
       const validateMs = Date.now() - fileStart - parseMs;
@@ -527,7 +472,7 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
           trustLevel: entry.quality.trustLevel,
         });
 
-        if (settings.in_app_enabled) {
+        if (settings?.in_app_enabled) {
           await connection.query(
             "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
             [
@@ -562,24 +507,22 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
     console.log(
       `[ingest] upload complete files=${prepared.length} created=${createdFiles.length} total=${totalMs}ms`
     );
-    res.json({
+    return {
       files: createdFiles,
       metrics: {
         totalMs,
         files: metricsByFile,
       },
-    });
+    };
   } catch (err: any) {
     console.error("Upload error:", err);
-    if (req.files && Array.isArray(req.files)) {
-      await Promise.all(
-        (req.files as Express.Multer.File[]).map((file) => {
-          if (committedPaths.has(file.path)) return Promise.resolve();
-          return fsPromises.unlink(file.path).catch(() => undefined);
-        })
-      );
-    }
-    if (settings.in_app_enabled) {
+    await Promise.all(
+      files.map((file) => {
+        if (committedPaths.has(file.path)) return Promise.resolve();
+        return fsPromises.unlink(file.path).catch(() => undefined);
+      })
+    );
+    if (settings?.in_app_enabled) {
       try {
         await dbPool.execute(
           "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
@@ -597,8 +540,98 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
     const message = err?.message || String(err);
     const isValidationError =
       /invalid|missing|unexpected|unsupported|malware|scan|clamscan|enoent|too many/i.test(message);
-    res.status(isValidationError ? 400 : 500).json({ message, error: err.message || err });
+    const error: any = new Error(message);
+    (error as any).statusCode = isValidationError ? 400 : 500;
+    throw error;
   }
+};
+
+// List files for a project (GET /api/files?projectId=...)
+export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const rawProjectId = req.query.projectId as string | undefined;
+  const rawCardId = req.query.cardId as string | undefined;
+
+  // Resolve projectId; many callers pass cardId by mistake
+  let projectIdNum: number | null = null;
+  try {
+    if (rawProjectId) {
+      const n = Number(rawProjectId);
+      projectIdNum = Number.isFinite(n) ? n : null;
+    } else if (rawCardId) {
+      const cardNum = Number(rawCardId);
+      if (Number.isFinite(cardNum)) {
+        const [rows]: any = await dbPool.query(
+          "SELECT project_id FROM cards WHERE id = ? LIMIT 1",
+          [cardNum]
+        );
+        projectIdNum = rows?.[0]?.project_id ?? null;
+      }
+    }
+
+    if (!projectIdNum) {
+      return res.status(400).json({ message: "Missing or invalid projectId/cardId" });
+    }
+
+    await ensureQualityTable(dbPool);
+    const [rows]: any = await dbPool.query(
+      `SELECT f.id, f.name, f.file_type as fileType, f.uploaded_at as uploadedAt,
+              q.score as qualityScore, q.trust_level as trustLevel
+       FROM files f
+       LEFT JOIN data_quality_scores q ON q.file_id = f.id
+       WHERE f.project_id = ?
+       ORDER BY f.uploaded_at DESC`,
+      [projectIdNum]
+    );
+    res.json({ files: rows });
+  } catch {
+    res.status(500).json({ message: "Database error." });
+  }
+};
+
+// Upload files (POST /api/files/upload)
+export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { projectId: rawProjectId, cardId: rawCardId } = req.body || {};
+  const uploadSchema = resolveUploadSchema(req.body || {});
+
+  // Accept either projectId or cardId; resolve to projectId
+  let projectId: number | null = null;
+  if (rawProjectId != null) {
+    const n = Number(rawProjectId);
+    projectId = Number.isFinite(n) ? n : null;
+  } else if (rawCardId != null) {
+    const cardNum = Number(rawCardId);
+    if (Number.isFinite(cardNum)) {
+      try {
+        const [rows]: any = await dbPool.query(
+          "SELECT project_id FROM cards WHERE id = ? LIMIT 1",
+          [cardNum]
+        );
+        projectId = rows?.[0]?.project_id ?? null;
+      } catch {
+        projectId = null;
+      }
+    }
+  }
+
+  if (!req.files || !Array.isArray(req.files) || !projectId) {
+    return res.status(400).json({ message: "Missing files or projectId/cardId" });
+  }
+  try {
+    const result = await ingestFiles(dbPool, projectId, req.files as Express.Multer.File[], uploadSchema);
+    res.json(result);
+  } catch (err: any) {
+    const status = err?.statusCode && Number.isFinite(err.statusCode) ? err.statusCode : 500;
+    res.status(status).json({ message: err?.message || "Upload failed", error: err?.message || err });
+  }
+};
+
+export const ingestFilesFromDisk = async (
+  dbPool: Pool,
+  projectId: number,
+  files: IngestFileInput[]
+) => {
+  const uploadSchema = resolveUploadSchema({});
+  return ingestFiles(dbPool, projectId, files, uploadSchema, { emitNotifications: false });
 };
 
 // Get file data (GET /api/files/:fileId/data)
