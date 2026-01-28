@@ -17,6 +17,8 @@ import { adminUserRoutes } from "./adminUserRoutes";
 import { systemRoutes } from "./systemRoutes";
 import { collabRoutes } from "./collabRoutes";
 import { dataQaRoutes } from "./dataQaRoutes";
+import { searchRoutes } from "./searchRoutes";
+import { exportRoutes } from "./exportRoutes";
 // ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -71,6 +73,12 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Data Q&A
   app.use("/api/data-qa", dataQaRoutes(dbPool));
+
+  // Global search
+  app.use("/api/search", searchRoutes(dbPool));
+
+  // Data export (excel/pdf/png/json/xml)
+  app.use("/api/export", exportRoutes(dbPool));
 
   // ? Export PPTX
   app.use("/api/export", exportPptxRoutes);

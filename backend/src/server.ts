@@ -17,6 +17,14 @@ dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+app.set("trust proxy", 1);
+const requireEncryption =
+  String(process.env.DATA_ENCRYPTION_REQUIRED || "").toLowerCase() === "true" ||
+  String(process.env.NODE_ENV || "").toLowerCase() === "production";
+if (requireEncryption && !process.env.DATA_ENCRYPTION_KEY) {
+  console.error("❌ DATA_ENCRYPTION_KEY is required in production.");
+  process.exit(1);
+}
 
 // ✅ CORS
 app.use(cors());
@@ -24,6 +32,15 @@ app.use(cors());
 // ✅ IMPORTANT: big JSON because chart images are base64
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+if (String(process.env.FORCE_HTTPS || "").toLowerCase() === "true") {
+  app.use((req, res, next) => {
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    const isSecure = req.secure || forwardedProto === "https";
+    if (isSecure) return next();
+    return res.status(403).json({ message: "HTTPS required" });
+  });
+}
 
 // ✅ Serve uploads folder (for saved slide images)
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));

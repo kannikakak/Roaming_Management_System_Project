@@ -1,5 +1,6 @@
 import { Pool } from "mysql2/promise";
 import { getNotificationSettings } from "./notificationSettings";
+import { loadRetentionConfig, runDataRetention } from "./dataRetention";
 import {
   isEmailReady,
   isTeamsReady,
@@ -24,6 +25,10 @@ export type ScheduleRow = {
   recipients_email: string | null;
   recipients_telegram: string | null;
   file_format: string;
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
+  attachment_size?: number | null;
   is_active: number;
   last_run_at: string | null;
   next_run_at: string;
@@ -87,12 +92,13 @@ async function createNotification(
 }
 
 export async function runDueSchedules(dbPool: Pool) {
-  const [rows] = await dbPool.query<ScheduleRow[]>(
+  const [rows]: any = await dbPool.query(
     "SELECT * FROM report_schedules WHERE is_active = 1 AND next_run_at <= NOW()"
   );
   const settings = await getNotificationSettings(dbPool);
 
-  for (const schedule of rows) {
+  const schedules: ScheduleRow[] = Array.isArray(rows) ? rows : [];
+  for (const schedule of schedules) {
     try {
       const recipientsEmail = schedule.recipients_email
         ? JSON.parse(schedule.recipients_email)
@@ -104,14 +110,34 @@ export async function runDueSchedules(dbPool: Pool) {
       const message = `Scheduled delivery: ${schedule.name} (${schedule.frequency})`;
       const subject = `Schedule: ${schedule.name}`;
       const attachment = await loadAttachmentFromSchedule(schedule);
-      if (schedule.attachment_path && !attachment && settings.in_app_enabled) {
-        await createNotification(dbPool, "schedule_error", "system", "Attachment missing", {
-          scheduleId: schedule.id,
-          file: schedule.attachment_name,
-        });
+      const attachmentMissing = Boolean(schedule.attachment_path && !attachment);
+      if (attachmentMissing) {
+        if (settings.in_app_enabled) {
+          await createNotification(dbPool, "schedule_error", "system", "Attachment missing", {
+            scheduleId: schedule.id,
+            file: schedule.attachment_name,
+          });
+        }
+        // Do not attempt deliveries (or emit delivery notifications) when the
+        // schedule expects an attachment that no longer exists.
+        const nextRunOnMissingAttachment = computeNextRunAt(
+          schedule.frequency,
+          schedule.time_of_day,
+          new Date(),
+          schedule.day_of_week,
+          schedule.day_of_month
+        );
+        await dbPool.execute(
+          "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
+          [nextRunOnMissingAttachment, schedule.id]
+        );
+        continue;
       }
 
+      let deliveryAttempts = 0;
+
       if (settings.email_enabled && isEmailReady && recipientsEmail.length > 0) {
+        deliveryAttempts += 1;
         const result = await sendEmail(recipientsEmail, subject, message, attachment || undefined);
         await createNotification(dbPool, "schedule_delivery", "email", message, {
           scheduleId: schedule.id,
@@ -123,6 +149,7 @@ export async function runDueSchedules(dbPool: Pool) {
       }
 
       if (settings.telegram_enabled && isTelegramReady && recipientsTelegram.length > 0) {
+        deliveryAttempts += 1;
         const result = await sendTelegram(recipientsTelegram, message, attachment || undefined);
         await createNotification(dbPool, "schedule_delivery", "telegram", message, {
           scheduleId: schedule.id,
@@ -134,6 +161,7 @@ export async function runDueSchedules(dbPool: Pool) {
       }
 
       if (isTeamsReady) {
+        deliveryAttempts += 1;
         const teamsResult = await sendTeams(message, attachment || undefined);
         await createNotification(dbPool, "schedule_delivery", "teams", message, {
           scheduleId: schedule.id,
@@ -143,7 +171,7 @@ export async function runDueSchedules(dbPool: Pool) {
         });
       }
 
-      if (settings.in_app_enabled) {
+      if (settings.in_app_enabled && deliveryAttempts > 0) {
         await createNotification(dbPool, "schedule_delivery", "system", message, {
           scheduleId: schedule.id,
           format: schedule.file_format,
@@ -163,6 +191,23 @@ export async function runDueSchedules(dbPool: Pool) {
         [nextRun, schedule.id]
       );
     } catch (err: any) {
+      // Prevent alert storms: advance the schedule even if a run fails.
+      try {
+        const nextRunOnError = computeNextRunAt(
+          schedule.frequency,
+          schedule.time_of_day,
+          new Date(),
+          schedule.day_of_week,
+          schedule.day_of_month
+        );
+        await dbPool.execute(
+          "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
+          [nextRunOnError, schedule.id]
+        );
+      } catch (updateErr) {
+        console.error("Failed to advance schedule after error:", updateErr);
+      }
+
       if (settings.in_app_enabled) {
         await createNotification(dbPool, "schedule_error", "system", "Schedule run failed", {
           scheduleId: schedule.id,
@@ -175,9 +220,22 @@ export async function runDueSchedules(dbPool: Pool) {
 
 export function startScheduler(dbPool: Pool) {
   const intervalMs = 60 * 1000;
+  let lastRetentionRun = 0;
   setInterval(() => {
     runDueSchedules(dbPool).catch((err) => {
       console.error("Scheduler error:", err);
     });
+    const now = Date.now();
+    loadRetentionConfig(dbPool)
+      .then((retentionConfig) => {
+        if (!retentionConfig.enabled) return;
+        const interval = retentionConfig.intervalHours * 60 * 60 * 1000;
+        if (now - lastRetentionRun < interval) return;
+        lastRetentionRun = now;
+        return runDataRetention(dbPool);
+      })
+      .catch((err) => {
+        console.error("Retention error:", err);
+      });
   }, intervalMs);
 }

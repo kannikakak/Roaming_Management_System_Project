@@ -1,8 +1,7 @@
-﻿import React from "react";
+import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 import Home from "./pages/Home";
-import Dashboard from "./pages/Dashboard";
 import CardDetail from "./pages/CardDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -22,10 +21,12 @@ import MyActivityPage from "./pages/MyActivityPage";
 import TemplateManagerPage from "./pages/TemplateManagerPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import SystemHealthPage from "./pages/SystemHealthPage";
+import SystemSecurityPage from "./pages/SystemSecurityPage";
 import { getAuthToken } from "./utils/api";
+import GlobalSearchPage from "./pages/GlobalSearchPage";
+import DashboardAnalyticsPage from "./pages/DashboardAnalyticsPage";
 
 // import TemplatesPage from "./pages/TemplatesPage";
-// import ReportBuilderPage from "./pages/ReportBuilderPage";
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = getAuthToken();
@@ -78,9 +79,15 @@ const App: React.FC = () => (
         element={
           <RequireAuth>
             <MainLayout>
-              <Dashboard />
+              <DashboardAnalyticsPage />
             </MainLayout>
           </RequireAuth>
+        }
+      />
+      <Route
+        path="/dashboard-analytics"
+        element={
+          <Navigate to="/dashboard" replace />
         }
       />
 
@@ -127,7 +134,7 @@ const App: React.FC = () => (
       />
 
       <Route
-        path="/ai-charts"
+        path="/ai-studio"
         element={
           <RequireAuth>
             <MainLayout>
@@ -136,6 +143,8 @@ const App: React.FC = () => (
           </RequireAuth>
         }
       />
+      <Route path="/ai-charts" element={<Navigate to="/ai-studio" replace />} />
+      <Route path="/insights" element={<Navigate to="/ai-studio" replace />} />
 
       <Route
         path="/projects"
@@ -213,6 +222,16 @@ const App: React.FC = () => (
         }
       />
       <Route
+        path="/search"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <GlobalSearchPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/delivery-history"
         element={
           <RequireAuth>
@@ -267,6 +286,18 @@ const App: React.FC = () => (
         }
       />
       <Route
+        path="/security-center"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <RequireRole roles={["admin"]}>
+                <SystemSecurityPage />
+              </RequireRole>
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/account"
         element={
           <RequireAuth>
@@ -284,18 +315,6 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <TemplatesPage />
-            </MainLayout>
-          </RequireAuth>
-        }
-      /> */}
-
-      {/* Report Builder (IMPORTANT) */}
-      {/* <Route
-        path="/report-builder/:templateId"
-        element={
-          <RequireAuth>
-            <MainLayout>
-              <ReportBuilderPage />
             </MainLayout>
           </RequireAuth>
         }

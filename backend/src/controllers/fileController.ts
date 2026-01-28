@@ -1,16 +1,33 @@
 import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
-import fs from "fs/promises";
+import fs from "fs";
+import fsPromises from "fs/promises";
 import path from "path";
-import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import mammoth from "mammoth";
+import { parse as csvParse } from "csv-parse";
+import {
+  getUploadConfig,
+  resolveUploadSchema,
+  sanitizeFileName,
+  validateAndNormalizeData,
+  scanFileForMalware,
+  UploadConfig,
+} from "../utils/uploadValidation";
+import { buildDataJsonExpr, buildEncryptedValue, buildKeyParams, getEncryptionKey } from "../utils/dbEncryption";
 import { getNotificationSettings } from "../services/notificationSettings";
+import { buildFileProfile, ensureFileProfileTable, saveFileProfile, FileProfile } from "../services/fileProfile";
 
 type ParsedFile = {
   columns: string[];
   rows: any[];
-  textContent?: string;
+};
+
+type FileTimings = {
+  parseMs: number;
+  validateMs: number;
+  qualityMs: number;
+  dbMs: number;
+  totalMs: number;
 };
 
 type QualityMetrics = {
@@ -24,19 +41,59 @@ type QualityMetrics = {
   totalColumns: number;
 };
 
-const parseFile = async (file: Express.Multer.File): Promise<ParsedFile> => {
+const parseCsvStream = (filePath: string, fileName: string, config: UploadConfig) =>
+  new Promise<ParsedFile>((resolve, reject) => {
+    const rows: any[] = [];
+    let columns: string[] = [];
+    let rowCount = 0;
+    let settled = false;
+
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve({ columns, rows });
+    };
+
+    const stream = fs.createReadStream(filePath);
+    const parser = csvParse({
+      columns: true,
+      bom: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    });
+
+    stream.on("error", (err) => finish(err));
+    parser.on("error", (err) => finish(err instanceof Error ? err : new Error(String(err))));
+
+    parser.on("data", (record: Record<string, any>) => {
+      if (!columns.length) {
+        columns = Object.keys(record || {});
+      }
+      rowCount += 1;
+      if (rowCount > config.maxRows) {
+        const err = new Error(`Too many rows (max ${config.maxRows}).`);
+        stream.destroy(err);
+        parser.destroy(err);
+        return;
+      }
+      rows.push(record);
+    });
+
+    parser.on("end", () => finish());
+
+    stream.pipe(parser);
+  });
+
+const parseFile = async (
+  file: Express.Multer.File,
+  uploadConfig: UploadConfig
+): Promise<ParsedFile> => {
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (ext === ".csv") {
-    const text = await fs.readFile(file.path, "utf8");
-    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
-    if (result.errors.length) {
-      throw new Error(`Failed to parse CSV: ${file.originalname}`);
-    }
-    return {
-      columns: result.meta.fields || [],
-      rows: result.data as any[],
-    };
+    return parseCsvStream(file.path, file.originalname, uploadConfig);
   }
 
   if (ext === ".xlsx" || ext === ".xls") {
@@ -47,16 +104,6 @@ const parseFile = async (file: Express.Multer.File): Promise<ParsedFile> => {
     const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0] as string[] | undefined;
     const columns = headerRow || (rows[0] ? Object.keys(rows[0] as Record<string, unknown>) : []);
     return { columns, rows };
-  }
-
-  if (ext === ".txt") {
-    const textContent = await fs.readFile(file.path, "utf8");
-    return { columns: [], rows: [], textContent };
-  }
-
-  if (ext === ".docx") {
-    const result = await mammoth.extractRawText({ path: file.path });
-    return { columns: [], rows: [], textContent: result.value };
   }
 
   throw new Error(`Unsupported file type: ${file.originalname}`);
@@ -197,14 +244,71 @@ const ensureQualityTable = async (dbPool: Pool) => {
   );
 };
 
+const toPositiveInt = (value: string | undefined, fallback: number) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
+
+const insertRowsInBatches = async (
+  connection: any,
+  fileId: number,
+  rows: any[],
+  encryptionKey: string | null
+) => {
+  if (!rows.length) return;
+
+  const batchSize = toPositiveInt(process.env.UPLOAD_ROW_BATCH_SIZE, 400);
+  for (let start = 0; start < rows.length; start += batchSize) {
+    const end = Math.min(rows.length, start + batchSize);
+    const chunk = rows.slice(start, end);
+
+    const valuesSql: string[] = [];
+    const params: any[] = [];
+
+    for (let i = 0; i < chunk.length; i += 1) {
+      const rowIndex = start + i;
+      const rowJson = JSON.stringify(chunk[i]);
+
+      if (encryptionKey) {
+        valuesSql.push("(?, ?, AES_ENCRYPT(?, ?))");
+        params.push(fileId, rowIndex, rowJson, encryptionKey);
+      } else {
+        valuesSql.push("(?, ?, ?)");
+        params.push(fileId, rowIndex, rowJson);
+      }
+    }
+
+    const sql = `INSERT INTO file_rows (file_id, row_index, data_json) VALUES ${valuesSql.join(", ")}`;
+    await connection.query(sql, params);
+  }
+};
+
 // List files for a project (GET /api/files?projectId=...)
 export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const projectId = req.query.projectId || req.query.cardId;
-  if (!projectId) {
-    return res.status(400).json({ message: "Missing projectId" });
-  }
+  const rawProjectId = req.query.projectId as string | undefined;
+  const rawCardId = req.query.cardId as string | undefined;
 
+  // Resolve projectId; many callers pass cardId by mistake
+  let projectIdNum: number | null = null;
   try {
+    if (rawProjectId) {
+      const n = Number(rawProjectId);
+      projectIdNum = Number.isFinite(n) ? n : null;
+    } else if (rawCardId) {
+      const cardNum = Number(rawCardId);
+      if (Number.isFinite(cardNum)) {
+        const [rows]: any = await dbPool.query(
+          "SELECT project_id FROM cards WHERE id = ? LIMIT 1",
+          [cardNum]
+        );
+        projectIdNum = rows?.[0]?.project_id ?? null;
+      }
+    }
+
+    if (!projectIdNum) {
+      return res.status(400).json({ message: "Missing or invalid projectId/cardId" });
+    }
+
     await ensureQualityTable(dbPool);
     const [rows]: any = await dbPool.query(
       `SELECT f.id, f.name, f.file_type as fileType, f.uploaded_at as uploadedAt,
@@ -213,7 +317,7 @@ export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) =
        LEFT JOIN data_quality_scores q ON q.file_id = f.id
        WHERE f.project_id = ?
        ORDER BY f.uploaded_at DESC`,
-      [projectId]
+      [projectIdNum]
     );
     res.json({ files: rows });
   } catch {
@@ -223,51 +327,162 @@ export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) =
 
 // Upload files (POST /api/files/upload)
 export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { projectId } = req.body;
-  if (!req.files || !Array.isArray(req.files) || !projectId) {
-    return res.status(400).json({ message: "Missing files or projectId" });
+  const { projectId: rawProjectId, cardId: rawCardId } = req.body || {};
+  const uploadConfig = getUploadConfig();
+  const uploadSchema = resolveUploadSchema(req.body || {});
+  const encryptionKey = getEncryptionKey();
+
+  // Accept either projectId or cardId; resolve to projectId
+  let projectId: number | null = null;
+  if (rawProjectId != null) {
+    const n = Number(rawProjectId);
+    projectId = Number.isFinite(n) ? n : null;
+  } else if (rawCardId != null) {
+    const cardNum = Number(rawCardId);
+    if (Number.isFinite(cardNum)) {
+      try {
+        const [rows]: any = await dbPool.query(
+          "SELECT project_id FROM cards WHERE id = ? LIMIT 1",
+          [cardNum]
+        );
+        projectId = rows?.[0]?.project_id ?? null;
+      } catch {
+        projectId = null;
+      }
+    }
   }
 
+  if (!req.files || !Array.isArray(req.files) || !projectId) {
+    return res.status(400).json({ message: "Missing files or projectId/cardId" });
+  }
+
+  const overallStart = Date.now();
   const createdFiles: any[] = [];
   const settings = await getNotificationSettings(dbPool);
   await ensureQualityTable(dbPool);
 
+  const committedPaths = new Set<string>();
+  const usedNames = new Set<string>();
+  const resolveUniqueName = async (
+    connection: any,
+    projectId: number,
+    desired: string
+  ): Promise<string> => {
+    const normalized = desired.trim();
+    if (!usedNames.has(normalized)) {
+      const [[existing]]: any = await connection.query(
+        "SELECT id FROM files WHERE project_id = ? AND name = ? LIMIT 1",
+        [projectId, normalized]
+      );
+      if (!existing?.id) {
+        usedNames.add(normalized);
+        return normalized;
+      }
+    }
+
+    const ext = path.extname(normalized);
+    const base = ext ? normalized.slice(0, -ext.length) : normalized;
+    for (let i = 2; i <= 50; i += 1) {
+      const candidate = `${base} (${i})${ext}`;
+      if (usedNames.has(candidate)) continue;
+      const [[existing]]: any = await connection.query(
+        "SELECT id FROM files WHERE project_id = ? AND name = ? LIMIT 1",
+        [projectId, candidate]
+      );
+      if (!existing?.id) {
+        usedNames.add(candidate);
+        return candidate;
+      }
+    }
+    throw new Error(`File name already exists: ${normalized}`);
+  };
   try {
+    const prepared: Array<{
+      file: Express.Multer.File;
+      safeName: string;
+      fileType: string;
+      columns: string[];
+      rows: any[];
+      quality: QualityMetrics;
+      profile: FileProfile;
+      timings: FileTimings;
+    }> = [];
+
     for (const file of req.files as Express.Multer.File[]) {
-      const parsed = await parseFile(file);
-      const quality = computeQualityMetrics(parsed.columns, parsed.rows);
+      const fileStart = Date.now();
+      const safeName = sanitizeFileName(file.originalname);
+      const fileType = path.extname(safeName).replace(".", "").toLowerCase() || "unknown";
+
+      const scanResult = await scanFileForMalware(file.path, uploadConfig);
+      if (!scanResult.clean) {
+        await fsPromises.unlink(file.path).catch(() => undefined);
+        throw new Error(scanResult.error || "Malware scan failed");
+      }
+
+      const parsed = await parseFile(file, uploadConfig);
+      const parseMs = Date.now() - fileStart;
+      const normalized = validateAndNormalizeData(parsed.columns, parsed.rows, uploadSchema, uploadConfig);
+      const validateMs = Date.now() - fileStart - parseMs;
+      const quality = computeQualityMetrics(normalized.columns, normalized.rows);
+      const profile = buildFileProfile(normalized.columns, normalized.rows);
+      const qualityMs = Date.now() - fileStart - parseMs - validateMs;
+      const totalMs = Date.now() - fileStart;
+      console.log(
+        `[ingest] parsed ${file.originalname} rows=${normalized.rows.length} cols=${normalized.columns.length} ` +
+          `parse=${parseMs}ms validate=${validateMs}ms quality=${qualityMs}ms`
+      );
+      prepared.push({
+        file,
+        safeName,
+        fileType,
+        columns: normalized.columns,
+        rows: normalized.rows,
+        quality,
+        profile,
+        timings: {
+          parseMs,
+          validateMs,
+          qualityMs,
+          dbMs: 0,
+          totalMs,
+        },
+      });
+    }
+
+    const metricsByFile: Array<{
+      fileName: string;
+      rows: number;
+      columns: number;
+      timings: FileTimings;
+    }> = [];
+
+    for (const entry of prepared) {
+      const commitStart = Date.now();
       const connection = await dbPool.getConnection();
+      let uniqueNameForMetrics = entry.safeName;
       try {
         await connection.beginTransaction();
 
+        const uniqueName = await resolveUniqueName(connection, projectId, entry.safeName);
+        uniqueNameForMetrics = uniqueName;
+
         const [fileResult]: any = await connection.query(
           "INSERT INTO files (project_id, name, file_type, storage_path, text_content, uploaded_at) VALUES (?, ?, ?, ?, ?, NOW())",
-          [
-            projectId,
-            file.originalname,
-            path.extname(file.originalname).replace(".", "") || "unknown",
-            file.path,
-            parsed.textContent || null,
-          ]
+          [projectId, uniqueName, entry.fileType, entry.file.path, null]
         );
         const fileId = fileResult.insertId as number;
 
-        if (parsed.columns.length > 0) {
-          for (let i = 0; i < parsed.columns.length; i++) {
+        if (entry.columns.length > 0) {
+          for (let i = 0; i < entry.columns.length; i++) {
             await connection.query(
               "INSERT INTO file_columns (file_id, name, position) VALUES (?, ?, ?)",
-              [fileId, parsed.columns[i], i]
+              [fileId, entry.columns[i], i]
             );
           }
         }
 
-        if (parsed.rows.length > 0) {
-          for (let i = 0; i < parsed.rows.length; i++) {
-            await connection.query(
-              "INSERT INTO file_rows (file_id, row_index, data_json) VALUES (?, ?, ?)",
-              [fileId, i, JSON.stringify(parsed.rows[i])]
-            );
-          }
+        if (entry.rows.length > 0) {
+          await insertRowsInBatches(connection, fileId, entry.rows, encryptionKey);
         }
 
         await connection.query(
@@ -286,26 +501,30 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
             updated_at = CURRENT_TIMESTAMP`,
           [
             fileId,
-            quality.score,
-            quality.trustLevel,
-            quality.missingRate,
-            quality.duplicateRate,
-            quality.invalidRate,
-            quality.schemaInconsistencyRate,
-            quality.totalRows,
-            quality.totalColumns,
+            entry.quality.score,
+            entry.quality.trustLevel,
+            entry.quality.missingRate,
+            entry.quality.duplicateRate,
+            entry.quality.invalidRate,
+            entry.quality.schemaInconsistencyRate,
+            entry.quality.totalRows,
+            entry.quality.totalColumns,
           ]
         );
 
+        await ensureFileProfileTable(dbPool);
+        await saveFileProfile(connection, fileId, entry.profile);
+
         await connection.commit();
+        committedPaths.add(entry.file.path);
 
         createdFiles.push({
           id: fileId,
-          name: file.originalname,
-          fileType: path.extname(file.originalname).replace(".", "") || "unknown",
+          name: uniqueName,
+          fileType: entry.fileType,
           uploadedAt: new Date().toISOString(),
-          qualityScore: quality.score,
-          trustLevel: quality.trustLevel,
+          qualityScore: entry.quality.score,
+          trustLevel: entry.quality.trustLevel,
         });
 
         if (settings.in_app_enabled) {
@@ -314,8 +533,8 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
             [
               "upload_success",
               "system",
-              `File uploaded: ${file.originalname}`,
-              JSON.stringify({ fileId, fileName: file.originalname, projectId }),
+              `File uploaded: ${uniqueName}`,
+              JSON.stringify({ fileId, fileName: uniqueName, projectId }),
             ]
           );
         }
@@ -325,11 +544,41 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
       } finally {
         connection.release();
       }
+      const commitMs = Date.now() - commitStart;
+      entry.timings.dbMs = commitMs;
+      entry.timings.totalMs += commitMs;
+      console.log(
+        `[ingest] committed ${entry.safeName} rows=${entry.rows.length} cols=${entry.columns.length} db=${commitMs}ms`
+      );
+      metricsByFile.push({
+        fileName: uniqueNameForMetrics,
+        rows: entry.rows.length,
+        columns: entry.columns.length,
+        timings: entry.timings,
+      });
     }
 
-    res.json({ files: createdFiles });
+    const totalMs = Date.now() - overallStart;
+    console.log(
+      `[ingest] upload complete files=${prepared.length} created=${createdFiles.length} total=${totalMs}ms`
+    );
+    res.json({
+      files: createdFiles,
+      metrics: {
+        totalMs,
+        files: metricsByFile,
+      },
+    });
   } catch (err: any) {
     console.error("Upload error:", err);
+    if (req.files && Array.isArray(req.files)) {
+      await Promise.all(
+        (req.files as Express.Multer.File[]).map((file) => {
+          if (committedPaths.has(file.path)) return Promise.resolve();
+          return fsPromises.unlink(file.path).catch(() => undefined);
+        })
+      );
+    }
     if (settings.in_app_enabled) {
       try {
         await dbPool.execute(
@@ -345,7 +594,10 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
         // ignore notification failure
       }
     }
-    res.status(500).json({ message: "Database error", error: err.message || err });
+    const message = err?.message || String(err);
+    const isValidationError =
+      /invalid|missing|unexpected|unsupported|malware|scan|clamscan|enoent|too many/i.test(message);
+    res.status(isValidationError ? 400 : 500).json({ message, error: err.message || err });
   }
 };
 
@@ -353,6 +605,8 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
 export const getFileData = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   try {
+    const encryptionKey = getEncryptionKey();
+    const dataJsonExpr = buildDataJsonExpr(encryptionKey);
     await ensureQualityTable(dbPool);
     const [fileRows]: any = await dbPool.query(
       `SELECT f.text_content as textContent, q.score as qualityScore, q.trust_level as trustLevel,
@@ -382,12 +636,33 @@ export const getFileData = (dbPool: Pool) => async (req: Request, res: Response)
     const columns = colRows.map((c: any) => c.name);
 
     const [rowRows]: any = await dbPool.query(
-      "SELECT data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC",
-      [fileId]
+      `SELECT ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC`,
+      [...buildKeyParams(encryptionKey, 1), fileId]
     );
     const rows = rowRows.map((r: any) => JSON.parse(r.data_json));
 
     res.json({ columns, rows, textContent, quality });
+  } catch (err) {
+    res.status(500).json({ message: "Database error", error: err });
+  }
+};
+
+// Get file metadata (GET /api/files/:fileId/meta)
+export const getFileMeta = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { fileId } = req.params;
+  try {
+    const [rows]: any = await dbPool.query(
+      `SELECT id, name, project_id as projectId, file_type as fileType, uploaded_at as uploadedAt
+       FROM files
+       WHERE id = ?
+       LIMIT 1`,
+      [fileId]
+    );
+    const row = rows?.[0];
+    if (!row) {
+      return res.status(404).json({ message: "File not found" });
+    }
+    res.json(row);
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
   }
@@ -408,6 +683,8 @@ export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) 
 export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   const { columns, renameMap } = req.body || {};
+  const encryptionKey = getEncryptionKey();
+  const dataJsonExpr = buildDataJsonExpr(encryptionKey);
 
   if (!Array.isArray(columns)) {
     return res.status(400).json({ message: "columns must be an array" });
@@ -446,8 +723,8 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
     const oldColumns = oldColRows.map((c: any) => c.name);
 
     const [rowRows]: any = await connection.query(
-      "SELECT id, data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC",
-      [fileId]
+      `SELECT id, ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC`,
+      [...buildKeyParams(encryptionKey, 1), fileId]
     );
 
     for (const row of rowRows) {
@@ -465,9 +742,10 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
         }
       }
 
+      const encrypted = buildEncryptedValue(JSON.stringify(nextRow), encryptionKey);
       await connection.query(
-        "UPDATE file_rows SET data_json = ? WHERE id = ?",
-        [JSON.stringify(nextRow), row.id]
+        `UPDATE file_rows SET data_json = ${encrypted.sql} WHERE id = ?`,
+        [...encrypted.params, row.id]
       );
     }
 
@@ -493,6 +771,8 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
 export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   const { column, updates } = req.body || {};
+  const encryptionKey = getEncryptionKey();
+  const dataJsonExpr = buildDataJsonExpr(encryptionKey);
 
   if (!column || typeof column !== "string") {
     return res.status(400).json({ message: "column is required" });
@@ -518,18 +798,19 @@ export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Respon
 
     for (const update of normalizedUpdates) {
       const [rowRows]: any = await connection.query(
-        "SELECT id, data_json FROM file_rows WHERE file_id = ? AND row_index = ? LIMIT 1",
-        [fileId, update.rowIndex]
+        `SELECT id, ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? AND row_index = ? LIMIT 1`,
+        [...buildKeyParams(encryptionKey, 1), fileId, update.rowIndex]
       );
       if (!rowRows?.length) continue;
 
       const row = rowRows[0];
       const data = JSON.parse(row.data_json || "{}");
       data[column] = update.value;
+      const encrypted = buildEncryptedValue(JSON.stringify(data), encryptionKey);
 
       await connection.query(
-        "UPDATE file_rows SET data_json = ? WHERE id = ?",
-        [JSON.stringify(data), row.id]
+        `UPDATE file_rows SET data_json = ${encrypted.sql} WHERE id = ?`,
+        [...encrypted.params, row.id]
       );
     }
 

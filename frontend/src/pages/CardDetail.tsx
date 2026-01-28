@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical, Plus, Pencil, X } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import axios from 'axios';
 import { logAudit } from '../utils/auditLog';
-import { apiFetch } from '../utils/api';
+import { apiFetch, getApiBaseUrl, getAuthToken } from '../utils/api';
 
 type FileData = {
   id: number;
@@ -24,6 +23,8 @@ type ColumnEdit = {
   isNew?: boolean;
 };
 
+type ExportFormat = 'excel' | 'pdf' | 'png' | 'json' | 'xml';
+
 const CardDetail: React.FC = () => {
   const { cardId } = useParams();
   const [files, setFiles] = useState<FileData[]>([]);
@@ -34,6 +35,7 @@ const CardDetail: React.FC = () => {
   const [filterColumn, setFilterColumn] = useState('');
   const [filterValue, setFilterValue] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [loadingFileId, setLoadingFileId] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<{ [key: string]: number }>({});
   const [isEditingColumns, setIsEditingColumns] = useState(false);
@@ -45,14 +47,17 @@ const CardDetail: React.FC = () => {
   const [bulkFind, setBulkFind] = useState('');
   const [bulkReplace, setBulkReplace] = useState('');
   const [editColumnName, setEditColumnName] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   const [rowPage, setRowPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [rowEdits, setRowEdits] = useState<Record<number, string>>({});
   const [pasteValues, setPasteValues] = useState('');
   const [savingRows, setSavingRows] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const resizingRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
+  const allowedExtensions = ['.csv', '.xlsx', '.xls'];
 
   useEffect(() => {
     if (!cardId) return;
@@ -154,7 +159,17 @@ const CardDetail: React.FC = () => {
 
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || !cardId) return;
+    const incoming = Array.from(fileList);
+    const invalid = incoming.filter(file => {
+      const ext = `.${file.name.split('.').pop()?.toLowerCase() || ''}`;
+      return !allowedExtensions.includes(ext);
+    });
+    if (invalid.length > 0) {
+      setError('Only CSV or Excel files are allowed.');
+      return;
+    }
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
 
     const formData = new FormData();
@@ -162,11 +177,18 @@ const CardDetail: React.FC = () => {
     Array.from(fileList).forEach(file => formData.append('files', file));
 
     try {
-      const res = await apiFetch('/api/files/upload', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.message || 'Upload failed');
-      }
+      const base = getApiBaseUrl();
+      const url = base ? `${base}/api/files/upload` : '/api/files/upload';
+      const token = getAuthToken();
+      const response = await axios.post(url, formData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        onUploadProgress: (evt) => {
+          if (!evt.total) return;
+          const percent = Math.max(1, Math.min(100, Math.round((evt.loaded / evt.total) * 100)));
+          setUploadProgress(percent);
+        },
+      });
+      const data = response.data || {};
 
       const created = (data.files || []).map((f: any) => ({
         id: f.id,
@@ -191,10 +213,34 @@ const CardDetail: React.FC = () => {
         });
       });
     } catch (err: any) {
-      setError(err.message || 'Upload failed');
+      const message =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Upload failed';
+      setError(message);
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
+    handleUpload(event.dataTransfer.files);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
   };
 
   const handleDeleteFile = async (fileId: number) => {
@@ -225,29 +271,90 @@ const CardDetail: React.FC = () => {
     }
   };
 
-  const handleExportPdf = () => {
+  const parseFileName = (contentDisposition: string | null, fallback: string) => {
+    if (!contentDisposition) return fallback;
+    const match = /filename="?([^";]+)"?/i.exec(contentDisposition);
+    return match?.[1] || fallback;
+  };
+
+  const handleExport = async (format: ExportFormat) => {
     if (!activeFile) return;
-    if (selectedChartCols.length === 0) {
-      setError('Select at least one column to export.');
-      return;
+    try {
+      setExportingFormat(format);
+      setError(null);
+
+      const selectedColumns =
+        selectedChartCols.length > 0 ? selectedChartCols : activeFile.columns;
+
+      const columnFilters =
+        filterColumn && filterValue
+          ? [
+              {
+                column: filterColumn,
+                op: 'contains',
+                value: filterValue,
+              },
+            ]
+          : [];
+
+      const res = await apiFetch('/api/export/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format,
+          scope: 'file',
+          title: activeFile.name || 'file_export',
+          fileId: activeFile.id,
+          filters: {
+            columnFilters,
+            searchTerm,
+            filterColumn,
+            filterValue,
+          },
+          selectedColumns,
+          chartConfig: {
+            charts: [
+              {
+                id: 'card-detail-table',
+                title: 'Card Detail Table View',
+                type: 'table',
+                dataset: 'cardDetail',
+                categoryKey: filterColumn || undefined,
+                valueKeys: selectedColumns,
+                notes: searchTerm ? `Search: ${searchTerm}` : undefined,
+              },
+            ],
+          },
+          // Preserve the exact filtered dataset the user is viewing.
+          dataRows: displayRows,
+          rowLimit: 20000,
+        }),
+      });
+
+      if (!res.ok) {
+        const message = await res.text();
+        throw new Error(message || 'Export failed');
+      }
+
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get('content-disposition');
+      const fallbackName = `${(activeFile.name || 'export').replace(/[^\w\-]+/g, '_')}.${
+        format === 'excel' ? 'xlsx' : format
+      }`;
+      const fileName = parseFileName(contentDisposition, fallbackName);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || 'Export failed');
+    } finally {
+      setExportingFormat(null);
     }
-
-    const columnsToExport = selectedChartCols;
-    const body = displayRows.map(row => columnsToExport.map(col => row?.[col] ?? '-'));
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-
-    doc.setFontSize(12);
-    doc.text(activeFile.name || 'Export', 40, 30);
-    autoTable(doc, {
-      head: [columnsToExport],
-      body,
-      startY: 50,
-      styles: { fontSize: 8, cellPadding: 4 },
-      headStyles: { fillColor: [245, 158, 11] },
-    });
-
-    const safeName = (activeFile.name || 'export').replace(/[^\w\-]+/g, '_');
-    doc.save(`${safeName}.pdf`);
   };
 
   const getUniqueColumnName = (base: string, existing: string[]) => {
@@ -557,18 +664,43 @@ const CardDetail: React.FC = () => {
         </div>
 
         <div className="p-4 border-b border-amber-100">
-          <label className="flex flex-col items-center justify-center border-2 border-dashed border-amber-300 rounded-xl p-4 cursor-pointer bg-amber-50/80 hover:bg-amber-50 transition">
+          <label
+            className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-4 cursor-pointer transition ${
+              isDragging
+                ? 'border-amber-400 bg-amber-100/80'
+                : 'border-amber-300 bg-amber-50/80 hover:bg-amber-50'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center mb-2 shadow-sm">
               <Upload className="w-4 h-4 text-white" />
             </div>
             <span className="text-sm font-semibold text-amber-900">
-              {uploading ? 'Uploading...' : 'Add files'}
+              {uploading
+                ? uploadProgress !== null
+                  ? `Uploading... ${uploadProgress}%`
+                  : 'Uploading...'
+                : isDragging
+                  ? 'Drop files to upload'
+                  : 'Add files'}
             </span>
-            <span className="text-[11px] text-amber-700 mt-1">CSV, XLSX, TXT, DOCX</span>
+            <span className="text-[11px] text-amber-700 mt-1">CSV, XLSX, XLS</span>
+            {uploading && uploadProgress !== null && (
+              <div className="w-full mt-2">
+                <div className="h-1.5 w-full rounded-full bg-amber-100 overflow-hidden border border-amber-200">
+                  <div
+                    className="h-full bg-amber-500 transition-all"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
             <input
               type="file"
               multiple
-              accept=".csv,.xlsx,.xls,.txt,.docx"
+              accept=".csv,.xlsx,.xls"
               hidden
               onChange={(e) => handleUpload(e.target.files)}
               disabled={uploading}
@@ -666,13 +798,25 @@ const CardDetail: React.FC = () => {
         {activeFile && activeFile.columns.length > 0 && (
           <div className="bg-white/90 backdrop-blur border-b border-amber-100 px-6 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm shadow-sm"
-                onClick={handleExportPdf}
-              >
-                <Download className="w-4 h-4" />
-                Export PDF
-              </button>
+              {([
+                { key: 'excel', label: 'Excel' },
+                { key: 'pdf', label: 'PDF' },
+                { key: 'png', label: 'PNG' },
+                { key: 'json', label: 'JSON' },
+                { key: 'xml', label: 'XML' },
+              ] as Array<{ key: ExportFormat; label: string }>).map(fmt => (
+                <button
+                  key={fmt.key}
+                  type="button"
+                  className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                  onClick={() => handleExport(fmt.key)}
+                  disabled={Boolean(exportingFormat)}
+                  title={`Export as ${fmt.label}`}
+                >
+                  <Download className="w-4 h-4" />
+                  {exportingFormat === fmt.key ? 'Exporting...' : fmt.label}
+                </button>
+              ))}
               {activeFile && activeFile.columns.length > 0 && (
                 <button
                   className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm shadow-sm"

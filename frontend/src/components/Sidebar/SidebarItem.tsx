@@ -13,7 +13,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ icon, label, active, onClick 
     className={`flex items-center w-full px-4 py-2 rounded-lg mb-1 transition-colors text-left ${
       active
         ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-white font-semibold shadow'
-        : 'hover:bg-amber-50 text-gray-700'
+        : 'text-gray-700 hover:bg-amber-50 dark:text-gray-200 dark:hover:bg-white/5'
     }`}
     onClick={onClick}
   >

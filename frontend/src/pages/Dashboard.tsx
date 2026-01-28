@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Database,
   BarChart2,
@@ -22,6 +22,7 @@ import {
   Bar,
 } from "recharts";
 import { apiFetch } from "../utils/api";
+import { useTheme } from "../theme/ThemeProvider";
 
 type Project = { id: number; name: string };
 
@@ -43,6 +44,7 @@ type NotificationItem = {
 
 const ACCENT = "#F59E0B";
 const ACCENT_DARK = "#B45309";
+const ACCENT_SOFT = "#FCD34D";
 
 function buildActivitySeries(activity: AuditLogEntry[]) {
   const today = new Date();
@@ -64,6 +66,7 @@ function buildActivitySeries(activity: AuditLogEntry[]) {
 }
 
 export default function Dashboard() {
+  const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [filesCount, setFilesCount] = useState(0);
@@ -152,27 +155,45 @@ export default function Dashboard() {
   }, [projects, projectFileCounts]);
 
   const activitySeries = useMemo(() => buildActivitySeries(activity), [activity]);
+  const activitySeriesWithComparison = useMemo(() => {
+    let prev = 0;
+    return activitySeries.map((d) => {
+      const comparison = prev;
+      prev = d.count;
+      return { ...d, comparison };
+    });
+  }, [activitySeries]);
+
+  const chartPalette = useMemo(
+    () => ({
+      axis: "#9CA3AF",
+      grid: theme === "dark" ? "rgba(255,255,255,0.12)" : "#F3E8D2",
+      tooltipBg: theme === "dark" ? "#111827" : "#FFFFFF",
+      tooltipBorder: theme === "dark" ? "#374151" : "#FDE68A",
+    }),
+    [theme]
+  );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <section className="bg-white border border-amber-100 rounded-3xl p-6 shadow-sm">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 p-4 md:p-5">
+      <div className="max-w-7xl mx-auto space-y-4 md:space-y-5">
+        <section className="bg-white border border-amber-100 rounded-3xl p-5 shadow-sm dark:bg-white/5 dark:border-white/10">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-amber-600 font-semibold">
+              <p className="text-xs uppercase tracking-[0.25em] text-amber-600 font-semibold dark:text-amber-300">
                 Roaming Analytics
               </p>
-              <h2 className="text-3xl font-bold text-gray-900 mt-2">
+              <h2 className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">
                 Live operations overview
               </h2>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 mt-1.5 dark:text-gray-400">
                 Monitor uploads, reports, and automated deliveries in one place.
               </p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2.5">
               <a
                 href="/projects"
-                className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-semibold hover:bg-amber-50"
+                className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-semibold hover:bg-amber-50 dark:border-amber-400/20 dark:text-amber-300 dark:hover:bg-amber-500/10"
               >
                 View Projects
               </a>
@@ -186,68 +207,68 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500">Files Uploaded</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">{filesCount}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Files Uploaded</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">{filesCount}</p>
               </div>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
                 <Database className="w-6 h-6" color={ACCENT} />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-4">Across all projects</p>
+            <p className="text-xs text-gray-400 mt-3 dark:text-gray-500">Across all projects</p>
           </div>
-          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500">Charts Created</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">{Math.max(0, reportsCount + 2)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Charts Created</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">{Math.max(0, reportsCount + 2)}</p>
               </div>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
                 <BarChart2 className="w-6 h-6" color={ACCENT} />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-4">Visual insights generated</p>
+            <p className="text-xs text-gray-400 mt-3 dark:text-gray-500">Visual insights generated</p>
           </div>
-          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500">Reports</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">{reportsCount}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Reports</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">{reportsCount}</p>
               </div>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
                 <FileText className="w-6 h-6" color={ACCENT} />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-4">Saved to library</p>
+            <p className="text-xs text-gray-400 mt-3 dark:text-gray-500">Saved to library</p>
           </div>
-          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500">Active Schedules</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">{schedulesCount}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Active Schedules</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">{schedulesCount}</p>
               </div>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
                 <Calendar className="w-6 h-6" color={ACCENT} />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-4">Automation running</p>
+            <p className="text-xs text-gray-400 mt-3 dark:text-gray-500">Automation running</p>
           </div>
-          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-500">Data Quality</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Data Quality</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">
                   {avgQualityScore === null ? "N/A" : `${avgQualityScore}%`}
                 </p>
               </div>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: "#FFF3E0" }}>
                 <ArrowUpRight className="w-6 h-6" color={ACCENT} />
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-4">
+            <p className="text-xs text-gray-400 mt-3 dark:text-gray-500">
               {avgQualityScore === null
                 ? "No scored files yet"
                 : avgQualityScore >= 80
@@ -259,44 +280,77 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white border border-amber-100 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-white border border-amber-100 rounded-2xl p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3.5">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Activity Trend</h3>
-                <p className="text-xs text-gray-500">Last 7 days</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Activity Trend</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Last 7 days</p>
               </div>
-              <TrendingUp className="w-5 h-5" color={ACCENT_DARK} />
+              <div className="flex items-center gap-3 text-[11px] text-gray-600 dark:text-gray-300">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: ACCENT }} />
+                  Activity
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: ACCENT_SOFT }} />
+                  Previous
+                </span>
+                <TrendingUp className="w-5 h-5" color={ACCENT_DARK} />
+              </div>
             </div>
-            <div className="h-56">
+            <div className="h-44 md:h-52">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={activitySeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F3E8D2" />
-                  <XAxis dataKey="label" stroke="#9CA3AF" fontSize={12} />
-                  <YAxis stroke="#9CA3AF" fontSize={12} allowDecimals={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke={ACCENT} strokeWidth={3} dot={{ r: 3 }} />
+                <LineChart data={activitySeriesWithComparison}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
+                  <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke={chartPalette.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} width={28} />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 12,
+                      borderColor: chartPalette.tooltipBorder,
+                      background: chartPalette.tooltipBg,
+                      color: theme === "dark" ? "#F9FAFB" : "#111827",
+                      boxShadow: "0 10px 25px rgba(245, 158, 11, 0.12)",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="comparison"
+                    stroke={ACCENT_SOFT}
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="count"
+                    stroke={ACCENT}
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="bg-white border border-amber-100 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Delivery Pulse</h3>
+          <div className="bg-white border border-amber-100 rounded-2xl p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
+            <div className="flex items-center justify-between mb-3.5">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Delivery Pulse</h3>
               <Bell className="w-5 h-5" color={ACCENT_DARK} />
             </div>
             {deliveries.length === 0 ? (
-              <div className="text-sm text-gray-500">No deliveries yet.</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">No deliveries yet.</div>
             ) : (
-              <div className="space-y-3 text-sm">
+              <div className="space-y-2.5 text-sm">
                 {deliveries.map((d) => (
-                  <div key={d.id} className="p-3 rounded-xl border border-amber-100 bg-amber-50/50">
-                    <div className="font-semibold text-gray-900">{d.type}</div>
-                    <div className="text-xs text-gray-500 mt-1">
+                  <div key={d.id} className="p-2.5 rounded-xl border border-amber-100 bg-amber-50/50 dark:border-white/10 dark:bg-white/5">
+                    <div className="font-semibold text-gray-900 dark:text-gray-100">{d.type}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       {new Date(d.created_at).toLocaleString()}
                     </div>
-                    <div className="text-xs text-gray-600 mt-2">{d.message}</div>
+                    <div className="text-xs text-gray-600 dark:text-gray-300 mt-1.5">{d.message}</div>
                   </div>
                 ))}
               </div>
@@ -304,51 +358,51 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white border border-amber-100 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white border border-amber-100 rounded-2xl p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
+            <div className="flex items-center justify-between mb-3.5">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Projects with Most Files</h3>
-                <p className="text-xs text-gray-500">Top sources by uploaded datasets</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Projects with Most Files</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Top sources by uploaded datasets</p>
               </div>
               <FolderOpen className="w-5 h-5" color={ACCENT_DARK} />
             </div>
             {topProjects.length === 0 ? (
-              <div className="text-sm text-gray-500">No projects yet.</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">No projects yet.</div>
             ) : (
-              <div className="h-56">
+              <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topProjects} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3E8D2" />
-                    <XAxis type="number" stroke="#9CA3AF" fontSize={12} allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" stroke="#9CA3AF" fontSize={12} width={100} />
+                  <BarChart data={topProjects} layout="vertical" margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
+                    <XAxis type="number" stroke={chartPalette.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} />
+                    <YAxis type="category" dataKey="name" stroke={chartPalette.axis} fontSize={12} width={110} tickLine={false} axisLine={false} />
                     <Tooltip />
-                    <Bar dataKey="count" fill={ACCENT} radius={[0, 8, 8, 0]} />
+                    <Bar dataKey="count" fill={ACCENT} radius={[0, 10, 10, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
           </div>
 
-          <div className="lg:col-span-2 bg-white border border-amber-100 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-              <span className="text-xs text-gray-400">Unread alerts: {unreadCount}</span>
+          <div className="lg:col-span-2 bg-white border border-amber-100 rounded-2xl p-4 shadow-sm dark:bg-white/5 dark:border-white/10">
+            <div className="flex items-center justify-between mb-3.5">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Activity</h3>
+              <span className="text-xs text-gray-400 dark:text-gray-500">Unread alerts: {unreadCount}</span>
             </div>
             {loading ? (
-              <div className="text-sm text-gray-500">Loading activity...</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Loading activity...</div>
             ) : activity.length === 0 ? (
-              <div className="text-sm text-gray-500">No activity yet.</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">No activity yet.</div>
             ) : (
-              <ul className="space-y-4 text-sm">
+              <ul className="space-y-3 text-sm">
                 {activity.slice(0, 6).map((item) => (
                   <li key={item.id} className="flex items-start gap-3">
-                    <div className="w-9 h-9 rounded-full bg-amber-50 flex items-center justify-center">
+                    <div className="w-9 h-9 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center dark:bg-white/5 dark:border-white/10">
                       <Activity className="w-4 h-4" color={ACCENT_DARK} />
                     </div>
                     <div>
-                      <div className="font-semibold text-gray-900">{item.action}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="font-semibold text-gray-900 dark:text-gray-100">{item.action}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
                         {new Date(item.timestamp).toLocaleString()}
                       </div>
                     </div>

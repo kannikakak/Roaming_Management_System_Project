@@ -27,5 +27,16 @@ export function notificationRoutes(dbPool: Pool) {
     }
   });
 
+  router.post("/read-all", async (_req, res) => {
+    try {
+      const [result]: any = await dbPool.execute(
+        "UPDATE notifications SET read_at = NOW() WHERE read_at IS NULL"
+      );
+      res.json({ ok: true, affectedRows: result?.affectedRows ?? 0 });
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to mark all read");
+    }
+  });
+
   return router;
 }

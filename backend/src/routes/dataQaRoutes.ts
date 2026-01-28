@@ -1,6 +1,14 @@
 import { Router } from "express";
 import { Pool } from "mysql2/promise";
 import { requireAuth } from "../middleware/auth";
+import { buildDataJsonExpr, buildKeyParams, getEncryptionKey } from "../utils/dbEncryption";
+import {
+  ensureFileProfileTable,
+  loadFileProfile,
+  buildFileProfile,
+  saveFileProfile,
+  FileProfile,
+} from "../services/fileProfile";
 
 type AskPayload = {
   fileId?: number;
@@ -17,7 +25,9 @@ type IntentType =
   | "avg"
   | "min"
   | "max"
-  | "top";
+  | "top"
+  | "summary"
+  | "types";
 
 function normalizeText(input: string) {
   return input
@@ -40,6 +50,12 @@ function detectIntent(question: string): { type: IntentType; topN: number } {
   const topMatch = lower.match(/\btop\s+(\d+)\b/);
   const topN = topMatch ? Math.max(1, Math.min(20, Number(topMatch[1]))) : 5;
 
+  if (/\b(summary|overview|describe|profile|about this data|about this dataset)\b/.test(lower)) {
+    return { type: "summary", topN };
+  }
+  if (/\b(type|types|datatype|data type|schema)\b/.test(lower)) {
+    return { type: "types", topN };
+  }
   if (/\b(columns?|fields?|headers?)\b/.test(lower)) {
     return { type: "columns", topN };
   }
@@ -189,9 +205,11 @@ async function inferColumnByValue(
 
   const maxColumns = 50;
   const inspectedColumns = columns.slice(0, maxColumns);
+  const encryptionKey = getEncryptionKey();
+  const dataJsonExpr = buildDataJsonExpr(encryptionKey);
   const [rows] = await dbPool.query<any[]>(
-    "SELECT data_json FROM file_rows WHERE file_id = ? LIMIT 200",
-    [fileId]
+    `SELECT ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? LIMIT 200`,
+    [...buildKeyParams(encryptionKey, 1), fileId]
   );
 
   const counts = new Map<string, number>();
@@ -230,6 +248,71 @@ function formatNumber(value: number) {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function findProfileColumn(profile: FileProfile | null, column: string) {
+  if (!profile) return null;
+  return profile.columns.find((c) => c.name === column) || null;
+}
+
+function formatProfileSummary(profile: FileProfile, fileName: string) {
+  const numeric = profile.overview.numericColumns.length;
+  const dates = profile.overview.dateColumns.length;
+  const categorical = profile.overview.categoricalColumns.length;
+  const numericPreview = profile.overview.numericColumns.slice(0, 4).join(", ");
+  const datePreview = profile.overview.dateColumns.slice(0, 3).join(", ");
+
+  const parts: string[] = [];
+  parts.push(
+    `${fileName} has ${profile.rowCount} rows and ${profile.columnCount} columns.`
+  );
+  parts.push(
+    `I detected ${numeric} numeric, ${dates} date, and ${categorical} categorical columns.`
+  );
+  if (numericPreview) parts.push(`Numeric examples: ${numericPreview}.`);
+  if (datePreview) parts.push(`Date examples: ${datePreview}.`);
+  return parts.join(" ");
+}
+
+function formatProfileTypes(profile: FileProfile) {
+  const groups: Array<{ label: string; cols: string[] }> = [
+    { label: "Numeric", cols: profile.overview.numericColumns },
+    { label: "Date", cols: profile.overview.dateColumns },
+    { label: "Categorical/String", cols: profile.overview.categoricalColumns },
+  ];
+
+  const lines = groups
+    .map((g) => {
+      if (!g.cols.length) return "";
+      const preview = g.cols.slice(0, 8);
+      const extra = g.cols.length > preview.length ? g.cols.length - preview.length : 0;
+      return `${g.label}: ${preview.join(", ")}${extra ? ` and ${extra} more` : ""}`;
+    })
+    .filter(Boolean);
+
+  return lines.length ? lines.join(". ") : "I could not infer column types yet.";
+}
+
+function pickColumnWithProfile(
+  questionNorm: string,
+  columns: string[],
+  profile: FileProfile | null,
+  intentType: IntentType
+) {
+  const basePick = pickColumn(questionNorm, columns);
+  if (basePick) return basePick;
+  if (!profile) return "";
+
+  const preferNumeric = intentType === "sum" || intentType === "avg" || intentType === "min" || intentType === "max";
+  const preferCategorical = intentType === "top" || intentType === "distinct";
+
+  if (preferNumeric && profile.overview.numericColumns.length) {
+    return profile.overview.numericColumns[0];
+  }
+  if (preferCategorical && profile.overview.categoricalColumns.length) {
+    return profile.overview.categoricalColumns[0];
+  }
+  return profile.columns[0]?.name || "";
+}
+
 export function dataQaRoutes(dbPool: Pool) {
   const router = Router();
   router.use(requireAuth);
@@ -239,6 +322,9 @@ export function dataQaRoutes(dbPool: Pool) {
     const fileId = Number(payload?.fileId);
     const projectId = Number(payload?.projectId);
     const questionRaw = String(payload?.question || "").trim();
+    const encryptionKey = getEncryptionKey();
+    const dataJsonExpr = buildDataJsonExpr(encryptionKey);
+    const keyParams = (count: number) => buildKeyParams(encryptionKey, count);
 
     if ((!Number.isFinite(fileId) || fileId <= 0) && (!Number.isFinite(projectId) || projectId <= 0)) {
       return res.status(400).json({ message: "fileId or projectId is required" });
@@ -332,7 +418,7 @@ export function dataQaRoutes(dbPool: Pool) {
           const groupLimit = wantsTop ? intent.topN : 12;
           const limit = Math.max(1, Math.min(20, groupLimit));
           const groupExpr =
-            "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+            `NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${dataJsonExpr}, ?))), ''), '-')`;
           const groupPath = buildJsonPath(groupByColumn);
           const groupMetric = intent.type === "distinct" ? "count" : intent.type;
 
@@ -348,7 +434,7 @@ export function dataQaRoutes(dbPool: Pool) {
             }
 
             const measureExpr =
-              "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+              `NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${dataJsonExpr}, ?))), ''), '-')`;
             const sql = `
               SELECT
                 groupValue as value,
@@ -368,7 +454,14 @@ export function dataQaRoutes(dbPool: Pool) {
               ORDER BY ${groupMetric} ${groupMetric === "min" ? "ASC" : "DESC"}
               LIMIT ?
             `;
-            const [rows]: any = await dbPool.query(sql, [groupPath, buildJsonPath(measureColumn), file.id, limit]);
+            const [rows]: any = await dbPool.query(sql, [
+              ...keyParams(1),
+              groupPath,
+              ...keyParams(1),
+              buildJsonPath(measureColumn),
+              file.id,
+              limit,
+            ]);
             for (const row of rows || []) {
               const value = String(row.value);
               const next = Number(row[groupMetric] || 0);
@@ -392,7 +485,7 @@ export function dataQaRoutes(dbPool: Pool) {
             ORDER BY count DESC
             LIMIT ?
           `;
-          const [rows]: any = await dbPool.query(sql, [groupPath, file.id, limit]);
+          const [rows]: any = await dbPool.query(sql, [...keyParams(1), groupPath, file.id, limit]);
           for (const row of rows || []) {
             const value = String(row.value);
             const next = Number(row.count || 0);
@@ -410,7 +503,7 @@ export function dataQaRoutes(dbPool: Pool) {
 
         const jsonPath = buildJsonPath(selectedColumn);
         const valueExpr =
-          "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+          `NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${dataJsonExpr}, ?))), ''), '-')`;
         const baseQuery = `SELECT ${valueExpr} as value FROM file_rows WHERE file_id = ?`;
 
         if (intent.type === "count") {
@@ -418,8 +511,8 @@ export function dataQaRoutes(dbPool: Pool) {
             ? `SELECT COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL AND LOWER(value) = LOWER(?)`
             : `SELECT COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL`;
           const params = filter?.value
-            ? [jsonPath, file.id, filter.value]
-            : [jsonPath, file.id];
+            ? [...keyParams(1), jsonPath, file.id, filter.value]
+            : [...keyParams(1), jsonPath, file.id];
           const [[row]]: any = await dbPool.query(sql, params);
           aggregatedValue += Number(row?.count ?? 0);
           matchedFiles += 1;
@@ -428,7 +521,7 @@ export function dataQaRoutes(dbPool: Pool) {
 
         if (intent.type === "distinct") {
           const sql = `SELECT COUNT(DISTINCT value) as count FROM (${baseQuery}) t WHERE value IS NOT NULL`;
-          const [[row]]: any = await dbPool.query(sql, [jsonPath, file.id]);
+          const [[row]]: any = await dbPool.query(sql, [...keyParams(1), jsonPath, file.id]);
           aggregatedValue += Number(row?.count ?? 0);
           matchedFiles += 1;
           continue;
@@ -436,7 +529,7 @@ export function dataQaRoutes(dbPool: Pool) {
 
         if (intent.type === "top") {
           const sql = `SELECT value, COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL GROUP BY value ORDER BY count DESC LIMIT ?`;
-          const [rows]: any = await dbPool.query(sql, [jsonPath, file.id, intent.topN]);
+          const [rows]: any = await dbPool.query(sql, [...keyParams(1), jsonPath, file.id, intent.topN]);
           for (const row of rows || []) {
             const value = String(row.value);
             const next = Number(row.count || 0);
@@ -458,7 +551,7 @@ export function dataQaRoutes(dbPool: Pool) {
             FROM (${baseQuery}) t
             WHERE value IS NOT NULL
           `;
-          const [[row]]: any = await dbPool.query(sql, [jsonPath, file.id]);
+          const [[row]]: any = await dbPool.query(sql, [...keyParams(1), jsonPath, file.id]);
           const numericCount = Number(row?.numericCount ?? 0);
           if (numericCount === 0) continue;
           matchedFiles += 1;
@@ -489,7 +582,7 @@ export function dataQaRoutes(dbPool: Pool) {
         });
       }
 
-      if (intent.type === "top" || intent.type === "group") {
+      if (intent.type === "top") {
         const items = Array.from(aggregatedItems.entries())
           .map(([value, count]) => ({ value, count }))
           .sort((a, b) => b.count - a.count)
@@ -587,9 +680,62 @@ export function dataQaRoutes(dbPool: Pool) {
     const intent = detectIntent(questionRaw);
     const questionNorm = normalizeText(questionRaw);
     const lowerQuestion = questionRaw.toLowerCase();
+    await ensureFileProfileTable(dbPool);
+    let profile = await loadFileProfile(dbPool, fileId);
+    if (!profile) {
+      const [rowRows]: any = await dbPool.query(
+        `SELECT ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC LIMIT 800`,
+        [...keyParams(1), fileId]
+      );
+      const sampledRows: Array<Record<string, any>> = (rowRows || []).map((r: any) => {
+        try {
+          return JSON.parse(r.data_json || "{}");
+        } catch {
+          return {};
+        }
+      });
+      profile = buildFileProfile(columns, sampledRows);
+      await saveFileProfile(dbPool, fileId, profile);
+    }
+
+    if (intent.type === "summary" && profile) {
+      return res.json({
+        answer: formatProfileSummary(profile, fileRow.name),
+        intent: "summary",
+        profile,
+      });
+    }
+
+    if (intent.type === "summary" && !profile) {
+      const [[rowCount]]: any = await dbPool.query(
+        "SELECT COUNT(*) as count FROM file_rows WHERE file_id = ?",
+        [fileId]
+      );
+      return res.json({
+        answer: `${fileRow.name} has ${rowCount?.count ?? 0} rows and ${columns.length} columns.`,
+        intent: "summary",
+        value: {
+          rows: rowCount?.count ?? 0,
+          columns: columns.length,
+        },
+      });
+    }
+
+    if (intent.type === "types" && profile) {
+      return res.json({
+        answer: formatProfileTypes(profile),
+        intent: "types",
+        profile: {
+          numeric: profile.overview.numericColumns,
+          dates: profile.overview.dateColumns,
+          categorical: profile.overview.categoricalColumns,
+        },
+      });
+    }
+
     const groupByColumn = findGroupByColumn(questionRaw, columns);
     let filter = findFilter(questionRaw, columns);
-    let selectedColumn = filter?.column || pickColumn(questionNorm, columns);
+    let selectedColumn = filter?.column || pickColumnWithProfile(questionNorm, columns, profile, intent.type);
 
     if (intent.type === "columns") {
       const preview = columns.slice(0, 8);
@@ -619,16 +765,20 @@ export function dataQaRoutes(dbPool: Pool) {
       const groupLimit = wantsTop ? intent.topN : 12;
       const limit = Math.max(1, Math.min(20, groupLimit));
       const groupExpr =
-        "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+        `NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${dataJsonExpr}, ?))), ''), '-')`;
       const groupPath = buildJsonPath(groupByColumn);
       const groupMetric = intent.type === "distinct" ? "count" : intent.type;
 
       if (["sum", "avg", "min", "max"].includes(groupMetric)) {
         const measureQuestion = questionRaw.split(/\bby\b|\bper\b/)[0] || questionRaw;
-        const measureColumns = columns.filter((c) => c !== groupByColumn);
+        const measureColumns = columns.filter((c: string) => c !== groupByColumn);
         let measureColumn = pickColumn(normalizeText(measureQuestion), measureColumns);
         if (!measureColumn) {
-          measureColumn = pickColumn(questionNorm, measureColumns);
+          measureColumn = pickColumnWithProfile(questionNorm, measureColumns, profile, intent.type);
+        }
+        if (!measureColumn && profile?.overview.numericColumns?.length) {
+          const numericFallback = profile.overview.numericColumns.find((c) => c !== groupByColumn);
+          if (numericFallback) measureColumn = numericFallback;
         }
         if (!measureColumn) {
           return res.json({
@@ -638,7 +788,7 @@ export function dataQaRoutes(dbPool: Pool) {
         }
 
         const measureExpr =
-          "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+          `NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${dataJsonExpr}, ?))), ''), '-')`;
         const sql = `
           SELECT
             groupValue as value,
@@ -658,7 +808,14 @@ export function dataQaRoutes(dbPool: Pool) {
           ORDER BY ${groupMetric} ${groupMetric === "min" ? "ASC" : "DESC"}
           LIMIT ?
         `;
-        const [rows]: any = await dbPool.query(sql, [groupPath, buildJsonPath(measureColumn), fileId, limit]);
+        const [rows]: any = await dbPool.query(sql, [
+          ...keyParams(1),
+          groupPath,
+          ...keyParams(1),
+          buildJsonPath(measureColumn),
+          fileId,
+          limit,
+        ]);
         const items = (rows || []).map((row: any) => ({
           value: row.value,
           count: Number(row[groupMetric] || 0),
@@ -677,7 +834,9 @@ export function dataQaRoutes(dbPool: Pool) {
             : groupMetric === "min"
             ? "Minimum"
             : "Maximum";
-        const list = items.map((item) => `${item.value} (${formatNumber(item.count)})`).join(", ");
+        const list = items
+          .map((item: { value: string; count: number }) => `${item.value} (${formatNumber(item.count)})`)
+          .join(", ");
         return res.json({
           answer: `${label} of "${measureColumn}" by "${groupByColumn}": ${list}`,
           intent: "group",
@@ -699,13 +858,13 @@ export function dataQaRoutes(dbPool: Pool) {
         ORDER BY count DESC
         LIMIT ?
       `;
-      const [rows]: any = await dbPool.query(sql, [groupPath, fileId, limit]);
+      const [rows]: any = await dbPool.query(sql, [...keyParams(1), groupPath, fileId, limit]);
       const items = (rows || []).map((row: any) => ({
         value: row.value,
         count: Number(row.count || 0),
       }));
       const list = items.length
-        ? items.map((item) => `${item.value} (${item.count})`).join(", ")
+        ? items.map((item: { value: string; count: number }) => `${item.value} (${item.count})`).join(", ")
         : "No values found.";
       return res.json({
         answer: `Count by "${groupByColumn}": ${list}`,
@@ -748,7 +907,7 @@ export function dataQaRoutes(dbPool: Pool) {
 
     const jsonPath = buildJsonPath(selectedColumn);
     const valueExpr =
-      "NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(data_json, ?))), ''), '-')";
+      `NULLIF(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${dataJsonExpr}, ?))), ''), '-')`;
     const baseQuery = `SELECT ${valueExpr} as value FROM file_rows WHERE file_id = ?`;
 
     if (intent.type === "count") {
@@ -756,8 +915,8 @@ export function dataQaRoutes(dbPool: Pool) {
         ? `SELECT COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL AND LOWER(value) = LOWER(?)`
         : `SELECT COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL`;
       const params = filter?.value
-        ? [jsonPath, fileId, filter.value]
-        : [jsonPath, fileId];
+        ? [...keyParams(1), jsonPath, fileId, filter.value]
+        : [...keyParams(1), jsonPath, fileId];
       const [[row]]: any = await dbPool.query(sql, params);
       const target = filter?.value ? `"${filter.value}"` : `non-empty "${selectedColumn}"`;
       return res.json({
@@ -771,7 +930,7 @@ export function dataQaRoutes(dbPool: Pool) {
 
     if (intent.type === "distinct") {
       const sql = `SELECT COUNT(DISTINCT value) as count FROM (${baseQuery}) t WHERE value IS NOT NULL`;
-      const [[row]]: any = await dbPool.query(sql, [jsonPath, fileId]);
+      const [[row]]: any = await dbPool.query(sql, [...keyParams(1), jsonPath, fileId]);
       return res.json({
         answer: `"${selectedColumn}" has ${row?.count ?? 0} distinct values.`,
         intent: "distinct",
@@ -782,13 +941,13 @@ export function dataQaRoutes(dbPool: Pool) {
 
     if (intent.type === "top") {
       const sql = `SELECT value, COUNT(*) as count FROM (${baseQuery}) t WHERE value IS NOT NULL GROUP BY value ORDER BY count DESC LIMIT ?`;
-      const [rows]: any = await dbPool.query(sql, [jsonPath, fileId, intent.topN]);
+      const [rows]: any = await dbPool.query(sql, [...keyParams(1), jsonPath, fileId, intent.topN]);
       const items = (rows || []).map((row: any) => ({
         value: row.value,
         count: Number(row.count || 0),
       }));
       const list = items.length
-        ? items.map((item) => `${item.value} (${item.count})`).join(", ")
+        ? items.map((item: { value: string; count: number }) => `${item.value} (${item.count})`).join(", ")
         : "No values found.";
       return res.json({
         answer: `Top ${items.length} values of "${selectedColumn}": ${list}`,
@@ -810,7 +969,7 @@ export function dataQaRoutes(dbPool: Pool) {
         FROM (${baseQuery}) t
         WHERE value IS NOT NULL
       `;
-      const [[row]]: any = await dbPool.query(sql, [jsonPath, fileId]);
+      const [[row]]: any = await dbPool.query(sql, [...keyParams(1), jsonPath, fileId]);
       const numericCount = Number(row?.numericCount ?? 0);
       if (numericCount === 0) {
         return res.json({

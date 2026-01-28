@@ -8,11 +8,22 @@ type Health = {
   schedules?: { total: number; active: number; lastRun: string | null };
 };
 
+type RetentionConfig = {
+  enabled: boolean;
+  days: number;
+  mode: "delete" | "archive";
+  deleteFiles: boolean;
+  intervalHours: number;
+};
+
 const SystemHealthPage: React.FC = () => {
   const [health, setHealth] = useState<Health | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [retention, setRetention] = useState<RetentionConfig | null>(null);
+  const [savingRetention, setSavingRetention] = useState(false);
+  const [retentionMessage, setRetentionMessage] = useState<string | null>(null);
 
   const loadHealth = async () => {
     setLoading(true);
@@ -30,8 +41,41 @@ const SystemHealthPage: React.FC = () => {
     }
   };
 
+  const loadRetention = async () => {
+    try {
+      const res = await apiFetch("/api/system/retention");
+      if (!res.ok) throw new Error("Failed to load retention settings.");
+      const data = await res.json();
+      setRetention(data.config);
+    } catch (err: any) {
+      setRetentionMessage(err.message || "Failed to load retention settings.");
+    }
+  };
+
+  const saveRetention = async () => {
+    if (!retention) return;
+    setSavingRetention(true);
+    setRetentionMessage(null);
+    try {
+      const res = await apiFetch("/api/system/retention", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retention),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to save retention settings.");
+      setRetention(data.config);
+      setRetentionMessage("Retention settings updated.");
+    } catch (err: any) {
+      setRetentionMessage(err.message || "Failed to save retention settings.");
+    } finally {
+      setSavingRetention(false);
+    }
+  };
+
   useEffect(() => {
     loadHealth();
+    loadRetention();
     const intervalId = setInterval(loadHealth, 60000);
     return () => clearInterval(intervalId);
   }, []);
@@ -171,6 +215,91 @@ const SystemHealthPage: React.FC = () => {
                 <p className="text-xs text-gray-500 mt-2">
                   Tracks automated deliveries and recurring reports.
                 </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 bg-white border rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900">Data Retention Policy</h3>
+          </div>
+
+          {!retention ? (
+            <div className="text-sm text-gray-500">Loading retention settings...</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={retention.enabled}
+                    onChange={(e) =>
+                      setRetention((prev) => prev && { ...prev, enabled: e.target.checked })
+                    }
+                  />
+                  Enable retention
+                </label>
+                <label className="text-sm text-gray-700">
+                  Retention days
+                  <input
+                    type="number"
+                    min={0}
+                    className="mt-1 w-full rounded-lg border border-amber-200 px-3 py-2 text-sm"
+                    value={retention.days}
+                    onChange={(e) =>
+                      setRetention((prev) => prev && { ...prev, days: Number(e.target.value) })
+                    }
+                  />
+                </label>
+                <label className="text-sm text-gray-700">
+                  Mode
+                  <select
+                    className="mt-1 w-full rounded-lg border border-amber-200 px-3 py-2 text-sm"
+                    value={retention.mode}
+                    onChange={(e) =>
+                      setRetention((prev) => prev && { ...prev, mode: e.target.value as RetentionConfig["mode"] })
+                    }
+                  >
+                    <option value="delete">Delete</option>
+                    <option value="archive">Archive</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={retention.deleteFiles}
+                    onChange={(e) =>
+                      setRetention((prev) => prev && { ...prev, deleteFiles: e.target.checked })
+                    }
+                  />
+                  Delete uploaded files from disk
+                </label>
+                <label className="text-sm text-gray-700">
+                  Check interval (hours)
+                  <input
+                    type="number"
+                    min={1}
+                    className="mt-1 w-full rounded-lg border border-amber-200 px-3 py-2 text-sm"
+                    value={retention.intervalHours}
+                    onChange={(e) =>
+                      setRetention((prev) => prev && { ...prev, intervalHours: Number(e.target.value) })
+                    }
+                  />
+                </label>
+                <button
+                  onClick={saveRetention}
+                  disabled={savingRetention}
+                  className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                >
+                  Save retention policy
+                </button>
+                {retentionMessage && (
+                  <div className="text-xs text-gray-600">{retentionMessage}</div>
+                )}
               </div>
             </div>
           )}

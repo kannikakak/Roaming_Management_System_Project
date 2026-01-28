@@ -21,10 +21,24 @@ This is the backend for the Roaming & Interconnect Dashboard project. It is buil
    ```
 
 3. Configure the database connection in `.env` (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT).
+   - Optional TLS for MySQL: DB_SSL_CA, DB_SSL_CERT, DB_SSL_KEY, DB_SSL_REJECT_UNAUTHORIZED
 4. Create the database schema from the single source file:
    ```
    npx ts-node setup-database.ts
    ```
+
+## Security & Compliance
+
+Environment-based security controls (set in `.env`):
+- `DATA_ENCRYPTION_KEY`: AES key for encrypting `file_rows.data_json` at rest.
+- `DATA_ENCRYPTION_REQUIRED`: set to `true` to enforce encryption (required in production).
+- `FORCE_HTTPS`: set to `true` to require HTTPS for all requests.
+- `AUTH_RATE_LIMIT_WINDOW_MS`, `AUTH_RATE_LIMIT_MAX`: auth endpoint rate limiting.
+- `FILE_UPLOAD_RATE_LIMIT_WINDOW_MS`, `FILE_UPLOAD_RATE_LIMIT_MAX`: upload rate limiting.
+- `DATA_RETENTION_ENABLED`: enable retention job (true/false).
+- `DATA_RETENTION_DAYS`: delete/archive files older than this many days.
+- `DATA_RETENTION_MODE`: `delete` or `archive`.
+- `DATA_RETENTION_DELETE_FILES`: delete uploaded files from disk (true/false).
 
 ## Running the Application
 
@@ -59,3 +73,11 @@ npm test
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more details.
+
+## Migration (Encrypt Existing Rows)
+
+If you already have plaintext `file_rows.data_json`, run:
+```
+npm run encrypt-rows
+```
+Make sure `DATA_ENCRYPTION_KEY` is set before running.

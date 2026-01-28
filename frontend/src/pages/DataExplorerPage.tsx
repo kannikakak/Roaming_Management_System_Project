@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 
 type Project = { id: number; name: string };
@@ -12,6 +13,16 @@ type FileItem = {
 };
 
 const DataExplorerPage: React.FC = () => {
+  const location = useLocation();
+  const stateProjectId =
+    location.state && typeof (location.state as any).projectId === "number"
+      ? (location.state as any).projectId
+      : null;
+  const stateFileId =
+    location.state && typeof (location.state as any).fileId === "number"
+      ? (location.state as any).fileId
+      : null;
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -20,6 +31,7 @@ const DataExplorerPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [quality, setQuality] = useState<any | null>(null);
+  const [pendingFileId, setPendingFileId] = useState<number | null>(stateFileId);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("authUser");
@@ -27,10 +39,24 @@ const DataExplorerPage: React.FC = () => {
     apiFetch(`/api/projects?user_id=${userId}`)
       .then((res) => res.json())
       .then((data) => {
-        setProjects(Array.isArray(data) ? data : []);
-        if (data?.length) setProjectId(data[0].id);
+        const list = Array.isArray(data) ? data : [];
+        setProjects(list);
+        if (stateProjectId && list.some((p) => p.id === stateProjectId)) {
+          setProjectId(stateProjectId);
+        } else if (list.length) {
+          setProjectId(list[0].id);
+        }
       });
-  }, []);
+  }, [stateProjectId]);
+
+  useEffect(() => {
+    if (stateFileId) {
+      setPendingFileId(stateFileId);
+    }
+    if (stateProjectId) {
+      setProjectId(stateProjectId);
+    }
+  }, [stateFileId, stateProjectId]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -48,18 +74,27 @@ const DataExplorerPage: React.FC = () => {
     setQuality(data.quality || null);
   };
 
+  useEffect(() => {
+    if (!pendingFileId || files.length === 0) return;
+    const match = files.find((f) => f.id === pendingFileId);
+    if (match) {
+      loadPreview(match.id);
+      setPendingFileId(null);
+    }
+  }, [pendingFileId, files]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 p-6">
       <div className="max-w-6xl mx-auto">
         <div className="flex flex-col gap-3 mb-6">
-          <h2 className="text-3xl font-bold text-amber-800">Data Explorer</h2>
-          <p className="text-sm text-gray-600">
+          <h2 className="text-3xl font-bold text-amber-800 dark:text-amber-300">Data Explorer</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             Preview the first rows of a file to confirm the columns before building charts or reports.
           </p>
-          <div className="bg-white border rounded-2xl p-5">
-            <label className="text-xs font-semibold text-gray-600">Project</label>
+          <div className="bg-white border rounded-2xl p-5 dark:bg-white/5 dark:border-white/10">
+            <label className="text-xs font-semibold text-gray-600 dark:text-gray-300">Project</label>
             <select
-              className="ml-2 border rounded px-3 py-2"
+              className="ml-2 border rounded px-3 py-2 dark:bg-white/5 dark:border-white/10 dark:text-gray-100"
               value={projectId ?? ""}
               onChange={(e) => setProjectId(Number(e.target.value))}
             >
@@ -73,43 +108,43 @@ const DataExplorerPage: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white border rounded-2xl p-5">
-            <h3 className="font-semibold mb-3">Files</h3>
+          <div className="bg-white border rounded-2xl p-5 dark:bg-white/5 dark:border-white/10">
+            <h3 className="font-semibold mb-3 dark:text-gray-100">Files</h3>
             {files.length === 0 ? (
-              <div className="text-sm text-gray-500">No files</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">No files</div>
             ) : (
               <ul className="space-y-3 text-sm">
                 {files.map((f) => (
                   <li
                     key={f.id}
-                    className="flex items-center justify-between rounded-xl border border-transparent p-2 hover:border-amber-200 hover:bg-amber-50 transition"
+                    className="flex items-center justify-between rounded-xl border border-transparent p-2 transition hover:border-amber-200 hover:bg-amber-50 dark:hover:bg-white/5 dark:hover:border-white/10"
                   >
                     <div className="flex flex-col">
-                      <span className="font-medium text-gray-800">{f.name}</span>
-                    <div className="text-xs text-gray-500">
-                      {f.fileType ? f.fileType.toUpperCase() : "FILE"}
-                      {f.uploadedAt ? ` • ${new Date(f.uploadedAt).toLocaleDateString()}` : ""}
+                      <span className="font-medium text-gray-800 dark:text-gray-100">{f.name}</span>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {f.fileType ? f.fileType.toUpperCase() : "FILE"}
+                        {f.uploadedAt ? ` â€¢ ${new Date(f.uploadedAt).toLocaleDateString()}` : ""}
+                      </div>
+                      <div className="mt-1 text-xs">
+                        {typeof f.qualityScore === "number" ? (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full border ${
+                              f.qualityScore >= 80
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : f.qualityScore >= 50
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-red-50 text-red-700 border-red-200"
+                            }`}
+                          >
+                            {f.qualityScore}% â€¢ {f.trustLevel || "Unknown"}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500">Quality: N/A</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs">
-                      {typeof f.qualityScore === "number" ? (
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full border ${
-                            f.qualityScore >= 80
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : f.qualityScore >= 50
-                                ? "bg-amber-50 text-amber-700 border-amber-200"
-                                : "bg-red-50 text-red-700 border-red-200"
-                          }`}
-                        >
-                          {f.qualityScore}% • {f.trustLevel || "Unknown"}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Quality: N/A</span>
-                      )}
-                    </div>
-                  </div>
                     <button
-                      className="text-amber-700 font-semibold"
+                      className="text-amber-700 font-semibold dark:text-amber-300"
                       onClick={() => loadPreview(f.id)}
                     >
                       Preview
@@ -120,19 +155,19 @@ const DataExplorerPage: React.FC = () => {
             )}
           </div>
 
-          <div className="bg-white border rounded-2xl p-5 lg:col-span-2">
+          <div className="bg-white border rounded-2xl p-5 lg:col-span-2 dark:bg-white/5 dark:border-white/10">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Preview</h3>
+              <h3 className="font-semibold dark:text-gray-100">Preview</h3>
               {columns.length > 0 && (
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <span>{columns.length} columns</span>
-                  <span>•</span>
+                  <span>â€¢</span>
                   <span>{preview.length} rows</span>
                 </div>
               )}
             </div>
             {columns.length === 0 ? (
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
                 Select a file to preview. This shows the first 20 rows and all columns.
               </div>
             ) : (
@@ -141,34 +176,34 @@ const DataExplorerPage: React.FC = () => {
                   {columns.map((c) => (
                     <span
                       key={c}
-                      className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200"
+                      className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-400/20"
                     >
                       {c}
                     </span>
                   ))}
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     {selectedFile ? `File: ${selectedFile.name}` : "File selected"}
                   </div>
                   {quality?.qualityScore !== undefined && (
-                    <div className="text-xs text-gray-500">
-                      Quality: {quality.qualityScore ?? "N/A"}% • {quality.trustLevel || "Unknown"}
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      Quality: {quality.qualityScore ?? "N/A"}% â€¢ {quality.trustLevel || "Unknown"}
                     </div>
                   )}
                   <button
-                    className="text-amber-700 text-xs font-semibold"
+                    className="text-amber-700 text-xs font-semibold dark:text-amber-300"
                     onClick={() => setIsPreviewOpen(true)}
                   >
                     Full preview
                   </button>
                 </div>
-                <div className="overflow-auto border rounded-xl">
+                <div className="overflow-auto border rounded-xl dark:border-white/10">
                   <table className="min-w-max w-full text-xs">
-                    <thead className="sticky top-0 bg-white">
+                    <thead className="sticky top-0 bg-white dark:bg-gray-900">
                       <tr>
                         {columns.map((c) => (
-                          <th key={c} className="text-left p-2 border-b">
+                          <th key={c} className="text-left p-2 border-b dark:border-white/10">
                             {c}
                           </th>
                         ))}
@@ -176,7 +211,7 @@ const DataExplorerPage: React.FC = () => {
                     </thead>
                     <tbody>
                       {preview.map((row, idx) => (
-                        <tr key={idx} className="border-b">
+                        <tr key={idx} className="border-b dark:border-white/10">
                           {columns.map((c) => (
                             <td key={c} className="p-2 whitespace-nowrap">
                               {row[c] ?? "-"}
@@ -187,7 +222,7 @@ const DataExplorerPage: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
                   Use preview to verify column names and spot missing values before analysis.
                 </div>
               </div>
@@ -198,27 +233,27 @@ const DataExplorerPage: React.FC = () => {
 
       {isPreviewOpen && columns.length > 0 && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 flex items-center justify-center">
-          <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl p-6 max-h-[90vh] flex flex-col">
+          <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl p-6 max-h-[90vh] flex flex-col dark:bg-gray-900 dark:border dark:border-white/10">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Full Preview</h3>
-                <div className="text-xs text-gray-500">
-                  {selectedFile ? selectedFile.name : "Selected file"} • {columns.length} columns
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Full Preview</h3>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {selectedFile ? selectedFile.name : "Selected file"} â€¢ {columns.length} columns
                 </div>
               </div>
               <button
-                className="text-sm font-semibold text-amber-700"
+                className="text-sm font-semibold text-amber-700 dark:text-amber-300"
                 onClick={() => setIsPreviewOpen(false)}
               >
                 Close
               </button>
             </div>
-            <div className="overflow-auto border rounded-xl">
+            <div className="overflow-auto border rounded-xl dark:border-white/10">
               <table className="min-w-max w-full text-xs">
-                <thead className="sticky top-0 bg-white">
+                <thead className="sticky top-0 bg-white dark:bg-gray-900">
                   <tr>
                     {columns.map((c) => (
-                      <th key={c} className="text-left p-2 border-b">
+                      <th key={c} className="text-left p-2 border-b dark:border-white/10">
                         {c}
                       </th>
                     ))}
@@ -226,7 +261,7 @@ const DataExplorerPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {preview.map((row, idx) => (
-                    <tr key={idx} className="border-b">
+                    <tr key={idx} className="border-b dark:border-white/10">
                       {columns.map((c) => (
                         <td key={c} className="p-2 whitespace-nowrap">
                           {row[c] ?? "-"}
