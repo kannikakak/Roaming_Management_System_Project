@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Edit2, Trash2, MoreVertical, LayoutDashboard, Clock, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../utils/api";
+import Surface from "../components/Surface";
 
 type ProjectType = {
   id: number;
@@ -206,17 +207,17 @@ const Projects: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen" style={{ background: `linear-gradient(135deg, #fff, ${ACCENT_LIGHT})` }}>
+    <div className="min-h-screen bg-gradient-to-br from-white via-amber-50 to-white dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-10 px-6 pt-10">
-        <h1 className="text-4xl font-extrabold mb-2 text-gray-900 tracking-tight">Projects</h1>
-        <p className="text-lg text-gray-600">Manage your projects and track progress</p>
+        <h1 className="text-4xl font-extrabold mb-2 text-gray-900 tracking-tight dark:text-white">Projects</h1>
+        <p className="text-lg text-gray-600 dark:text-gray-300">Manage your projects and track progress</p>
       </div>
 
       {/* Projects Section */}
       <div className="max-w-7xl mx-auto px-6">
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-2xl font-bold text-gray-800">Recent Projects</h2>
+          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Recent Projects</h2>
           <button
             style={{ background: ACCENT, color: "#fff" }}
             className="hover:brightness-110 px-6 py-3 rounded-full font-semibold shadow-lg transition-all flex items-center gap-2"
@@ -230,9 +231,10 @@ const Projects: React.FC = () => {
         {/* Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
           {/* Create new project card */}
-          <div
-            className="group flex flex-col items-center justify-center border-2 border-dashed rounded-2xl h-64 cursor-pointer bg-white hover:bg-yellow-50 transition-all shadow-md hover:scale-105"
-            style={{ borderColor: ACCENT }}
+          <Surface
+            className="group flex flex-col items-center justify-center border-dashed h-64 cursor-pointer hover:scale-105 transition-all shadow-md dark:shadow-none"
+            borderColor={ACCENT}
+            style={{ borderWidth: 2 }}
             onClick={openCreate}
           >
             <div
@@ -241,98 +243,114 @@ const Projects: React.FC = () => {
             >
               <Plus className="w-10 h-10" style={{ color: ACCENT }} />
             </div>
-            <span className="text-xl text-gray-700 font-semibold">Create new project</span>
-          </div>
+            <span className="text-xl text-gray-700 dark:text-gray-100 font-semibold">
+              Create new project
+            </span>
+          </Surface>
 
-          {/* Existing projects */}
-          {projects.map((p) => (
-            <div
-              key={p.id}
-              className="relative rounded-2xl h-64 shadow-md hover:shadow-xl hover:scale-105 transition-all p-7 flex flex-col border group bg-white cursor-pointer"
-              style={{ borderColor: ACCENT, borderWidth: 2 }}
-              onClick={() => navigate(`/card/${p.id}`)}
-              title="View project details"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="w-14 h-14 rounded-xl flex items-center justify-center shadow-lg" style={{ background: ACCENT }}>
-                  <LayoutDashboard className="w-7 h-7 text-white" />
-                </div>
-                <MoreVertical className="w-6 h-6 text-gray-400" />
+        {/* Existing projects */}
+        {projects.map((p) => (
+          <Surface
+            key={p.id}
+            className="relative h-64 shadow-md hover:shadow-xl hover:scale-105 transition-all p-7 flex flex-col cursor-pointer group"
+            borderColor={ACCENT}
+            style={{ borderWidth: 2 }}
+            onClick={() => navigate(`/card/${p.id}`)}
+            title="View project details"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center shadow-lg" style={{ background: ACCENT }}>
+                <LayoutDashboard className="w-7 h-7 text-white" />
               </div>
-
-              <h3 className="text-xl font-bold text-gray-900 mb-2 truncate">{p.name || "Untitled Project"}</h3>
-              <p className="text-base text-gray-600 mb-3 line-clamp-2 flex-grow">
-                {p.description || "No description available"}
-              </p>
-
-              <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-200">
-                <span className="text-xs text-gray-500 flex items-center gap-1">
-                  <Clock className="w-4 h-4" style={{ color: ACCENT }} />
-                  {p.created_at
-                    ? new Date(p.created_at).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })
-                    : "—"}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    className="p-2 bg-white border rounded-lg hover:bg-yellow-50 transition-all"
-                    style={{ color: ACCENT, borderColor: ACCENT, borderWidth: 1 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openEdit(p);
-                    }}
-                    title="Edit"
-                  >
-                    <Edit2 className="w-5 h-5" />
-                  </button>
-
-                  <button
-                    className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-red-50 transition-all"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteId(p.id);
-                    }}
-                    title="Delete"
-                  >
-                    <Trash2 className="w-5 h-5 text-red-500" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Delete Confirmation Modal */}
-              {deleteId === p.id && (
-                <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 backdrop-blur-sm">
-                  <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm mx-4">
-                    <div className="text-center mb-6">
-                      <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: ACCENT_LIGHT }}>
-                        <Trash2 className="w-8 h-8" style={{ color: ACCENT }} />
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-800 mb-2">Delete Project?</h3>
-                      <p className="text-gray-600">This action cannot be undone. Are you sure you want to delete this project?</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <button
-                        className="flex-1 text-white px-4 py-2.5 rounded-xl font-semibold transition-all"
-                        style={{ background: ACCENT }}
-                        onClick={() => handleDelete(p.id)}
-                      >
-                        Delete
-                      </button>
-                      <button
-                        className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2.5 rounded-xl font-semibold transition-all"
-                        onClick={() => setDeleteId(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <MoreVertical className="w-6 h-6 text-gray-400 dark:text-gray-300" />
             </div>
-          ))}
+
+            <h3 className="text-xl font-bold text-gray-900 mb-2 truncate dark:text-white">
+              {p.name || "Untitled Project"}
+            </h3>
+            <p className="text-base text-gray-600 mb-3 line-clamp-2 flex-grow dark:text-gray-300">
+              {p.description || "No description available"}
+            </p>
+
+            <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-200 dark:border-white/10">
+              <span className="text-xs text-gray-500 flex items-center gap-1 dark:text-gray-400">
+                <Clock className="w-4 h-4" style={{ color: ACCENT }} />
+                {p.created_at
+                  ? new Date(p.created_at).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : "—"}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  className="p-2 border rounded-lg hover:bg-yellow-50 transition-all dark:bg-gray-900/50 dark:hover:bg-gray-800"
+                  style={{ color: ACCENT, borderColor: ACCENT, borderWidth: 1 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEdit(p);
+                  }}
+                  title="Edit"
+                >
+                  <Edit2 className="w-5 h-5" />
+                </button>
+
+                <button
+                  className="p-2 border rounded-lg hover:bg-red-50 transition-all dark:bg-gray-900/50 dark:border-white/10 dark:hover:bg-red-500/10"
+                  style={{ borderColor: "rgba(209, 213, 219, 0.5)", borderWidth: 1 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteId(p.id);
+                  }}
+                  title="Delete"
+                >
+                  <Trash2 className="w-5 h-5 text-red-500" />
+                </button>
+              </div>
+            </div>
+
+            {/* Delete Confirmation Modal */}
+            {deleteId === p.id && (
+              <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 backdrop-blur-sm">
+                <Surface
+                  as="div"
+                  className="p-8 max-w-sm mx-4"
+                  borderColor={ACCENT}
+                  style={{ borderWidth: 1, borderColor: ACCENT }}
+                >
+                  <div className="text-center mb-6">
+                    <div
+                      className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+                      style={{ background: ACCENT_LIGHT }}
+                    >
+                      <Trash2 className="w-8 h-8" style={{ color: ACCENT }} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-800 mb-2 dark:text-white">Delete Project?</h3>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      This action cannot be undone. Are you sure you want to delete this project?
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      className="flex-1 text-white px-4 py-2.5 rounded-xl font-semibold transition-all"
+                      style={{ background: ACCENT }}
+                      onClick={() => handleDelete(p.id)}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2.5 rounded-xl font-semibold transition-all dark:bg-gray-900/60 dark:text-gray-100 dark:hover:bg-gray-800"
+                      onClick={() => setDeleteId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </Surface>
+              </div>
+            )}
+          </Surface>
+        ))}
         </div>
 
         {/* Loading / Empty State */}
@@ -401,7 +419,7 @@ const Projects: React.FC = () => {
 
             {/* Helpful debug hint */}
             <p className="text-xs text-gray-400 mt-4">
-              If create fails with “non-JSON response”, check your proxy or route mount: backend must serve <b>/api/projects</b>.
+              If create fails with â€œnon-JSON responseâ€, check your proxy or route mount: backend must serve <b>/api/projects</b>.
             </p>
           </div>
         </div>
@@ -411,3 +429,5 @@ const Projects: React.FC = () => {
 };
 
 export default Projects;
+
+

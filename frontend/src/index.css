@@ -25,3 +25,7 @@ body {
   color: var(--color-text);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+.surface {
+  border-style: solid;
+}

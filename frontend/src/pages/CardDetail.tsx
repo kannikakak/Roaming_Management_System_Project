@@ -649,12 +649,12 @@ const CardDetail: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-amber-50 to-white">
-      <aside className="w-64 bg-white/80 backdrop-blur flex flex-col border-r border-amber-100 shadow-sm">
-        <div className="p-4 border-b border-amber-100">
+    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-amber-50 to-white dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
+      <aside className="w-64 bg-white/80 backdrop-blur flex flex-col border-r border-amber-100 shadow-sm dark:bg-gray-900/80 dark:border-white/10">
+        <div className="p-4 border-b border-amber-100 dark:border-white/10">
           <button
             onClick={() => navigate('/projects')}
-            className="flex items-center gap-2 text-amber-700 hover:text-amber-900 mb-3 font-semibold text-sm"
+            className="flex items-center gap-2 text-amber-700 hover:text-amber-900 mb-3 font-semibold text-sm dark:text-amber-300 dark:hover:text-amber-100"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to projects
@@ -663,12 +663,12 @@ const CardDetail: React.FC = () => {
           <p className="text-xs text-gray-500 mt-1">Project #{cardId}</p>
         </div>
 
-        <div className="p-4 border-b border-amber-100">
+        <div className="p-4 border-b border-amber-100 dark:border-white/10">
           <label
             className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-4 cursor-pointer transition ${
               isDragging
-                ? 'border-amber-400 bg-amber-100/80'
-                : 'border-amber-300 bg-amber-50/80 hover:bg-amber-50'
+                ? 'border-amber-400 bg-amber-100/80 dark:border-amber-200/80 dark:bg-amber-500/20'
+                : 'border-amber-300 bg-amber-50/80 hover:bg-amber-50 dark:border-white/10 dark:bg-gray-900/60 dark:hover:bg-white/5'
             }`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -677,7 +677,7 @@ const CardDetail: React.FC = () => {
             <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center mb-2 shadow-sm">
               <Upload className="w-4 h-4 text-white" />
             </div>
-            <span className="text-sm font-semibold text-amber-900">
+            <span className="text-sm font-semibold text-amber-900 dark:text-amber-200">
               {uploading
                 ? uploadProgress !== null
                   ? `Uploading... ${uploadProgress}%`
@@ -686,7 +686,7 @@ const CardDetail: React.FC = () => {
                   ? 'Drop files to upload'
                   : 'Add files'}
             </span>
-            <span className="text-[11px] text-amber-700 mt-1">CSV, XLSX, XLS</span>
+            <span className="text-[11px] text-amber-700 mt-1 dark:text-amber-200">CSV, XLSX, XLS</span>
             {uploading && uploadProgress !== null && (
               <div className="w-full mt-2">
                 <div className="h-1.5 w-full rounded-full bg-amber-100 overflow-hidden border border-amber-200">
@@ -724,24 +724,24 @@ const CardDetail: React.FC = () => {
                 const isActive = activeFileId === file.id;
 
                 return (
-                  <li
-                    key={file.id}
-                    className={`group relative rounded-lg p-3 cursor-pointer border transition ${
-                      isActive
-                        ? 'bg-amber-50 border-amber-300 shadow-sm'
-                        : 'bg-white border-gray-200 hover:border-amber-200 hover:bg-amber-50/40'
-                    }`}
-                    onClick={() => setActiveFileId(file.id)}
-                  >
+                <li
+                  key={file.id}
+                  className={`group relative rounded-lg p-3 cursor-pointer border transition ${
+                    isActive
+                      ? 'bg-amber-50 border-amber-300 shadow-sm dark:bg-amber-500/20 dark:border-amber-400 dark:shadow-lg'
+                      : 'bg-white border-gray-200 hover:border-amber-200 hover:bg-amber-50/40 dark:bg-gray-900/50 dark:border-white/10 dark:hover:border-amber-300 dark:hover:bg-white/5'
+                  }`}
+                  onClick={() => setActiveFileId(file.id)}
+                >
                     <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 rounded-md p-1 ${isActive ? 'bg-amber-100' : 'bg-gray-100'}`}>
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-amber-700' : 'text-gray-600'}`} />
+                      <div className={`mt-0.5 rounded-md p-1 ${isActive ? 'bg-amber-100 dark:bg-amber-500/20' : 'bg-gray-100 dark:bg-gray-700/40'}`}>
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-amber-700' : 'text-gray-600 dark:text-gray-200'}`} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className={`font-semibold truncate text-sm ${isActive ? 'text-amber-900' : 'text-gray-900'}`}>
+                        <p className={`font-semibold truncate text-sm ${isActive ? 'text-amber-900' : 'text-gray-900 dark:text-gray-100'}`}>
                           {file.name}
                         </p>
-                        <p className="text-[11px] text-gray-500 mt-0.5">
+                        <p className="text-[11px] text-gray-500 mt-0.5 dark:text-gray-400">
                           {file.fileType?.toUpperCase() || 'FILE'} {file.uploadedAt ? `- ${new Date(file.uploadedAt).toLocaleDateString()}` : ''}
                         </p>
                       </div>
@@ -765,22 +765,22 @@ const CardDetail: React.FC = () => {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white/90 backdrop-blur border-b border-amber-100 px-6 py-4">
+        <header className="bg-white/90 backdrop-blur border-b border-amber-100 px-6 py-4 dark:bg-gray-900/80 dark:border-white/10">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
                 <FileSpreadsheet className="w-5 h-5 text-amber-700" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-gray-900">
+                <h1 className="text-lg font-bold text-gray-900 dark:text-white">
                   {activeFile?.name || 'Select a file'}
                 </h1>
                 {activeFile && activeFile.columns.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mt-1">
-                    <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mt-1 dark:text-gray-300">
+                      <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 dark:bg-amber-500/20 dark:border-amber-200">
                       {activeFile.columns.length} columns
                     </span>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200">
+                      <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 dark:bg-amber-500/20 dark:border-amber-200">
                       {activeFile.rows.length} rows
                     </span>
                     {selectedChartCols.length > 0 && (

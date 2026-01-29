@@ -494,53 +494,53 @@ const ChartPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 p-4 sm:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 p-4 sm:p-8 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex items-center">
           <button
             onClick={() => navigate("/projects")}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-white text-amber-800 hover:bg-amber-50 text-sm font-semibold"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-white text-amber-800 hover:bg-amber-50 text-sm font-semibold dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-100 dark:hover:bg-white/5"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to projects
           </button>
         </div>
         {/* ✅ ALWAYS show saved cards */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold text-gray-700">Saved Charts</h3>
-            <button
-              onClick={loadSavedCharts}
-              className="text-xs px-3 py-2 rounded-lg border border-amber-200 bg-white hover:bg-amber-50"
-            >
-              Refresh
-            </button>
-          </div>
-
-          {savedCharts.length === 0 ? (
-            <div className="bg-white border rounded-xl p-4 text-sm text-gray-600">
-              No saved charts yet. Click <b>Save Chart</b> to create one.
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-100">Saved Charts</h3>
+              <button
+                onClick={loadSavedCharts}
+                className="text-xs px-3 py-2 rounded-lg border border-amber-200 bg-white hover:bg-amber-50 dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-100 dark:hover:bg-white/5"
+              >
+                Refresh
+              </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {savedCharts.map((chart) => (
-                <div
-                  key={chart.id}
-                  className="bg-white border border-amber-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="cursor-pointer" onClick={() => handleLoadChart(chart.config)}>
-                      <div className="font-semibold text-amber-800">{chart.name}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {chart.config.chartType} Chart
+
+            {savedCharts.length === 0 ? (
+              <div className="bg-white border rounded-xl p-4 text-sm text-gray-600 dark:bg-gray-900/60 dark:border-white/10 dark:text-gray-200">
+                No saved charts yet. Click <b>Save Chart</b> to create one.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {savedCharts.map((chart) => (
+                  <div
+                    key={chart.id}
+                    className="bg-white border border-amber-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all dark:bg-gray-900/60 dark:border-white/10"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="cursor-pointer" onClick={() => handleLoadChart(chart.config)}>
+                        <div className="font-semibold text-amber-800 dark:text-amber-300">{chart.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {chart.config.chartType} Chart
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          X: {chart.config.categoryCol}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          Y: {chart.config.valueCols.join(", ")}
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500">
-                        X: {chart.config.categoryCol}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        Y: {chart.config.valueCols.join(", ")}
-                      </div>
-                    </div>
                     <button
                       className="text-xs text-red-600 hover:text-red-700"
                       onClick={() => handleDeleteSavedChart(chart.id)}
@@ -549,7 +549,7 @@ const ChartPage: React.FC = () => {
                     </button>
                   </div>
                   <button
-                    className="mt-3 text-xs w-full border border-amber-200 rounded-lg py-2 text-amber-700 hover:bg-amber-50"
+                    className="mt-3 text-xs w-full border border-amber-200 rounded-lg py-2 text-amber-700 hover:bg-amber-50 dark:border-white/10 dark:text-gray-100 dark:bg-gray-900/60 dark:hover:bg-white/5"
                     onClick={() => handleLoadChart(chart.config)}
                   >
                     Open Chart
@@ -562,23 +562,23 @@ const ChartPage: React.FC = () => {
 
         {/* If no chart data */}
         {!hasChart ? (
-          <div className="bg-white border rounded-xl p-6 text-gray-700">
+          <div className="bg-white border rounded-xl p-6 text-gray-700 dark:bg-gray-900/60 dark:border-white/10 dark:text-gray-200">
             No chart data. Go back and select at least 2 columns.
           </div>
         ) : (
           <>
             {/* Header */}
             <div className="mb-6 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-white/50">
-                  <ArrowLeft className="w-5 h-5 text-gray-700" />
-                </button>
-                <h1 className="text-3xl font-bold text-gray-800">Chart Visualization</h1>
-              </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-white/50 dark:hover:bg-white/10">
+                    <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-100" />
+                  </button>
+                  <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Chart Visualization</h1>
+                </div>
             </div>
 
             {/* Controls */}
-            <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-amber-100">
+            <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-amber-100 dark:bg-gray-900/70 dark:border-white/10">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {/* Category */}
                 <div className="space-y-2">
@@ -588,7 +588,7 @@ const ChartPage: React.FC = () => {
                   <select
                     value={categoryCol}
                     onChange={(e) => handleCategoryColChange(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-100 dark:focus:border-amber-400"
                   >
                     {currentSelectedCols.map((col: string) => (
                       <option key={col} value={col}>
@@ -604,7 +604,7 @@ const ChartPage: React.FC = () => {
                   <select
                     value={chartType}
                     onChange={(e) => handleChartTypeChange(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-100 dark:focus:border-amber-400"
                   >
                     {CHART_TYPES.map((type) => (
                       <option key={type} value={type}>
@@ -616,7 +616,7 @@ const ChartPage: React.FC = () => {
 
                 {/* Actions */}
                 <div className="flex flex-col gap-3">
-                  <div className="text-xs font-semibold text-gray-600">Actions</div>
+                  <div className="text-xs font-semibold text-gray-600 dark:text-gray-200">Actions</div>
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-2 gap-2">
                     <button
                       className="px-3 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2"
@@ -665,14 +665,14 @@ const ChartPage: React.FC = () => {
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {availableValueCols.map((col) => (
-                    <label
-                      key={col}
-                      className={`px-4 py-2 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium ${
-                        valueCols.includes(col)
-                          ? "bg-yellow-100 border-yellow-400 text-yellow-800"
-                          : "bg-white border-gray-300 text-gray-700 hover:border-yellow-300 hover:bg-yellow-50"
-                      }`}
-                    >
+                  <label
+                    key={col}
+                    className={`px-4 py-2 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium ${
+                      valueCols.includes(col)
+                        ? "bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-amber-500/20 dark:border-amber-300 dark:text-amber-200"
+                        : "bg-white border-gray-300 text-gray-700 hover:border-yellow-300 hover:bg-yellow-50 dark:bg-gray-900/60 dark:border-white/10 dark:text-gray-100 dark:hover:bg-white/5"
+                    }`}
+                  >
                       <input
                         type="checkbox"
                         checked={valueCols.includes(col)}
@@ -687,7 +687,7 @@ const ChartPage: React.FC = () => {
             </div>
 
             {/* Chart */}
-            <div className="bg-white rounded-xl shadow-xl border border-yellow-100 overflow-hidden">
+            <div className="bg-white rounded-xl shadow-xl border border-yellow-100 overflow-hidden dark:bg-gray-900/80 dark:border-white/10">
               <div className="bg-gradient-to-r from-yellow-50 to-amber-50 px-6 py-4 border-b border-yellow-100">
                 <div className="flex items-center gap-2">
                   {getChartIcon(chartType)}
@@ -697,7 +697,7 @@ const ChartPage: React.FC = () => {
                 </div>
               </div>
 
-              <div ref={chartRef} className="p-6 bg-white">
+              <div ref={chartRef} className="p-6 bg-white dark:bg-gray-900/80">
                 <ResponsiveContainer width="100%" height={450}>
                   {chartType === "Line" && (
                     <LineChart data={chartData}>
