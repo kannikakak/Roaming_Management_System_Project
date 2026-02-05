@@ -1,0 +1,923 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Database,
+  Layers,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+
+import { apiFetch } from "../utils/api";
+import Surface from "../components/Surface";
+
+type ProjectType = {
+  id: number;
+  name: string;
+};
+
+type SourceRow = {
+  id: number;
+  name: string;
+  type: string;
+  enabled: boolean;
+  projectId: number;
+  pollIntervalMinutes: number;
+  lastScanAt: string | null;
+  lastError: string | null;
+};
+
+type FileStatusRow = {
+  status: string;
+  count: number;
+};
+
+type JobResultRow = {
+  result: string | null;
+  count: number;
+};
+
+type TimelineEvent = {
+  id: number;
+  sourceName: string | null;
+  sourceType: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  result: string | null;
+  attempt: number;
+};
+
+type SourceError = {
+  id: number;
+  name: string;
+  type: string;
+  enabled: boolean;
+  lastError: string | null;
+  lastScanAt: string | null;
+};
+
+type Snapshot = {
+  totals: {
+    projects: number;
+    files: number;
+    sources: number;
+    ingestionFiles: number;
+    ingestionJobs: number;
+    charts: number;
+    reports: number;
+  };
+  fileStatus: FileStatusRow[];
+  jobResults: JobResultRow[];
+  timeline: TimelineEvent[];
+  recentErrors: SourceError[];
+};
+
+type ImpactMetric = {
+  label: string;
+  current: number;
+  previous?: number | null;
+  change?: number | null;
+  changePercent?: number | null;
+  unit?: "currency" | "count" | "usage" | "generic";
+};
+
+type ImpactChart = {
+  label: string;
+  previous: number | null;
+  current: number;
+  unit: string;
+};
+
+type SchemaRename = {
+  from: string;
+  to: string;
+};
+
+type SchemaChanges = {
+  previousFileId: number | null;
+  previousFileName?: string;
+  previousUploadedAt?: string;
+  newColumns: string[];
+  removedColumns: string[];
+  renamedColumns: SchemaRename[];
+  warnings: string[];
+  summary: string[];
+};
+
+type ImpactPayload = {
+  projectId: number;
+  projectName: string;
+  currentFile: { id: number; name: string; uploadedAt: string };
+  previousFile?: { id: number; name: string; uploadedAt: string };
+  metrics: {
+    netRevenue: ImpactMetric;
+    usage: ImpactMetric;
+    partners: ImpactMetric;
+  };
+  kpis: ImpactMetric[];
+  chart?: ImpactChart;
+  insights: string[];
+  schemaChanges: SchemaChanges;
+};
+
+const impactCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 1,
+});
+const impactNumberFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 1,
+});
+
+const formatImpactValue = (value: number, unit?: ImpactMetric["unit"]) => {
+  if (unit === "currency") {
+    return impactCurrencyFormatter.format(value);
+  }
+  if (unit === "usage") {
+    return `${impactNumberFormatter.format(value)} ${value === 1 ? "unit" : "units"}`;
+  }
+  return impactNumberFormatter.format(value);
+};
+
+const formatChangeLabel = (metric: ImpactMetric) => {
+  if (metric.changePercent == null) return null;
+  const direction = (metric.change || 0) >= 0 ? "+" : "-";
+  return `${direction}${Math.abs(metric.changePercent).toFixed(1)}%`;
+};
+
+const HOW_IT_WORKS = [
+  {
+    title: "Collect roaming signals",
+    description: "Automated connectors pull CDR, billing, and network feeds into centralized storage so every transaction is tracked.",
+    icon: <Layers className="text-amber-500" size={20} />,
+  },
+  {
+    title: "Validate & enrich",
+    description: "Smart ingestion services validate format, normalize names, and calculate trust scores before making data available.",
+    icon: <Sparkles className="text-amber-500" size={20} />,
+  },
+  {
+    title: "Operationalize",
+    description: "Dashboards, automation scripts, and exports give analysts the tools to resolve disputes and run audits.",
+    icon: <Database className="text-amber-500" size={20} />,
+  },
+  {
+    title: "Guard the network",
+    description: "Alerts, simulations, and role-aware controls keep the roaming estate compliant and resilient.",
+    icon: <ShieldCheck className="text-amber-500" size={20} />,
+  },
+];
+
+const statusColor = (status: string) => {
+  if (status.toLowerCase().includes("new") || status.toLowerCase().includes("pending")) return "text-amber-600";
+  if (status.toLowerCase().includes("processing") || status.toLowerCase().includes("running")) return "text-blue-600";
+  if (status.toLowerCase().includes("error") || status.toLowerCase().includes("failed")) return "text-red-600";
+  return "text-emerald-600";
+};
+
+const OperationsCenterPage: React.FC = () => {
+  const storedUser = localStorage.getItem("authUser");
+  const userId = storedUser ? JSON.parse(storedUser).id : null;
+
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [loadingSources, setLoadingSources] = useState(false);
+  const [projects, setProjects] = useState<ProjectType[]>([]);
+  const [impact, setImpact] = useState<ImpactPayload | null>(null);
+  const [loadingImpact, setLoadingImpact] = useState(false);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [newSource, setNewSource] = useState({ name: "", path: "", projectId: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!flash) return;
+    const timeout = setTimeout(() => setFlash(null), 4000);
+    return () => clearTimeout(timeout);
+  }, [flash]);
+
+  const handleResponse = useCallback(async (response: Response, errorMessage: string) => {
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(payload?.message || errorMessage);
+    }
+    return payload;
+  }, []);
+
+  const fetchSnapshot = useCallback(async () => {
+    setLoadingSnapshot(true);
+    setSnapshotError(null);
+    try {
+      const response = await apiFetch("/api/operations/snapshot");
+      const data = await handleResponse(response, "Unable to load operations snapshot.");
+      setSnapshot(data as Snapshot);
+    } catch (error: any) {
+      setSnapshotError(error.message || "Snapshot service unavailable.");
+    } finally {
+      setLoadingSnapshot(false);
+    }
+  }, [handleResponse]);
+
+  const fetchSources = useCallback(async () => {
+    setLoadingSources(true);
+    try {
+      const response = await apiFetch("/api/sources");
+      const data = await handleResponse(response, "Unable to load ingestion sources.");
+      setSources((data as SourceRow[]) || []);
+    } catch (error: any) {
+      setSources([]);
+      setFlash(error.message || "Failed to refresh sources.");
+    } finally {
+      setLoadingSources(false);
+    }
+  }, [handleResponse]);
+
+  const fetchProjects = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const response = await apiFetch(`/api/projects?user_id=${userId}`);
+      const data = await handleResponse(response, "Unable to load projects.");
+      setProjects((data as ProjectType[]) || []);
+    } catch (error: any) {
+      setProjects([]);
+      setFlash(error.message || "Failed to load projects.");
+    }
+  }, [handleResponse, userId]);
+
+  const fetchImpact = useCallback(
+    async (projectId: number) => {
+      if (!projectId) return;
+      setLoadingImpact(true);
+      setImpactError(null);
+      try {
+        const response = await apiFetch(`/api/impact/projects/${projectId}/latest`);
+        const data = await handleResponse(response, "Unable to load impact analysis.");
+        setImpact(data as ImpactPayload);
+      } catch (error: any) {
+        setImpact(null);
+        setImpactError(error.message || "Failed to refresh upload impact.");
+      } finally {
+        setLoadingImpact(false);
+      }
+    },
+    [handleResponse]
+  );
+
+  const refreshImpact = () => {
+    const targetProjectId = impact?.projectId || projects[0]?.id;
+    if (targetProjectId) {
+      fetchImpact(targetProjectId);
+    }
+  };
+
+  useEffect(() => {
+    fetchSnapshot();
+    fetchSources();
+    fetchProjects();
+  }, [fetchSnapshot, fetchSources, fetchProjects]);
+
+  useEffect(() => {
+    if (!projects.length) return;
+    fetchImpact(projects[0].id);
+  }, [projects, fetchImpact]);
+
+  useEffect(() => {
+    if (projects.length && !newSource.projectId) {
+      setNewSource((prev) => ({ ...prev, projectId: String(projects[0].id) }));
+    }
+  }, [projects, newSource.projectId]);
+
+  const projectMap = useMemo(() => {
+    const map = new Map<number, string>();
+    projects.forEach((project) => map.set(project.id, project.name));
+    return map;
+  }, [projects]);
+
+  const stats = useMemo(() => {
+    if (!snapshot) return [];
+    const totals = snapshot.totals;
+    return [
+      {
+        label: "Active projects",
+        value: totals.projects.toLocaleString(),
+        helper: `${totals.sources.toLocaleString()} ingestion sources`,
+        icon: <Layers size={24} className="text-amber-600" />,
+      },
+      {
+        label: "Files stored",
+        value: totals.files.toLocaleString(),
+        helper: `${totals.ingestionFiles.toLocaleString()} rows/processes`,
+        icon: <Database size={24} className="text-blue-600" />,
+      },
+      {
+        label: "Ingestion jobs",
+        value: totals.ingestionJobs.toLocaleString(),
+        helper: `${snapshot.jobResults.reduce((sum, item) => sum + item.count, 0).toLocaleString()} polls run`,
+        icon: <Activity size={24} className="text-emerald-600" />,
+      },
+      {
+        label: "Reports ready",
+        value: totals.reports.toLocaleString(),
+        helper: `${totals.charts.toLocaleString()} semantic statements`,
+        icon: <Sparkles size={24} className="text-fuchsia-600" />,
+      },
+      {
+        label: "Guard rails",
+        value: `${snapshot.recentErrors.length} errors`,
+        helper: "Alerts and remediation in place",
+        icon: <ShieldCheck size={24} className="text-teal-600" />,
+      },
+    ];
+  }, [snapshot]);
+
+  const handleCreateSource = async () => {
+    if (!newSource.name.trim() || !newSource.path.trim() || !newSource.projectId) {
+      setFlash("Name, project, and path are required.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const response = await apiFetch("/api/sources", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newSource.name.trim(),
+          type: "local",
+          projectId: Number(newSource.projectId),
+          pollIntervalMinutes: 5,
+          connectionConfig: { path: newSource.path.trim() },
+          filePattern: "*.csv",
+          enabled: true,
+        }),
+      });
+      await handleResponse(response, "Unable to create source.");
+      setFlash("Source created. Refreshing queue...");
+      setNewSource((prev) => ({ ...prev, name: "", path: "" }));
+      fetchSnapshot();
+      fetchSources();
+    } catch (error: any) {
+      setFlash(error.message || "Source creation failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleToggleSource = async (source: SourceRow) => {
+    const actionKey = `toggle-${source.id}`;
+    setActiveAction(actionKey);
+    try {
+      const response = await apiFetch(`/api/sources/${source.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled: !source.enabled }),
+      });
+      await handleResponse(response, "Unable to update source.");
+      setFlash(!source.enabled ? "Source enabled." : "Source disabled.");
+      fetchSources();
+      fetchSnapshot();
+    } catch (error: any) {
+      setFlash(error.message || "Failed to update source.");
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleSourceAction = async (id: number, type: "test" | "scan") => {
+    const actionKey = `${type}-${id}`;
+    setActiveAction(actionKey);
+    try {
+      const response = await apiFetch(`/api/sources/${id}/${type}`, { method: "POST" });
+      await handleResponse(response, `Unable to ${type} source.`);
+      setFlash(type === "test" ? "Connection validated." : "Scan queued.");
+      if (type === "scan") fetchSnapshot();
+    } catch (error: any) {
+      setFlash(error.message || `Source ${type} failed.`);
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const timelineLabel = (event: TimelineEvent) => {
+    const base = event.sourceName ? `${event.sourceName}` : "Ingestion job";
+    return `${base} - attempt ${event.attempt}`;
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-white via-amber-50 to-white dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
+      <div className="max-w-7xl mx-auto px-6 py-10 space-y-10">
+        <div>
+          <p className="text-sm uppercase tracking-[0.4em] text-amber-500">Operations intelligence</p>
+          <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 dark:text-white mt-2">
+            Roaming control tower
+          </h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-300 max-w-2xl">
+            Blend static runbooks with live ingestion telemetry so your roaming and interconnect teams can act with
+            confidence.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={fetchSnapshot}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500 text-white font-semibold shadow-lg hover:bg-amber-600 transition"
+            >
+              <RefreshCw size={16} />
+              Refresh snapshot
+            </button>
+            {snapshotError && (
+              <span className="text-sm font-semibold text-red-600">{snapshotError}</span>
+            )}
+          </div>
+          {loadingSnapshot && (
+            <p className="mt-2 text-xs text-gray-500">Updating snapshot...</p>
+          )}
+        </div>
+
+        {flash && (
+          <Surface className="p-4 border border-amber-100 shadow-md text-sm text-amber-800 flex items-center gap-3">
+            <Zap size={16} />
+            {flash}
+          </Surface>
+        )}
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.6em] text-amber-500">Upload intelligence</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">What changed?</h2>
+            </div>
+            <button
+              onClick={refreshImpact}
+              disabled={loadingImpact}
+              className="flex items-center gap-2 rounded-full border border-amber-200 px-4 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh impact
+            </button>
+          </div>
+
+          {loadingImpact ? (
+            <Surface className="p-5 border border-amber-100 text-sm text-gray-500">Loading upload comparison...</Surface>
+          ) : impactError ? (
+            <Surface className="p-5 border border-red-200 text-sm text-red-600">{impactError}</Surface>
+          ) : impact ? (
+            <Surface className="p-6 border border-amber-100 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Latest upload</p>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{impact.currentFile.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {new Date(impact.currentFile.uploadedAt).toLocaleString()}
+                  </p>
+                </div>
+                {impact.previousFile && (
+                  <div className="text-xs text-gray-500 text-right">
+                    Compared with
+                    <div className="font-semibold text-gray-900 dark:text-white">{impact.previousFile.name}</div>
+                    <div>{new Date(impact.previousFile.uploadedAt).toLocaleString()}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                {Object.values(impact.metrics).map((metric) => (
+                  <div key={metric.label} className="rounded-2xl border border-amber-100 p-4">
+                    <p className="text-xs uppercase text-gray-500 tracking-wider">{metric.label}</p>
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-white">
+                      {formatImpactValue(metric.current, metric.unit)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {metric.previous != null
+                        ? `${formatChangeLabel(metric) || ""} vs ${formatImpactValue(metric.previous, metric.unit)}`
+                        : "No prior baseline"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-[0.6em]">Insights</p>
+                <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                  {impact.insights.map((insight, index) => (
+                    <li key={index} className="flex items-start gap-2">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
+                      <span>{insight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {impact.schemaChanges?.summary.length ? (
+                <div className="space-y-2 border-t border-amber-50 pt-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Schema drift</p>
+                    {impact.schemaChanges.previousFileName && (
+                      <p className="text-xs text-gray-400">
+                        vs {impact.schemaChanges.previousFileName}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {impact.schemaChanges.summary.map((line, index) => (
+                      <span
+                        key={`schema-summary-${index}`}
+                        className="rounded-full border border-amber-100 bg-amber-50/80 px-3 py-1 text-[0.65rem] font-semibold text-amber-700"
+                      >
+                        {line}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[0.65rem] text-gray-500">
+                    {impact.schemaChanges.newColumns.length > 0 && (
+                      <span>+{impact.schemaChanges.newColumns.length} new column{impact.schemaChanges.newColumns.length > 1 ? "s" : ""}</span>
+                    )}
+                    {impact.schemaChanges.removedColumns.length > 0 && (
+                      <span>
+                        −{impact.schemaChanges.removedColumns.length} removed
+                      </span>
+                    )}
+                    {impact.schemaChanges.renamedColumns.length > 0 && (
+                      <span>
+                        {impact.schemaChanges.renamedColumns.length} rename{impact.schemaChanges.renamedColumns.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              {impact.chart && (
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-[0.6em] text-gray-500">Before / after</p>
+                  <div className="space-y-2 text-xs text-gray-500">
+                    {["previous", "current"].map((phase) => {
+                      const value = phase === "previous" ? impact.chart!.previous ?? 0 : impact.chart!.current;
+                      const label = phase === "previous" ? "Previous" : "Current";
+                      const max = Math.max(impact.chart!.current, impact.chart!.previous ?? 0, 1);
+                      const width = Math.max(4, (value / max) * 100);
+                      return (
+                        <div key={phase} className="flex items-center gap-2">
+                          <div className="w-16 text-right font-semibold text-gray-900">{label}</div>
+                          <div className="flex-1 h-2 rounded-full bg-gray-200">
+                            <div
+                              className="h-full bg-amber-500"
+                              style={{ width: `${width}%` }}
+                            />
+                          </div>
+                          <div className="w-24 text-right">
+                            {formatImpactValue(value, impact.chart!.unit as ImpactMetric["unit"])}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {impact.kpis.length > 0 && (
+                <div>
+                  <p className="text-xs uppercase tracking-[0.6em] text-gray-500">Additional KPIs</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {impact.kpis.map((kpi) => (
+                      <div key={kpi.label} className="rounded-2xl border border-amber-100 p-4">
+                        <p className="text-xs text-gray-500">{kpi.label}</p>
+                        <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                          {formatImpactValue(kpi.current, kpi.unit)}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {kpi.previous != null
+                            ? `vs ${formatImpactValue(kpi.previous, kpi.unit)}`
+                            : "New column detected"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Surface>
+          ) : (
+            <Surface className="p-5 border border-amber-100 text-sm text-gray-500">
+              Impact analysis will appear once uploads are available.
+            </Surface>
+          )}
+        </section>
+\n*** End Patch
+
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+          {stats.length > 0 ? (
+            stats.map((stat) => (
+              <Surface key={stat.label} className="p-4 flex flex-col justify-between border-l-4 border-amber-200 shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 bg-amber-50 rounded-2xl">
+                    {stat.icon}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase text-gray-500">{stat.label}</p>
+                    <p className="text-3xl font-semibold text-gray-900 dark:text-white">{stat.value}</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-gray-500">{stat.helper}</p>
+              </Surface>
+            ))
+          ) : (
+            <Surface className="p-6 text-center text-gray-500">Loading snapshot...</Surface>
+          )}
+        </div>
+
+        <section className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.4em] text-amber-500">Static playbooks</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">How the system works</h2>
+              <p className="text-gray-500 dark:text-gray-300 text-sm max-w-xl">
+                We pair documented milestones with live telemetry so operators always know what comes next.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {HOW_IT_WORKS.map((step) => (
+              <Surface key={step.title} className="p-5 space-y-3 border border-amber-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 flex items-center justify-center bg-amber-50 rounded-2xl">
+                    {step.icon}
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{step.title}</h3>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-300">{step.description}</p>
+              </Surface>
+            ))}
+          </div>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+          <Surface className="p-6 space-y-6 border border-amber-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.4em] text-amber-500">Live timeline</p>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Ingestion flow</h2>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {impact?.schemaChanges?.summary?.length ? (
+                <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-3 text-xs text-gray-700 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[0.65rem] uppercase tracking-[0.4em] text-amber-500">Latest schema</p>
+                    <p className="text-[0.65rem] text-gray-500">
+                      {impact.schemaChanges.previousFileName
+                        ? `vs ${impact.schemaChanges.previousFileName}`
+                        : "First upload captured"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {impact.schemaChanges.summary.map((line, index) => (
+                      <span
+                        key={`timeline-summary-${index}`}
+                        className="rounded-full border border-amber-100 bg-white/80 px-2 py-1 text-xs font-semibold text-amber-700"
+                      >
+                        {line}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="space-y-1 text-[0.7rem] text-slate-600">
+                    {impact.schemaChanges.newColumns.length > 0 && (
+                      <div>
+                        <span className="font-semibold">New:</span> {impact.schemaChanges.newColumns.join(", ")}
+                      </div>
+                    )}
+                    {impact.schemaChanges.removedColumns.length > 0 && (
+                      <div>
+                        <span className="font-semibold">Removed:</span> {impact.schemaChanges.removedColumns.join(", ")}
+                      </div>
+                    )}
+                    {impact.schemaChanges.renamedColumns.length > 0 && (
+                      <div>
+                        <span className="font-semibold">Renamed:</span>{" "}
+                        {impact.schemaChanges.renamedColumns
+                          .map((entry) => `${entry.from} → ${entry.to}`)
+                          .join(", ")}
+                      </div>
+                    )}
+                    {impact.schemaChanges.warnings.length > 0 && (
+                      <div className="text-rose-600">
+                        <span className="font-semibold">Warning:</span> {impact.schemaChanges.warnings.join(" ")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+              {snapshot?.timeline?.length ? (
+                snapshot.timeline.map((event) => (
+                  <div key={event.id} className="rounded-2xl border border-gray-100 dark:border-white/10 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{timelineLabel(event)}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {event.sourceType || "Local"} - {event.result || "in progress"}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-semibold ${statusColor(event.result || "running")}`}>
+                        {event.result ? event.result : "Running"}
+                      </span>
+                    </div>
+                    <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                      Started: {event.startedAt ? new Date(event.startedAt).toLocaleString() : "â€”"}
+                      {event.finishedAt && ` - Finished: ${new Date(event.finishedAt).toLocaleString()}`}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500">No timeline events yet.</p>
+              )}
+            </div>
+          </Surface>
+
+          <Surface className="p-6 space-y-6 border border-amber-100">
+            <div>
+              <p className="text-sm uppercase tracking-[0.4em] text-amber-500">Health pulses</p>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">File & job states</h3>
+            </div>
+            <div className="space-y-3">
+              {snapshot?.fileStatus?.map((row) => (
+                <div key={row.status} className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+                  <div className="font-semibold">{row.status}</div>
+                  <div>{row.count}</div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {snapshot?.jobResults?.map((row) => (
+                <div key={`${row.result}-${row.count}`} className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{row.result || "unknown"}</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{row.count}</span>
+                </div>
+              ))}
+            </div>
+          </Surface>
+        </section>
+
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.4em] text-amber-500">Ingestion sources</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">CRUD & control</h2>
+              <p className="text-gray-500 dark:text-gray-300 text-sm max-w-2xl">
+                Provision local connectors, trigger scans, and validate paths without leaving the dashboard.
+              </p>
+            </div>
+            <button
+              onClick={fetchSources}
+              className="flex items-center gap-2 rounded-full border border-amber-200 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50"
+            >
+              <RefreshCw size={16} /> Refresh sources
+            </button>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Surface className="p-5 space-y-4 border border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Create new source</h3>
+              <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
+                <div>
+                  <label className="block mb-1 font-medium text-gray-700 dark:text-gray-200">Name</label>
+                  <input
+                    value={newSource.name}
+                    onChange={(event) => setNewSource({ ...newSource, name: event.target.value })}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                    placeholder="e.g. Cellcard Roaming CDRs"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-medium text-gray-700 dark:text-gray-200">Project</label>
+                  <select
+                    value={newSource.projectId}
+                    onChange={(event) => setNewSource({ ...newSource, projectId: event.target.value })}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                  >
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                    {!projects.length && <option value="">(No projects yet)</option>}
+                  </select>
+                </div>
+                <div>
+                  <label className="block mb-1 font-medium text-gray-700 dark:text-gray-200">Local path</label>
+                  <input
+                    value={newSource.path}
+                    onChange={(event) => setNewSource({ ...newSource, path: event.target.value })}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                    placeholder="e.g. D:\\data\\roaming"
+                  />
+                </div>
+              </div>
+              <button
+                disabled={submitting}
+                onClick={handleCreateSource}
+                className="w-full rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:bg-amber-600 disabled:opacity-60"
+              >
+                Create source
+              </button>
+            </Surface>
+
+            <Surface className="p-5 space-y-4 border border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Live controls</h3>
+              <div className="overflow-y-auto max-h-[360px] text-sm">
+                {loadingSources ? (
+                  <p className="text-gray-500">Loading sources...</p>
+                ) : sources.length === 0 ? (
+                  <p className="text-gray-500">No sources defined yet.</p>
+                ) : (
+                  <table className="w-full text-left">
+                    <thead className="text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="pb-2">Source</th>
+                        <th className="pb-2">Status</th>
+                        <th className="pb-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-700 dark:text-gray-200">
+                      {sources.map((source) => (
+                        <tr key={source.id} className="border-t border-gray-100 dark:border-white/5">
+                          <td className="py-3">
+                            <div className="font-semibold text-gray-900 dark:text-white">{source.name}</div>
+                            <div className="text-xs text-gray-500">{projectMap.get(source.projectId) || "Unknown project"}</div>
+                          </td>
+                          <td className="py-3">
+                            <div className="text-xs font-semibold">{source.enabled ? "Enabled" : "Disabled"}</div>
+                            <div className="text-xs text-gray-500">Last scan: {source.lastScanAt ? new Date(source.lastScanAt).toLocaleString() : "â€”"}</div>
+                          </td>
+                          <td className="py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                onClick={() => handleToggleSource(source)}
+                                disabled={activeAction === `toggle-${source.id}`}
+                                className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                {source.enabled ? "Disable" : "Enable"}
+                              </button>
+                              <button
+                                onClick={() => handleSourceAction(source.id, "test")}
+                                disabled={activeAction === `test-${source.id}`}
+                                className="rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                              >
+                                <Play className="inline w-3 h-3 mr-1" />
+                                Test
+                              </button>
+                              <button
+                                onClick={() => handleSourceAction(source.id, "scan")}
+                                disabled={activeAction === `scan-${source.id}`}
+                                className="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                              >
+                                <Activity className="inline w-3 h-3 mr-1" />
+                                Scan
+                              </button>
+                            </div>
+                            {source.lastError && (
+                              <p className="mt-1 text-xs text-red-600">
+                                <AlertTriangle size={12} className="mr-1 inline" />
+                                {source.lastError}
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </Surface>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <Surface className="p-5 border border-amber-100">
+            <div>
+              <p className="text-sm uppercase tracking-[0.4em] text-amber-500">Signal watchdog</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Recent alerts</h2>
+            </div>
+            <div className="mt-4 space-y-3">
+              {snapshot?.recentErrors?.length ? (
+                snapshot.recentErrors.map((error) => (
+                  <div key={error.id} className="flex items-center justify-between rounded-2xl border border-red-100 bg-red-50/70 p-3">
+                    <div>
+                      <p className="text-sm font-semibold text-red-700">{error.name}</p>
+                      <p className="text-xs text-red-600">{error.type}</p>
+                      <p className="text-xs text-red-600">Last scan: {error.lastScanAt ? new Date(error.lastScanAt).toLocaleString() : "â€”"}</p>
+                    </div>
+                    <CheckCircle2 size={20} className={`text-${error.enabled ? "emerald" : "gray"}-600`} />
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500">No alerting errors recorded yet.</p>
+              )}
+            </div>
+          </Surface>
+        </section>
+      </div>
+    </div>
+  );
+};
+
+export default OperationsCenterPage;

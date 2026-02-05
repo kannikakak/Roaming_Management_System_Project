@@ -1,7 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
-import Home from "./pages/Home";
 import CardDetail from "./pages/CardDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -25,8 +24,8 @@ import SystemSecurityPage from "./pages/SystemSecurityPage";
 import { getAuthToken } from "./utils/api";
 import GlobalSearchPage from "./pages/GlobalSearchPage";
 import DashboardAnalyticsPage from "./pages/DashboardAnalyticsPage";
-
-// import TemplatesPage from "./pages/TemplatesPage";
+import OperationsCenterPage from "./pages/OperationsCenterPage";
+import DataQualityPage from "./pages/DataQualityPage";
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = getAuthToken();
@@ -85,9 +84,23 @@ const App: React.FC = () => (
         }
       />
       <Route
-        path="/dashboard-analytics"
+        path="/operations"
         element={
-          <Navigate to="/dashboard" replace />
+          <RequireAuth>
+            <MainLayout>
+              <OperationsCenterPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/data-quality"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <DataQualityPage />
+            </MainLayout>
+          </RequireAuth>
         }
       />
 
@@ -96,28 +109,6 @@ const App: React.FC = () => (
         element={
           <RequireAuth>
             <CardDetail />
-          </RequireAuth>
-        }
-      />
-
-      <Route
-        path="/home"
-        element={
-          <RequireAuth>
-            <MainLayout>
-              <Home />
-            </MainLayout>
-          </RequireAuth>
-        }
-      />
-
-      <Route
-        path="/chart"
-        element={
-          <RequireAuth>
-            <MainLayout>
-              <ChartPage />
-            </MainLayout>
           </RequireAuth>
         }
       />
@@ -132,6 +123,7 @@ const App: React.FC = () => (
           </RequireAuth>
         }
       />
+      <Route path="/chart" element={<Navigate to="/charts" replace />} />
 
       <Route
         path="/ai-studio"
@@ -155,17 +147,6 @@ const App: React.FC = () => (
             </MainLayout>
           </RequireAuth>
 
-        }
-      />
-
-      {/* If you don't need this, you can remove it.
-          You already have /card/:cardId */}
-      <Route
-        path="/card-detail"
-        element={
-          <RequireAuth>
-            <CardDetail />
-          </RequireAuth>
         }
       />
 
@@ -308,19 +289,7 @@ const App: React.FC = () => (
         }
       />
 
-      {/* Templates */}
-      {/* <Route
-        path="/templates"
-        element={
-          <RequireAuth>
-            <MainLayout>
-              <TemplatesPage />
-            </MainLayout>
-          </RequireAuth>
-        }
-      /> */}
-
-      {/* Optional fallback */}
+      {/* Fallback route */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   </Router>

@@ -52,7 +52,13 @@ The server will be running on `http://localhost:3000` by default (or `PORT` from
 ## API Endpoints
 
 - **GET /api/dashboard**: Fetches data for the dashboard.
+- **GET /api/impact/projects/:projectId/latest**: Summarizes how the latest upload changed key metrics (net revenue, usage, partners, and KPIs) compared to the previous file.
+- **GET /api/data-quality/files/:fileId/summary**: Computes a 0–100 quality score with badges and issues after each upload.
 - Additional endpoints can be defined in the `src/routes/index.ts` file.
+
+### Environment hints
+
+- `IMPACT_SUMMARY_ROW_LIMIT` (default `12000`) controls how many rows are sampled when building the impact summary to keep the analysis fast.
 
 ## Development
 

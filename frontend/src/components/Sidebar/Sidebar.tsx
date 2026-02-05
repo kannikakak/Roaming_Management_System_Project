@@ -16,11 +16,15 @@ import {
   Users,
   ShieldCheck,
   Shield,
+  Zap,
+  ClipboardList,
 } from 'lucide-react';
 import SidebarItem from './SidebarItem';
 
 const navItems = [
   { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/dashboard' },
+  { label: 'Operations', icon: <Zap size={20} />, path: '/operations' },
+  { label: 'Data Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
   { label: 'Projects', icon: <Layers size={20} />, path: '/projects' },
   { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
   { label: 'AI Studio', icon: <Sparkles size={20} />, path: '/ai-studio' },

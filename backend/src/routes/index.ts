@@ -20,6 +20,8 @@ import { dataQaRoutes } from "./dataQaRoutes";
 import { searchRoutes } from "./searchRoutes";
 import { exportRoutes } from "./exportRoutes";
 import { ingestionSourceRoutes } from "./ingestionSourceRoutes";
+import { impactRoutes } from "./impactRoutes";
+import { dataQualityRoutes } from "./dataQualityRoutes";
 // ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -86,4 +88,10 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Ingestion sources
   app.use("/api/sources", ingestionSourceRoutes(dbPool));
+
+  // Impact summaries
+  app.use("/api/impact", impactRoutes(dbPool));
+
+  // Data quality summaries
+  app.use("/api/data-quality", dataQualityRoutes(dbPool));
 };

@@ -67,6 +67,10 @@ roaming-interconnect-dashboard
 
 Once both the backend and frontend are running, you can access the dashboard through your web browser at `http://localhost:3000`.
 
+### Operations Center & Data Quality
+
+The `/operations` route exposes the Roaming Control Tower and surfaces an Upload Intelligence card so teams can compare the latest upload vs. the previous one. The new **Data Quality** page (accessible from the sidebar) scores each file from 0–100 based on completeness, missing partners/dates, and revenue issues and highlights problem areas with badges and tooltips.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue for any improvements or bug fixes.
