@@ -10,9 +10,6 @@ import {
   BarChart2,
   FileText,
   Calendar,
-  Bell,
-  Activity,
-  ArrowUpRight,
 } from "lucide-react";
 import {
   LineChart,
@@ -65,13 +62,6 @@ type ExportFormat = "excel" | "pdf" | "png" | "json" | "xml";
 
 type Project = { id: number; name: string };
 
-type AuditLogEntry = {
-  id: number;
-  timestamp: string;
-  action: string;
-  details?: any;
-};
-
 type NotificationItem = {
   id: number;
   type: string;
@@ -82,7 +72,6 @@ type NotificationItem = {
 };
 
 const ACCENT = "#F59E0B";
-const ACCENT_DARK = "#B45309";
 const ACCENT_SOFT = "#FCD34D";
 const PIE_COLORS = [
   "#F59E0B",
@@ -115,32 +104,13 @@ const buildAnalyticsParams = (filters: AnalyticsFilterState) => {
   return params;
 };
 
-function buildActivitySeries(activity: AuditLogEntry[]) {
-  const today = new Date();
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (6 - i));
-    const key = d.toISOString().slice(0, 10);
-    const label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    return { key, label };
-  });
-
-  const counts = new Map<string, number>();
-  for (const item of activity) {
-    const key = new Date(item.timestamp).toISOString().slice(0, 10);
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-
-  return days.map((d) => ({ label: d.label, count: counts.get(d.key) || 0 }));
-}
-
 const DashboardAnalyticsPage: React.FC = () => {
   const { theme } = useTheme();
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
-  const [analyticsLastUpdated, setAnalyticsLastUpdated] = useState<Date | null>(null);
-  const [opsLastUpdated, setOpsLastUpdated] = useState<Date | null>(null);
+  const [, setAnalyticsLastUpdated] = useState<Date | null>(null);
+  const [, setOpsLastUpdated] = useState<Date | null>(null);
   const [filterInputs, setFilterInputs] = useState<AnalyticsFilterState>({
     startDate: "",
     endDate: "",
@@ -155,15 +125,12 @@ const DashboardAnalyticsPage: React.FC = () => {
   const filterDebounceRef = useRef<number | null>(null);
 
   const [opsLoading, setOpsLoading] = useState(true);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [filesCount, setFilesCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
   const [schedulesCount, setSchedulesCount] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [activity, setActivity] = useState<AuditLogEntry[]>([]);
-  const [deliveries, setDeliveries] = useState<NotificationItem[]>([]);
-  const [projectFileCounts, setProjectFileCounts] = useState<{ id: number; count: number }[]>([]);
-  const [avgQualityScore, setAvgQualityScore] = useState<number | null>(null);
+  const [, setUnreadCount] = useState(0);
+  const [, setDeliveries] = useState<NotificationItem[]>([]);
+  const [, setAvgQualityScore] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -229,7 +196,6 @@ const DashboardAnalyticsPage: React.FC = () => {
         const projectsData = (await projectsRes.json()) || [];
         if (!mounted) return;
         const safeProjects = Array.isArray(projectsData) ? projectsData : [];
-        setProjects(safeProjects);
 
         const filePromises = (safeProjects || []).map((p: Project) =>
           apiFetch(`/api/files?projectId=${p.id}`)
@@ -245,7 +211,6 @@ const DashboardAnalyticsPage: React.FC = () => {
         );
         const counts = await Promise.all(filePromises);
         if (!mounted) return;
-        setProjectFileCounts(counts);
         setFilesCount(counts.reduce((sum, c) => sum + c.count, 0));
         const allScores = counts.flatMap((c) => c.qualityScores || []);
         if (allScores.length) {
@@ -271,9 +236,6 @@ const DashboardAnalyticsPage: React.FC = () => {
           setDeliveries(list.filter((n: NotificationItem) => n.type?.startsWith("schedule_")).slice(0, 5));
         }
 
-        const activityRes = await apiFetch("/api/audit-logs/me");
-        const activityData = await activityRes.json();
-        if (mounted) setActivity(Array.isArray(activityData) ? activityData.slice(0, 12) : []);
         if (mounted) setOpsLastUpdated(new Date());
       } finally {
         if (mounted) setOpsLoading(false);
@@ -362,24 +324,6 @@ const DashboardAnalyticsPage: React.FC = () => {
   const setChartRef = (id: string) => (el: HTMLDivElement | null) => {
     chartRefs.current[id] = el;
   };
-
-  const topProjects = useMemo(() => {
-    const map = new Map(projectFileCounts.map((p) => [p.id, p.count]));
-    return projects
-      .map((p) => ({ ...p, count: map.get(p.id) || 0 }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-  }, [projects, projectFileCounts]);
-
-  const activitySeries = useMemo(() => buildActivitySeries(activity), [activity]);
-  const activitySeriesWithComparison = useMemo(() => {
-    let prev = 0;
-    return activitySeries.map((d) => {
-      const comparison = prev;
-      prev = d.count;
-      return { ...d, comparison };
-    });
-  }, [activitySeries]);
 
   const buildDashboardExportRows = (data: DashboardAnalytics | null) => {
     if (!data) return [] as Array<Record<string, any>>;

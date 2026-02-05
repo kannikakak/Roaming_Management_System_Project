@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, GripVertical, Save, Wand2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
@@ -144,43 +144,49 @@ const ReportBuilderPage: React.FC = () => {
 
   const reorderedMaps = useMemo(() => mappedColumns, [mappedColumns]);
 
-  const applyFilter = (rows: any[]) => {
-    if (!filterRule.column || !filterRule.value) return rows;
-    return rows.filter((row) => {
-      const raw = row?.[filterRule.column];
-      const text = String(raw ?? "").toLowerCase();
-      const target = filterRule.value.toLowerCase();
-      return filterRule.operator === "equals" ? text === target : text.includes(target);
-    });
-  };
+  const applyFilter = useCallback(
+    (rows: any[]) => {
+      if (!filterRule.column || !filterRule.value) return rows;
+      return rows.filter((row) => {
+        const raw = row?.[filterRule.column];
+        const text = String(raw ?? "").toLowerCase();
+        const target = filterRule.value.toLowerCase();
+        return filterRule.operator === "equals" ? text === target : text.includes(target);
+      });
+    },
+    [filterRule]
+  );
 
-  const applyAggregation = (rows: any[]) => {
-    if (!aggregation.groupBy) return null;
-    const grouped = new Map<string, number[]>();
-    rows.forEach((row) => {
-      const key = String(row?.[aggregation.groupBy] ?? "");
-      const valueRaw = row?.[aggregation.valueColumn];
-      const value = Number(valueRaw);
-      if (!grouped.has(key)) grouped.set(key, []);
-      if (Number.isFinite(value)) grouped.get(key)!.push(value);
-    });
+  const applyAggregation = useCallback(
+    (rows: any[]) => {
+      if (!aggregation.groupBy) return null;
+      const grouped = new Map<string, number[]>();
+      rows.forEach((row) => {
+        const key = String(row?.[aggregation.groupBy] ?? "");
+        const valueRaw = row?.[aggregation.valueColumn];
+        const value = Number(valueRaw);
+        if (!grouped.has(key)) grouped.set(key, []);
+        if (Number.isFinite(value)) grouped.get(key)!.push(value);
+      });
 
-    const metricLabel = aggregation.metric.toUpperCase();
-    const results = Array.from(grouped.entries()).map(([key, values]) => {
-      let metricValue = 0;
-      if (aggregation.metric === "count") {
-        metricValue = values.length;
-      } else if (values.length > 0) {
-        if (aggregation.metric === "sum") metricValue = values.reduce((a, b) => a + b, 0);
-        if (aggregation.metric === "avg") metricValue = values.reduce((a, b) => a + b, 0) / values.length;
-        if (aggregation.metric === "min") metricValue = Math.min(...values);
-        if (aggregation.metric === "max") metricValue = Math.max(...values);
-      }
-      return { [aggregation.groupBy]: key, [metricLabel]: metricValue };
-    });
+      const metricLabel = aggregation.metric.toUpperCase();
+      const results = Array.from(grouped.entries()).map(([key, values]) => {
+        let metricValue = 0;
+        if (aggregation.metric === "count") {
+          metricValue = values.length;
+        } else if (values.length > 0) {
+          if (aggregation.metric === "sum") metricValue = values.reduce((a, b) => a + b, 0);
+          if (aggregation.metric === "avg") metricValue = values.reduce((a, b) => a + b, 0) / values.length;
+          if (aggregation.metric === "min") metricValue = Math.min(...values);
+          if (aggregation.metric === "max") metricValue = Math.max(...values);
+        }
+        return { [aggregation.groupBy]: key, [metricLabel]: metricValue };
+      });
 
-    return { metricLabel, results };
-  };
+      return { metricLabel, results };
+    },
+    [aggregation]
+  );
 
   const previewData = useMemo(() => {
     if (!fileData) return { columns: [], rows: [] };
@@ -201,7 +207,7 @@ const ReportBuilderPage: React.FC = () => {
       return next;
     });
     return { columns, rows };
-  }, [fileData, reorderedMaps, filterRule, aggregation]);
+  }, [applyAggregation, applyFilter, aggregation.groupBy, fileData, reorderedMaps]);
 
   const handleDragStart = (id: string) => setDragId(id);
   const handleDrop = (id: string) => {

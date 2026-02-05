@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Edit2, Trash2, MoreVertical, LayoutDashboard, Clock, ArrowLeft } from "lucide-react";
+import { Plus, Edit2, Trash2, MoreVertical, LayoutDashboard, Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 import Surface from "../components/Surface";

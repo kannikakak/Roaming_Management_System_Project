@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 
@@ -65,14 +65,14 @@ const DataExplorerPage: React.FC = () => {
       .then((data) => setFiles(data.files || []));
   }, [projectId]);
 
-  const loadPreview = async (fileId: number) => {
+  const loadPreview = useCallback(async (fileId: number) => {
     const res = await apiFetch(`/api/files/${fileId}/data`);
     const data = await res.json();
     setColumns(data.columns || []);
     setPreview((data.rows || []).slice(0, 20));
     setSelectedFile(files.find((f) => f.id === fileId) || null);
     setQuality(data.quality || null);
-  };
+  }, [files]);
 
   useEffect(() => {
     if (!pendingFileId || files.length === 0) return;
@@ -81,7 +81,7 @@ const DataExplorerPage: React.FC = () => {
       loadPreview(match.id);
       setPendingFileId(null);
     }
-  }, [pendingFileId, files]);
+  }, [pendingFileId, files, loadPreview]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 p-6">

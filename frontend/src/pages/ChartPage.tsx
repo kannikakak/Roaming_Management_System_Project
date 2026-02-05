@@ -18,7 +18,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import * as htmlToImage from "html-to-image";
-import { Download, ArrowLeft, BarChart3, TrendingUp, Save, FileText, Users, Copy, RefreshCw } from "lucide-react";
+import { Download, ArrowLeft, BarChart3, TrendingUp, Save, FileText } from "lucide-react";
 import { logAudit } from "../utils/auditLog";
 import { apiFetch } from "../utils/api";
 
@@ -63,10 +63,6 @@ const ChartPage: React.FC = () => {
   const [chartType, setChartType] = useState<string>(initialChartType || "Line");
   const [isExporting, setIsExporting] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
-  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const lastLocalEditAt = useRef(0);
   const suppressSync = useRef(false);
   const syncTimer = useRef<number | null>(null);
@@ -105,7 +101,7 @@ const ChartPage: React.FC = () => {
     return () => window.removeEventListener("focus", onFocus);
   }, [loadSavedCharts]);
 
-  const loadFileData = async (
+  const loadFileData = useCallback(async (
     fileId: number,
     fileName?: string,
     selected?: string[]
@@ -124,7 +120,7 @@ const ChartPage: React.FC = () => {
     } else if (Array.isArray(data.columns)) {
       setCurrentSelectedCols(data.columns);
     }
-  };
+  }, []);
 
   const buildSessionState = (override: Partial<any> = {}) => ({
     fileId: override.fileId ?? currentFile?.id ?? null,
@@ -135,7 +131,7 @@ const ChartPage: React.FC = () => {
     selectedCols: override.selectedCols ?? currentSelectedCols,
   });
 
-  const applySessionState = async (state: any) => {
+  const applySessionState = useCallback(async (state: any) => {
     if (state?.fileId) {
       await loadFileData(state.fileId, state.fileName, state.selectedCols);
     }
@@ -145,28 +141,25 @@ const ChartPage: React.FC = () => {
     if (state?.categoryCol) setCategoryCol(state.categoryCol);
     if (Array.isArray(state?.valueCols)) setValueCols(state.valueCols);
     if (state?.chartType) setChartType(state.chartType);
-  };
+  }, [loadFileData]);
 
-  const loadSession = async (id: number, options: { silent?: boolean } = {}) => {
-    if (!options.silent) setIsSyncing(true);
-    setSyncError(null);
-    try {
-      const res = await apiFetch(`/api/collab-sessions/${id}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      if (data.type && data.type !== "chart") {
-        throw new Error("This collaboration link is not for Charts.");
+  const loadSession = useCallback(
+    async (id: number, _options: { silent?: boolean } = {}) => {
+      try {
+        const res = await apiFetch(`/api/collab-sessions/${id}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        if (data.type && data.type !== "chart") {
+          throw new Error("This collaboration link is not for Charts.");
+        }
+        suppressSync.current = true;
+        await applySessionState(data.state || {});
+      } finally {
+        suppressSync.current = false;
       }
-      suppressSync.current = true;
-      await applySessionState(data.state || {});
-      setLastSyncAt(new Date());
-    } catch (err: any) {
-      setSyncError(err.message || "Failed to sync session.");
-    } finally {
-      suppressSync.current = false;
-      if (!options.silent) setIsSyncing(false);
-    }
-  };
+    },
+    [applySessionState]
+  );
 
   const scheduleSessionUpdate = (override: Partial<any> = {}) => {
     if (!sessionId || suppressSync.current) return;
@@ -179,53 +172,10 @@ const ChartPage: React.FC = () => {
           method: "PUT",
           body: JSON.stringify({ state }),
         });
-        setLastSyncAt(new Date());
       } catch (err: any) {
-        setSyncError(err.message || "Failed to update session.");
+        console.error(err);
       }
     }, 400);
-  };
-
-  const startCollaboration = async () => {
-    if (!currentFile?.id) {
-      setSyncError("Select a file before starting collaboration.");
-      return;
-    }
-    setIsSyncing(true);
-    setSyncError(null);
-    try {
-      const res = await apiFetch("/api/collab-sessions", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "chart",
-          state: buildSessionState(),
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      const id = Number(data.id);
-      if (!Number.isFinite(id)) throw new Error("Invalid session ID.");
-      setSessionId(id);
-      localStorage.setItem(COLLAB_KEY, String(id));
-      navigate(`/charts?sessionId=${id}`, { replace: true });
-      await loadSession(id);
-    } catch (err: any) {
-      setSyncError(err.message || "Failed to start collaboration.");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleCopyLink = async () => {
-    if (!sessionId) return;
-    const shareUrl = `${window.location.origin}/charts?sessionId=${sessionId}`;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopyNotice("Link copied.");
-    } catch {
-      setCopyNotice("Unable to copy link.");
-    }
-    window.setTimeout(() => setCopyNotice(null), 2000);
   };
 
   useEffect(() => {
@@ -247,7 +197,7 @@ const ChartPage: React.FC = () => {
       }
     }
     setSessionId(null);
-  }, [location.search, navigate]);
+  }, [location.search, navigate, loadSession]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -256,7 +206,7 @@ const ChartPage: React.FC = () => {
       loadSession(sessionId, { silent: true });
     }, SYNC_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
-  }, [sessionId]);
+  }, [sessionId, loadSession]);
 
   // Chart data
   const chartData =

@@ -129,14 +129,14 @@ const AiChartsPage: React.FC = () => {
   const [insightError, setInsightError] = useState<string | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
 
-  const resetQaState = () => {
+  const resetQaState = useCallback(() => {
     setAnswer(null);
     setQaItems([]);
     setQaColumns([]);
     setQaValue(null);
     setQaIntent(null);
     setError("");
-  };
+  }, []);
 
   const buildKey = (activeProjectId: number | null, text: string) =>
     `${activeProjectId ?? "none"}:${text.trim().toLowerCase()}`;
@@ -225,7 +225,7 @@ const AiChartsPage: React.FC = () => {
     setLoading(false);
     resetQaState();
     lastAskedKeyRef.current = "";
-  }, [projectId]);
+  }, [projectId, resetQaState]);
 
   const chartData = useMemo(
     () =>
@@ -236,7 +236,7 @@ const AiChartsPage: React.FC = () => {
     [qaItems]
   );
 
-  const submitQuestion = async (raw: string, options: { force?: boolean } = {}) => {
+  const submitQuestion = useCallback(async (raw: string, options: { force?: boolean } = {}) => {
     if (!projectId) {
       resetQaState();
       setError("Select a project first.");
@@ -287,7 +287,7 @@ const AiChartsPage: React.FC = () => {
       }
       setLoading(false);
     }
-  };
+  }, [projectId, resetQaState]);
 
   const askQuestion = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -387,7 +387,7 @@ const AiChartsPage: React.FC = () => {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [autoAsk, projectId, question]);
+  }, [autoAsk, projectId, question, submitQuestion]);
 
   useEffect(() => {
     return () => {

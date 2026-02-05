@@ -338,7 +338,7 @@ const CardDetail: React.FC = () => {
 
       const blob = await res.blob();
       const contentDisposition = res.headers.get('content-disposition');
-      const fallbackName = `${(activeFile.name || 'export').replace(/[^\w\-]+/g, '_')}.${
+      const fallbackName = `${(activeFile.name || 'export').replace(/[^\w-]+/g, '_')}.${
         format === 'excel' ? 'xlsx' : format
       }`;
       const fileName = parseFileName(contentDisposition, fallbackName);
@@ -477,7 +477,7 @@ const CardDetail: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${(activeFile.name || 'template').replace(/[^\w\-]+/g, '_')}_template.csv`;
+      link.download = `${(activeFile.name || 'template').replace(/[^\w-]+/g, '_')}_template.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -589,10 +589,12 @@ const CardDetail: React.FC = () => {
   };
 
   const activeFile = files.find(f => f.id === activeFileId);
+  const activeColumns = activeFile?.columns;
+  const activeRowCount = activeFile?.rows?.length ?? 0;
 
   useEffect(() => {
     if (!activeFile) return;
-    const nextColumns = activeFile.columns || [];
+    const nextColumns = activeColumns || [];
     setOriginalColumns(nextColumns);
     setColumnEdits(
       nextColumns.map((name, index) => ({
@@ -608,23 +610,22 @@ const CardDetail: React.FC = () => {
     setRowPage(1);
     setRowEdits({});
     setPasteValues('');
-  }, [activeFileId, activeFile?.columns?.join('|')]);
+  }, [activeFileId, activeFile, activeColumns]);
 
   useEffect(() => {
-    if (activeFile?.columns?.length && !activeFile.columns.includes(editColumnName)) {
-      setEditColumnName(activeFile.columns[0]);
+    if (activeColumns?.length && editColumnName && !activeColumns.includes(editColumnName)) {
+      setEditColumnName(activeColumns[0]);
       setRowPage(1);
       setRowEdits({});
     }
-  }, [activeFile?.columns?.join('|'), editColumnName]);
+  }, [activeColumns, editColumnName]);
 
   useEffect(() => {
-    const totalRows = activeFile?.rows?.length || 0;
-    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    const totalPages = Math.max(1, Math.ceil(activeRowCount / pageSize));
     if (rowPage > totalPages) {
       setRowPage(totalPages);
     }
-  }, [activeFile?.rows?.length, pageSize, rowPage]);
+  }, [activeRowCount, pageSize, rowPage]);
 
   const baseRows = activeFile?.rows || [];
   const searchedRows = searchTerm
