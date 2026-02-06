@@ -66,7 +66,7 @@ docker compose ps
 NAME                 STATUS              PORTS
 roaming-backend      Up (healthy)        0.0.0.0:5000->5000/tcp
 roaming-frontend     Up (healthy)        0.0.0.0:80->80/tcp
-roaming-db           Up (healthy)        0.0.0.0:5432->5432/tcp
+roaming-db           Up (healthy)        0.0.0.0:3306->3306/tcp
 roaming-redis        Up (healthy)        0.0.0.0:6379->6379/tcp
 ```
 
@@ -76,17 +76,17 @@ All services should show **"Up (healthy)"** status.
 
 ### 4️⃣ **Test Each Service**
 
-#### **A. Database (PostgreSQL)**
+#### **A. Database (MySQL)**
 ```bash
 # Check if database is ready
-docker compose exec db pg_isready -U roaming_user
+docker compose exec -T db sh -lc 'mysqladmin ping -h localhost -u root -p"$MYSQL_ROOT_PASSWORD" --silent'
 
 # Connect to database
-docker compose exec db psql -U roaming_user -d roaming_interconnect
+docker compose exec db mysql -u roaming_user -p roaming_interconnect
 
-# Inside psql, check tables
-\dt
-\q
+# Inside mysql, check tables
+SHOW TABLES;
+exit
 ```
 
 **Expected:** Database accepts connections and shows tables.
@@ -105,7 +105,7 @@ curl http://localhost:5000/api/health
 
 **Expected response:**
 ```json
-{"status":"ok","timestamp":"2026-02-05T..."}
+{"ok": true}
 ```
 
 **Test other endpoints:**
@@ -183,7 +183,7 @@ docker compose logs -f db
 
 #### **Check database changes:**
 ```bash
-docker compose exec db psql -U roaming_user -d roaming_interconnect -c "SELECT * FROM files LIMIT 5;"
+docker compose exec -T db sh -lc 'mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT * FROM files LIMIT 5;"'
 ```
 
 ---
@@ -213,7 +213,7 @@ docker compose down
 docker compose up -d
 
 # Check if data persisted
-docker compose exec db psql -U roaming_user -d roaming_interconnect -c "SELECT COUNT(*) FROM files;"
+docker compose exec -T db sh -lc 'mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT COUNT(*) AS count FROM files;"'
 ```
 
 **Expected:** Data is still there (volumes preserved).
@@ -233,7 +233,7 @@ docker compose exec db psql -U roaming_user -d roaming_interconnect -c "SELECT C
    ```bash
    netstat -ano | findstr :80
    netstat -ano | findstr :5000
-   netstat -ano | findstr :5432
+   netstat -ano | findstr :3306
    ```
 
 3. Rebuild images:
@@ -293,7 +293,7 @@ docker volume ls | grep roaming
 
 Restore from backup:
 ```bash
-docker compose exec -T db psql -U roaming_user roaming_interconnect < backup.sql
+docker compose exec -T db sh -lc 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < backup.sql
 ```
 
 ---
@@ -386,7 +386,7 @@ watch -n 5 'docker compose ps'
 
 ### **Health endpoints:**
 - Backend health: http://localhost:5000/api/health
-- Database health: `docker compose exec db pg_isready`
+- Database health: `docker compose exec -T db sh -lc 'mysqladmin ping -h localhost -u root -p\"$MYSQL_ROOT_PASSWORD\" --silent'`
 - Redis health: `docker compose exec redis redis-cli ping`
 
 ---

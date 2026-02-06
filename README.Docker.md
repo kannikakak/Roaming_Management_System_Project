@@ -1,6 +1,6 @@
 # Docker Deployment Guide
 
-## 🐳 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Docker Desktop installed (Windows/Mac) or Docker Engine (Linux)
@@ -23,17 +23,18 @@ docker-compose up -d
 ```
 
 This will start:
-- **PostgreSQL** database on port 5432
+- **MySQL** database on port 3306
 - **Backend API** on port 5000
 - **Frontend** on port 80
 - **Redis** on port 6379 (for background jobs)
 
 ### 3. Initialize Database
 
-The database schema is automatically loaded on first startup. To manually run migrations:
+The database schema is automatically loaded on first startup from `backend/db/schema.sql`.
 
+To reset the database (⚠ deletes all data):
 ```bash
-docker-compose exec backend npm run migrate
+docker-compose down -v
 ```
 
 ### 4. View Logs
@@ -51,7 +52,7 @@ docker-compose logs -f frontend
 
 - **Frontend**: http://localhost
 - **Backend API**: http://localhost:5000
-- **Database**: localhost:5432
+- **Database**: localhost:3306
 
 ## 🔧 Development Commands
 
@@ -77,14 +78,14 @@ docker-compose exec backend npm run <command>
 
 ### Access database:
 ```bash
-docker-compose exec db psql -U roaming_user -d roaming_interconnect
+docker-compose exec db mysql -u roaming_user -p roaming_interconnect
 ```
 
 ## 🚀 Production Deployment
 
 ### Build optimized images:
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml build
+docker-compose build
 ```
 
 ### Environment variables for production:
@@ -150,12 +151,12 @@ If ports are already in use, modify them in `docker-compose.yml`
 
 ### Backup database:
 ```bash
-docker-compose exec db pg_dump -U roaming_user roaming_interconnect > backup.sql
+docker-compose exec db mysqldump -u roaming_user -p roaming_interconnect > backup.sql
 ```
 
 ### Restore database:
 ```bash
-docker-compose exec -T db psql -U roaming_user roaming_interconnect < backup.sql
+docker-compose exec -T db mysql -u roaming_user -p roaming_interconnect < backup.sql
 ```
 
 ## 🔐 Security Best Practices

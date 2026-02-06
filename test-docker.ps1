@@ -102,8 +102,8 @@ try {
 }
 
 # Test Database
-Write-Host "`nTesting PostgreSQL Database..." -ForegroundColor Yellow
-$dbTest = docker compose exec -T db pg_isready -U roaming_user 2>&1
+Write-Host "`nTesting MySQL Database..." -ForegroundColor Yellow
+$dbTest = docker compose exec -T db sh -lc 'mysqladmin ping -h localhost -u root -p"$MYSQL_ROOT_PASSWORD" --silent' 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✅ Database is ready" -ForegroundColor Green
 } else {
@@ -127,7 +127,7 @@ Write-Host "=" * 60 -ForegroundColor Cyan
 Write-Host "`n✅ SERVICES RUNNING:" -ForegroundColor Green
 Write-Host "   • Frontend:  http://localhost" -ForegroundColor White
 Write-Host "   • Backend:   http://localhost:5000" -ForegroundColor White
-Write-Host "   • Database:  localhost:5432" -ForegroundColor White
+Write-Host "   • Database:  localhost:3306" -ForegroundColor White
 Write-Host "   • Redis:     localhost:6379" -ForegroundColor White
 
 Write-Host "`n📋 USEFUL COMMANDS:" -ForegroundColor Yellow
