@@ -6,6 +6,80 @@ import autoTable from "jspdf-autotable";
 import { create } from "xmlbuilder2";
 import { resolveExportData, ExportRequestBody } from "../utils/exportData";
 
+const hasAnyRole = (req: Request, roles: string[]) => {
+  const primary = req.user?.role;
+  const list = Array.isArray(req.user?.roles)
+    ? req.user!.roles
+    : primary
+      ? [primary]
+      : [];
+  return list.some((r) => roles.includes(r));
+};
+
+const canAccessAnyProject = (req: Request) => hasAnyRole(req, ["admin", "analyst"]);
+
+async function requireProjectAccess(dbPool: Pool, projectId: number, req: Request) {
+  const authUserId = req.user?.id;
+  if (!authUserId) {
+    return { ok: false as const, status: 401, message: "Unauthorized" };
+  }
+
+  const [rows]: any = await dbPool.query(
+    "SELECT user_id FROM projects WHERE id = ? LIMIT 1",
+    [projectId]
+  );
+  if (!rows?.length) {
+    return { ok: false as const, status: 404, message: "Project not found" };
+  }
+
+  const ownerId = Number(rows[0].user_id);
+  if (!Number.isFinite(ownerId)) {
+    return { ok: false as const, status: 500, message: "Invalid project owner" };
+  }
+
+  if (ownerId !== authUserId && !canAccessAnyProject(req)) {
+    return { ok: false as const, status: 403, message: "Forbidden" };
+  }
+
+  return { ok: true as const, ownerId };
+}
+
+async function requireFileAccess(dbPool: Pool, fileId: number, req: Request) {
+  const authUserId = req.user?.id;
+  if (!authUserId) {
+    return { ok: false as const, status: 401, message: "Unauthorized" };
+  }
+
+  const [rows]: any = await dbPool.query(
+    `SELECT f.id as fileId, f.project_id as projectId, p.user_id as ownerId
+     FROM files f
+     INNER JOIN projects p ON p.id = f.project_id
+     WHERE f.id = ?
+     LIMIT 1`,
+    [fileId]
+  );
+
+  if (!rows?.length) {
+    return { ok: false as const, status: 404, message: "File not found" };
+  }
+
+  const ownerId = Number(rows[0].ownerId);
+  if (!Number.isFinite(ownerId)) {
+    return { ok: false as const, status: 500, message: "Invalid file owner" };
+  }
+
+  if (ownerId !== authUserId && !canAccessAnyProject(req)) {
+    return { ok: false as const, status: 403, message: "Forbidden" };
+  }
+
+  return {
+    ok: true as const,
+    fileId,
+    projectId: Number(rows[0].projectId),
+    ownerId,
+  };
+}
+
 const ensureFormat = (value: any): ExportRequestBody["format"] | null => {
   const fmt = String(value || "").toLowerCase();
   if (["excel", "pdf", "png", "json", "xml"].includes(fmt)) {
@@ -190,12 +264,37 @@ const dataUrlToPngBuffer = (dataUrl: string) => {
 
 export const exportData = (dbPool: Pool) => async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
     const format = ensureFormat(req.body?.format);
     if (!format) {
       return res.status(400).json({ message: "format must be one of: excel, pdf, png, json, xml" });
     }
 
     const body = { ...req.body, format } as ExportRequestBody;
+
+    if (body.fileId != null) {
+      const fileId = Number(body.fileId);
+      if (!Number.isFinite(fileId)) {
+        return res.status(400).json({ message: "fileId must be a number" });
+      }
+      const access = await requireFileAccess(dbPool, fileId, req);
+      if (!access.ok) {
+        return res.status(access.status).json({ message: access.message });
+      }
+    } else if (body.projectId != null) {
+      const projectId = Number(body.projectId);
+      if (!Number.isFinite(projectId)) {
+        return res.status(400).json({ message: "projectId must be a number" });
+      }
+      const access = await requireProjectAccess(dbPool, projectId, req);
+      if (!access.ok) {
+        return res.status(access.status).json({ message: access.message });
+      }
+    }
+
     const { meta, columns, rows, chartImages } = await resolveExportData(dbPool, body);
 
     if (format === "json") {

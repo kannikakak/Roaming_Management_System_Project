@@ -10,7 +10,7 @@ import {
   updateFileColumns,
   updateFileRows,
 } from "../controllers/fileController";
-import { requireAuth, requireRole } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
 import { createRateLimiter } from "../middleware/rateLimit";
 import { getUploadConfig, isAllowedUpload } from "../utils/uploadValidation";
 
@@ -51,7 +51,6 @@ export function fileRoutes(dbPool: Pool) {
   // Upload files (multi)
   router.post(
     "/upload",
-    requireRole(["admin", "analyst"]),
     uploadLimiter,
     (req, res, next) => {
       upload.array("files", uploadConfig.maxFiles)(req, res, (err: any) => {
@@ -72,13 +71,13 @@ export function fileRoutes(dbPool: Pool) {
   router.get('/:fileId/meta', getFileMeta(dbPool));
 
   // Delete file
-  router.delete("/:fileId", requireRole(["admin", "analyst"]), deleteFile(dbPool));
+  router.delete("/:fileId", deleteFile(dbPool));
 
   // Update columns
-  router.patch("/:fileId/columns", requireRole(["admin", "analyst"]), updateFileColumns(dbPool));
+  router.patch("/:fileId/columns", updateFileColumns(dbPool));
 
   // Update rows
-  router.patch("/:fileId/rows", requireRole(["admin", "analyst"]), updateFileRows(dbPool));
+  router.patch("/:fileId/rows", updateFileRows(dbPool));
 
   // Optional: Health check for debugging
   router.get('/health', (req: Request, res: Response) => {

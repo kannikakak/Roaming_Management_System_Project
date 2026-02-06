@@ -1,22 +1,21 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
+  # MySQL Database
   db:
-    image: postgres:15-alpine
+    image: mysql:8.4
     container_name: roaming-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: roaming_interconnect
-      POSTGRES_USER: ${DB_USER:-roaming_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      MYSQL_DATABASE: ${DB_NAME:-roaming_interconnect}
+      MYSQL_USER: ${DB_USER:-roaming_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-changeme}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootchangeme}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     ports:
-      - "5432:5432"
+      - "3306:3306"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-roaming_user}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${DB_ROOT_PASSWORD:-rootchangeme} --silent"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,15 +31,34 @@ services:
       db:
         condition: service_healthy
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 5000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: roaming_interconnect
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-roaming_interconnect}
       DB_USER: ${DB_USER:-roaming_user}
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
-      CORS_ORIGIN: http://localhost:3000
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
+      BOOTSTRAP_ADMIN_RESET_PASSWORD: ${BOOTSTRAP_ADMIN_RESET_PASSWORD:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+
+      # Upload limits (keep in sync with local `backend/.env`)
+      UPLOAD_MAX_FILE_SIZE_MB: ${UPLOAD_MAX_FILE_SIZE_MB:-150}
+      UPLOAD_MAX_FILES: ${UPLOAD_MAX_FILES:-10}
+      UPLOAD_MAX_ROWS: ${UPLOAD_MAX_ROWS:-500000}
+      UPLOAD_MAX_COLUMNS: ${UPLOAD_MAX_COLUMNS:-200}
+      UPLOAD_MAX_CELL_LENGTH: ${UPLOAD_MAX_CELL_LENGTH:-5000}
+      UPLOAD_ROW_BATCH_SIZE: ${UPLOAD_ROW_BATCH_SIZE:-400}
+
+      # Malware scanning (container image doesn't include clamscan by default)
+      MALWARE_SCAN_ENABLED: ${MALWARE_SCAN_ENABLED:-true}
+      MALWARE_SCAN_ALLOW_MISSING: ${MALWARE_SCAN_ALLOW_MISSING:-true}
+      MALWARE_SCAN_CMD: ${MALWARE_SCAN_CMD:-clamscan}
     volumes:
       - ./backend/uploads:/app/uploads
     ports:
@@ -85,7 +103,7 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
+  mysql_data:
     driver: local
   redis_data:
     driver: local

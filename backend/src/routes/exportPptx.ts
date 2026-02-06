@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { requireAuth, requireRole } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
 import PptxGenJS from "pptxgenjs";
 
 const router = Router();
@@ -12,7 +12,7 @@ type SlidePayload = {
   chartImage?: string; // data URL: "data:image/png;base64,...."
 };
 
-router.post("/pptx-multi", requireRole(["admin", "analyst"]), async (req: Request, res: Response) => {
+router.post("/pptx-multi", async (req: Request, res: Response) => {
   try {
     const { slides, fileName } = req.body as {
       slides: SlidePayload[];
@@ -71,7 +71,7 @@ router.post("/pptx-multi", requireRole(["admin", "analyst"]), async (req: Reques
 
     // ✅ Most compatible for server-side
    
-const buf = (await (pptx as any).write("nodebuffer")) as Buffer;
+    const buf = (await (pptx as any).write("nodebuffer")) as Buffer;
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.presentationml.presentation"

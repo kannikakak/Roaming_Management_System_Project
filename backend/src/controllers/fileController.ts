@@ -44,6 +44,85 @@ type QualityMetrics = {
 type IngestFileInput = Pick<Express.Multer.File, "path" | "originalname"> &
   Partial<Pick<Express.Multer.File, "mimetype" | "size" | "filename" | "destination" | "fieldname" | "encoding">>;
 
+const hasAnyRole = (req: Request, roles: string[]) => {
+  const primary = req.user?.role;
+  const list = Array.isArray(req.user?.roles)
+    ? req.user!.roles
+    : primary
+      ? [primary]
+      : [];
+  return list.some((r) => roles.includes(r));
+};
+
+const canAccessAnyProject = (req: Request) => hasAnyRole(req, ["admin", "analyst"]);
+
+async function requireProjectAccess(dbPool: Pool, projectId: number, req: Request) {
+  const authUserId = req.user?.id;
+  if (!authUserId) {
+    return { ok: false as const, status: 401, message: "Unauthorized" };
+  }
+
+  const [rows]: any = await dbPool.query(
+    "SELECT user_id FROM projects WHERE id = ? LIMIT 1",
+    [projectId]
+  );
+  if (!rows?.length) {
+    return { ok: false as const, status: 404, message: "Project not found" };
+  }
+
+  const ownerId = Number(rows[0].user_id);
+  if (!Number.isFinite(ownerId)) {
+    return { ok: false as const, status: 500, message: "Invalid project owner" };
+  }
+
+  if (ownerId !== authUserId && !canAccessAnyProject(req)) {
+    return { ok: false as const, status: 403, message: "Forbidden" };
+  }
+
+  return { ok: true as const, ownerId };
+}
+
+async function requireFileAccess(dbPool: Pool, rawFileId: string, req: Request) {
+  const authUserId = req.user?.id;
+  if (!authUserId) {
+    return { ok: false as const, status: 401, message: "Unauthorized" };
+  }
+
+  const fileId = Number(rawFileId);
+  if (!Number.isFinite(fileId)) {
+    return { ok: false as const, status: 400, message: "Invalid fileId" };
+  }
+
+  const [rows]: any = await dbPool.query(
+    `SELECT f.id as fileId, f.project_id as projectId, p.user_id as ownerId
+     FROM files f
+     INNER JOIN projects p ON p.id = f.project_id
+     WHERE f.id = ?
+     LIMIT 1`,
+    [fileId]
+  );
+
+  if (!rows?.length) {
+    return { ok: false as const, status: 404, message: "File not found" };
+  }
+
+  const ownerId = Number(rows[0].ownerId);
+  if (!Number.isFinite(ownerId)) {
+    return { ok: false as const, status: 500, message: "Invalid file owner" };
+  }
+
+  if (ownerId !== authUserId && !canAccessAnyProject(req)) {
+    return { ok: false as const, status: 403, message: "Forbidden" };
+  }
+
+  return {
+    ok: true as const,
+    fileId,
+    projectId: Number(rows[0].projectId),
+    ownerId,
+  };
+}
+
 const parseCsvStream = (filePath: string, fileName: string, config: UploadConfig) =>
   new Promise<ParsedFile>((resolve, reject) => {
     const rows: any[] = [];
@@ -572,6 +651,11 @@ export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) =
       return res.status(400).json({ message: "Missing or invalid projectId/cardId" });
     }
 
+    const access = await requireProjectAccess(dbPool, projectIdNum, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+
     await ensureQualityTable(dbPool);
     const [rows]: any = await dbPool.query(
       `SELECT f.id, f.name, f.file_type as fileType, f.uploaded_at as uploadedAt,
@@ -590,6 +674,9 @@ export const listFiles = (dbPool: Pool) => async (req: Request, res: Response) =
 
 // Upload files (POST /api/files/upload)
 export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const authUserId = req.user?.id;
+  if (!authUserId) return res.status(401).json({ message: "Unauthorized" });
+
   const { projectId: rawProjectId, cardId: rawCardId } = req.body || {};
   const uploadSchema = resolveUploadSchema(req.body || {});
 
@@ -616,7 +703,12 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
   if (!req.files || !Array.isArray(req.files) || !projectId) {
     return res.status(400).json({ message: "Missing files or projectId/cardId" });
   }
+
   try {
+    const access = await requireProjectAccess(dbPool, projectId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
     const result = await ingestFiles(dbPool, projectId, req.files as Express.Multer.File[], uploadSchema);
     res.json(result);
   } catch (err: any) {
@@ -638,6 +730,11 @@ export const ingestFilesFromDisk = async (
 export const getFileData = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   try {
+    const access = await requireFileAccess(dbPool, fileId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+
     const encryptionKey = getEncryptionKey();
     const dataJsonExpr = buildDataJsonExpr(encryptionKey);
     await ensureQualityTable(dbPool);
@@ -648,7 +745,7 @@ export const getFileData = (dbPool: Pool) => async (req: Request, res: Response)
        FROM files f
        LEFT JOIN data_quality_scores q ON q.file_id = f.id
        WHERE f.id = ?`,
-      [fileId]
+      [access.fileId]
     );
     const textContent = fileRows?.[0]?.textContent || null;
     const quality = fileRows?.[0]
@@ -664,13 +761,13 @@ export const getFileData = (dbPool: Pool) => async (req: Request, res: Response)
 
     const [colRows]: any = await dbPool.query(
       "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
-      [fileId]
+      [access.fileId]
     );
     const columns = colRows.map((c: any) => c.name);
 
     const [rowRows]: any = await dbPool.query(
       `SELECT ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC`,
-      [...buildKeyParams(encryptionKey, 1), fileId]
+      [...buildKeyParams(encryptionKey, 1), access.fileId]
     );
     const rows = rowRows.map((r: any) => JSON.parse(r.data_json));
 
@@ -684,12 +781,17 @@ export const getFileData = (dbPool: Pool) => async (req: Request, res: Response)
 export const getFileMeta = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   try {
+    const access = await requireFileAccess(dbPool, fileId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+
     const [rows]: any = await dbPool.query(
       `SELECT id, name, project_id as projectId, file_type as fileType, uploaded_at as uploadedAt
        FROM files
        WHERE id = ?
        LIMIT 1`,
-      [fileId]
+      [access.fileId]
     );
     const row = rows?.[0];
     if (!row) {
@@ -705,7 +807,12 @@ export const getFileMeta = (dbPool: Pool) => async (req: Request, res: Response)
 export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { fileId } = req.params;
   try {
-    await dbPool.query("DELETE FROM files WHERE id = ?", [fileId]);
+    const access = await requireFileAccess(dbPool, fileId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+
+    await dbPool.query("DELETE FROM files WHERE id = ?", [access.fileId]);
     res.json({ message: "File deleted" });
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
@@ -721,6 +828,11 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
 
   if (!Array.isArray(columns)) {
     return res.status(400).json({ message: "columns must be an array" });
+  }
+
+  const access = await requireFileAccess(dbPool, fileId, req);
+  if (!access.ok) {
+    return res.status(access.status).json({ message: access.message });
   }
 
   const normalized = columns
@@ -751,13 +863,13 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
 
     const [oldColRows]: any = await connection.query(
       "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
-      [fileId]
+      [access.fileId]
     );
     const oldColumns = oldColRows.map((c: any) => c.name);
 
     const [rowRows]: any = await connection.query(
       `SELECT id, ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC`,
-      [...buildKeyParams(encryptionKey, 1), fileId]
+      [...buildKeyParams(encryptionKey, 1), access.fileId]
     );
 
     for (const row of rowRows) {
@@ -782,11 +894,11 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
       );
     }
 
-    await connection.query("DELETE FROM file_columns WHERE file_id = ?", [fileId]);
+    await connection.query("DELETE FROM file_columns WHERE file_id = ?", [access.fileId]);
     for (let i = 0; i < normalized.length; i++) {
       await connection.query(
         "INSERT INTO file_columns (file_id, name, position) VALUES (?, ?, ?)",
-        [fileId, normalized[i], i]
+        [access.fileId, normalized[i], i]
       );
     }
 
@@ -825,6 +937,11 @@ export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Respon
     return res.status(400).json({ message: "No valid updates provided" });
   }
 
+  const access = await requireFileAccess(dbPool, fileId, req);
+  if (!access.ok) {
+    return res.status(access.status).json({ message: access.message });
+  }
+
   const connection = await dbPool.getConnection();
   try {
     await connection.beginTransaction();
@@ -832,7 +949,7 @@ export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Respon
     for (const update of normalizedUpdates) {
       const [rowRows]: any = await connection.query(
         `SELECT id, ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? AND row_index = ? LIMIT 1`,
-        [...buildKeyParams(encryptionKey, 1), fileId, update.rowIndex]
+        [...buildKeyParams(encryptionKey, 1), access.fileId, update.rowIndex]
       );
       if (!rowRows?.length) continue;
 

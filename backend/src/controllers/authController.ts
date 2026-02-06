@@ -75,6 +75,15 @@ async function getUserSchemaInfo(dbPool: Pool): Promise<UserSchemaInfo> {
   return schemaCache.info;
 }
 
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+async function hasAnyUsers(dbPool: Pool) {
+  const [rows]: any = await dbPool.query("SELECT id FROM users LIMIT 1");
+  return Boolean(rows?.length);
+}
+
 function createAuthToken(userId: number, email: string, roles: Role[]) {
   const primary = roles[0] ?? ensureRole(undefined);
   const options: jwt.SignOptions = { expiresIn: jwtExpiresIn as any };
@@ -250,16 +259,22 @@ function generateRandomPassword() {
 
 export const register = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { name, email, password, role } = req.body;
-  if (!name || !email || !password || !role) {
+  const nameRaw = typeof name === "string" ? name : String(name || "");
+  const emailRaw = typeof email === "string" ? email : String(email || "");
+  const passwordRaw = typeof password === "string" ? password : String(password || "");
+  const roleRaw = typeof role === "string" ? role : String(role || "");
+  const trimmedName = nameRaw.trim();
+  const normalizedEmail = normalizeEmail(emailRaw);
+  if (!trimmedName || !normalizedEmail || !passwordRaw || !roleRaw) {
     return res.status(400).json({ message: "All fields are required." });
   }
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(passwordRaw, 10);
     const schema = await getUserSchemaInfo(dbPool);
     const allowedSelfRegisterRoles = getSelfRegisterRoles();
 
     if (schema.hasFullName && schema.hasPasswordHash && schema.hasUserRolesTable && schema.hasRolesTable) {
-      const normalizedRole = normalizeRoleConst(String(role));
+      const normalizedRole = normalizeRoleConst(roleRaw);
       if (!normalizedRole) {
         return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
       }
@@ -281,7 +296,7 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
 
         const [userResult]: any = await conn.query(
           "INSERT INTO users (full_name, email, password_hash, created_at) VALUES (?, ?, ?, NOW())",
-          [name, email, hashedPassword]
+          [trimmedName, normalizedEmail, hashedPassword]
         );
         const userId = userResult.insertId as number;
 
@@ -299,7 +314,7 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
         conn.release();
       }
     } else if (schema.hasName && schema.hasPassword && schema.hasRole) {
-      const normalizedRole = normalizeRoleConst(String(role));
+      const normalizedRole = normalizeRoleConst(roleRaw);
       if (!normalizedRole) {
         return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
       }
@@ -308,7 +323,7 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
       }
       await dbPool.query(
         "INSERT INTO users (`name`, `email`, `password`, `role`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, NOW(), NOW())",
-        [name, email, hashedPassword, normalizedRole]
+        [trimmedName, normalizedEmail, hashedPassword, normalizedRole]
       );
       res.json({ message: "Registration successful." });
     } else {
@@ -325,7 +340,10 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
 
 export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  if (!email || !password) {
+  const emailRaw = typeof email === "string" ? email : String(email || "");
+  const passwordRaw = typeof password === "string" ? password : String(password || "");
+  const normalizedEmail = normalizeEmail(emailRaw);
+  if (!normalizedEmail || !passwordRaw) {
     return res.status(400).json({ message: "Email and password are required." });
   }
   try {
@@ -334,15 +352,19 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
     if (schema.hasFullName && schema.hasPasswordHash && schema.hasUserRolesTable && schema.hasRolesTable) {
       const [results]: any = await dbPool.query(
         `SELECT u.id, u.full_name, u.email, u.password_hash${schema.hasProfileImageUrl ? ", u.profile_image_url" : ""}${schema.hasIsActive ? ", u.is_active" : ""}${schema.hasTwoFactorEnabled ? ", u.two_factor_enabled" : ""},
+                ${schema.hasAuthProvider ? "u.auth_provider," : ""}
                 GROUP_CONCAT(r.name) as roles
          FROM users u
          LEFT JOIN user_roles ur ON ur.user_id = u.id
          LEFT JOIN roles r ON r.id = ur.role_id
-         WHERE u.email = ?
+         WHERE LOWER(TRIM(u.email)) = ?
          GROUP BY u.id`,
-        [email]
+        [normalizedEmail]
       );
       if (results.length === 0) {
+        if (!(await hasAnyUsers(dbPool))) {
+          return res.status(400).json({ message: "No users exist yet. Please register first." });
+        }
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
@@ -350,11 +372,18 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
       if (schema.hasIsActive && user.is_active === 0) {
         return res.status(403).json({ message: "Account disabled." });
       }
+      if (schema.hasAuthProvider) {
+        const provider = String(user.auth_provider || "").trim().toLowerCase();
+        if (provider && provider !== "local") {
+          const label = provider === "microsoft" ? "Microsoft" : provider;
+          return res.status(400).json({ message: `This account uses ${label} sign-in. Please use ${label} login.` });
+        }
+      }
       if (!user.password_hash) {
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
-      const match = await bcrypt.compare(password, user.password_hash);
+      const match = await bcrypt.compare(passwordRaw, user.password_hash);
       if (!match) {
         return res.status(400).json({ message: "Invalid credentials." });
       }
@@ -384,10 +413,13 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
       });
     } else if (schema.hasName && schema.hasPassword && schema.hasRole) {
       const [results]: any = await dbPool.query(
-        `SELECT id, name, email, password, role${schema.hasIsActive ? ", is_active" : ""}${schema.hasTwoFactorEnabled ? ", two_factor_enabled" : ""} FROM users WHERE email = ?`,
-        [email]
+        `SELECT id, name, email${schema.hasAuthProvider ? ", auth_provider" : ""}, password, role${schema.hasIsActive ? ", is_active" : ""}${schema.hasTwoFactorEnabled ? ", two_factor_enabled" : ""} FROM users WHERE LOWER(TRIM(email)) = ?`,
+        [normalizedEmail]
       );
       if (results.length === 0) {
+        if (!(await hasAnyUsers(dbPool))) {
+          return res.status(400).json({ message: "No users exist yet. Please register first." });
+        }
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
@@ -395,11 +427,18 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
       if (schema.hasIsActive && user.is_active === 0) {
         return res.status(403).json({ message: "Account disabled." });
       }
+      if (schema.hasAuthProvider) {
+        const provider = String(user.auth_provider || "").trim().toLowerCase();
+        if (provider && provider !== "local") {
+          const label = provider === "microsoft" ? "Microsoft" : provider;
+          return res.status(400).json({ message: `This account uses ${label} sign-in. Please use ${label} login.` });
+        }
+      }
       if (!user.password) {
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
-      const match = await bcrypt.compare(password, user.password);
+      const match = await bcrypt.compare(passwordRaw, user.password);
       if (!match) {
         return res.status(400).json({ message: "Invalid credentials." });
       }
@@ -489,15 +528,21 @@ export const updateProfile = (dbPool: Pool) => async (req: Request, res: Respons
   if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
   const { name, email } = req.body as { name?: string; email?: string };
-  if (!name || !email) return res.status(400).json({ message: "name and email are required" });
+  const nameRaw = typeof name === "string" ? name : String(name || "");
+  const emailRaw = typeof email === "string" ? email : String(email || "");
+  const trimmedName = nameRaw.trim();
+  const normalizedEmail = normalizeEmail(emailRaw);
+  if (!trimmedName || !normalizedEmail) {
+    return res.status(400).json({ message: "name and email are required" });
+  }
 
   const schema = await getUserSchemaInfo(dbPool);
   const nameCol = schema.hasFullName ? "full_name" : "name";
 
   try {
     await dbPool.query(`UPDATE users SET ${nameCol} = ?, email = ? WHERE id = ?`, [
-      name,
-      email,
+      trimmedName,
+      normalizedEmail,
       userId,
     ]);
 

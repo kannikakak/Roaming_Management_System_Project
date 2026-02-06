@@ -6,7 +6,7 @@ import {
   updateProject,
   deleteProject,
 } from "../controllers/projectController";
-import { requireAuth, requireRole } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
 
 const projectRoutes = (dbPool: Pool) => {
   const router = Router();
@@ -16,13 +16,13 @@ const projectRoutes = (dbPool: Pool) => {
   router.get("/", getProjects(dbPool));
 
   // POST /api/projects
-  router.post("/", requireRole(["admin", "analyst"]), createProject(dbPool));
+  router.post("/", createProject(dbPool));
 
   // PUT /api/projects/:id
-  router.put("/:id", requireRole(["admin", "analyst"]), updateProject(dbPool));
+  router.put("/:id", updateProject(dbPool));
 
   // DELETE /api/projects/:id
-  router.delete("/:id", requireRole(["admin", "analyst"]), deleteProject(dbPool));
+  router.delete("/:id", deleteProject(dbPool));
 
   return router;
 };

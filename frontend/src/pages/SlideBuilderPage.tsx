@@ -291,17 +291,20 @@ const SlideBuilderPage: React.FC = () => {
     }
 
     try {
-      const reportRes = await apiFetch("/api/reports", {
-        method: "POST",
-        body: JSON.stringify({
-          name: `Roaming Report ${new Date().toISOString().slice(0, 10)}`,
-          slides,
-        }),
-      });
-
-      if (!reportRes.ok) {
-        const msg = await reportRes.text();
-        throw new Error(msg || "Save report failed");
+      // Best-effort persistence (may be restricted to admin/analyst on the backend).
+      try {
+        const reportRes = await apiFetch("/api/reports", {
+          method: "POST",
+          body: JSON.stringify({
+            name: `Roaming Report ${new Date().toISOString().slice(0, 10)}`,
+            slides,
+          }),
+        });
+        if (!reportRes.ok) {
+          console.warn("Save report failed:", await reportRes.text());
+        }
+      } catch (err) {
+        console.warn("Save report failed:", err);
       }
 
       const res = await apiFetch("/api/export/pptx-multi", {

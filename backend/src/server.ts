@@ -6,6 +6,7 @@ import path from "path";
 import { dbPool } from "./db";
 import { setRoutes } from "./routes";
 import { startScheduler } from "./services/scheduler";
+import { ensureBootstrapAdmin } from "./services/bootstrapAdmin";
 
 // ✅ project routes
 import projectRoutes from "./routes/projectRoutes";
@@ -47,6 +48,7 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // ✅ Health check
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 // Test DB connection safely
 const testDatabase = async () => {
@@ -82,6 +84,8 @@ const startServer = async () => {
   }
 
   // ✅ Register your other app routes (reports, audit, etc.)
+  await ensureBootstrapAdmin(dbPool);
+
   setRoutes(app, dbPool);
   startScheduler(dbPool);
 
