@@ -1,5 +1,5 @@
 export const getEncryptionKey = () => {
-  const raw = process.env.DATA_ENCRYPTION_KEY;
+  const raw = process.env.DATA_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY;
   if (!raw) return null;
   return raw.trim() || null;
 };

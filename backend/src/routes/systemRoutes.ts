@@ -26,7 +26,9 @@ export function systemRoutes(dbPool: Pool) {
   router.get("/security-check", async (_req, res) => {
     try {
       const retention = await loadRetentionConfig(dbPool);
-      const hasEncryptionKey = Boolean(process.env.DATA_ENCRYPTION_KEY);
+      const hasEncryptionKey = Boolean(
+        (process.env.DATA_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY || "").trim()
+      );
       const nodeEnv = String(process.env.NODE_ENV || "").toLowerCase();
       const encryptionRequired =
         String(process.env.DATA_ENCRYPTION_REQUIRED || "").toLowerCase() === "true" ||

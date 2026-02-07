@@ -19,10 +19,15 @@ dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 app.set("trust proxy", 1);
+const encryptionKey =
+  (process.env.DATA_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY || "").trim();
+if (!process.env.DATA_ENCRYPTION_KEY && encryptionKey) {
+  process.env.DATA_ENCRYPTION_KEY = encryptionKey;
+}
 const requireEncryption =
   String(process.env.DATA_ENCRYPTION_REQUIRED || "").toLowerCase() === "true" ||
   String(process.env.NODE_ENV || "").toLowerCase() === "production";
-if (requireEncryption && !process.env.DATA_ENCRYPTION_KEY) {
+if (requireEncryption && !encryptionKey) {
   console.error("❌ DATA_ENCRYPTION_KEY is required in production.");
   process.exit(1);
 }
