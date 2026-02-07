@@ -7,10 +7,18 @@ Yes — you can deploy the backend on Render even if you don’t have a domain y
 ### 0) Push your code to GitHub/GitLab
 Render deploys from a git repo, so make sure your project is pushed first.
 
+### Root Directory quick check (important)
+Open your repo on GitHub/GitLab and look at the **top-level folders**:
+
+- If you see a folder named `roaming-interconnect-dashboard/` at the top level, then your Render **Root Directory** should be `roaming-interconnect-dashboard` (no leading/trailing spaces).
+- If you see `backend/` and `frontend/` at the top level (and NOT `roaming-interconnect-dashboard/`), then your Render **Root Directory** should be empty (or `.`).
+
+If Render logs show something like `Root directory " roaming-interconnect-dashboard" does not exist`, remove the leading space in the Root Directory field.
+
 ### 1) Create a MySQL service on Render
 1. Render dashboard -> **New** -> create a **Private Service** (Docker).
 2. Repo: select your repo.
-3. **Root Directory**: `roaming-interconnect-dashboard`
+3. **Root Directory**: `roaming-interconnect-dashboard` (or empty/`.` if your repo root already contains `backend/` + `frontend/`)
 4. **Dockerfile Path**: `render/mysql/Dockerfile`
 5. Add a **Disk** mounted at: `/var/lib/mysql` (so your DB data persists).
 6. Set env vars (example):
@@ -22,8 +30,8 @@ Render deploys from a git repo, so make sure your project is pushed first.
 
 ### 2) Create the backend service on Render
 1. Render dashboard -> **New** -> create a **Web Service** (Docker is easiest because it matches local).
-2. **Root Directory**: `roaming-interconnect-dashboard/backend`
-3. Dockerfile: `Dockerfile`
+2. **Root Directory**: `roaming-interconnect-dashboard/backend` (or `backend` if your repo root already contains `backend/`)
+3. Dockerfile: `Dockerfile` (or `backend/Dockerfile` if your Root Directory is empty/`.`)
 4. Set env vars:
    - `DB_HOST` = your Render MySQL **internal host** (from the MySQL service page)
    - `DB_PORT=3306`
@@ -47,4 +55,3 @@ Render deploys from a git repo, so make sure your project is pushed first.
 
 ## Option B: Render backend + external MySQL
 If you already have a hosted MySQL elsewhere, set `DB_HOST/DB_USER/DB_PASSWORD/DB_NAME/DB_PORT` in Render. If your DB requires TLS, you can also set `DB_SSL_CA`, `DB_SSL_CERT`, `DB_SSL_KEY`, `DB_SSL_REJECT_UNAUTHORIZED`.
-
