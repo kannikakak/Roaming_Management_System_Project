@@ -58,6 +58,18 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // Test DB connection safely
 const testDatabase = async () => {
   try {
+    const requiredDbKeys = ["DB_HOST", "DB_USER", "DB_NAME"];
+    const missingDbKeys = requiredDbKeys.filter(
+      (key) => !String(process.env[key] || "").trim()
+    );
+    if (missingDbKeys.length > 0) {
+      console.error(
+        `❌ Missing database configuration: ${missingDbKeys.join(", ")}`
+      );
+      console.error("Set these variables in your deployment environment.");
+      return false;
+    }
+
     console.log("🔄 Testing database connection...");
     console.log("Database config:", {
       host: process.env.DB_HOST,
@@ -82,9 +94,9 @@ const startServer = async () => {
   if (!dbConnected) {
     console.error("❌ Cannot start server without database connection");
     console.error("Make sure:");
-    console.error("  1. MySQL is running on port 3306 (XAMPP)");
-    console.error("  2. Database exists (check your DB_NAME in .env)");
-    console.error("  3. Credentials are correct");
+    console.error("  1. DB_HOST / DB_PORT point to your MySQL server");
+    console.error("  2. DB_NAME / DB_USER / DB_PASSWORD are set correctly");
+    console.error("  3. TLS settings match your provider (DB_SSL_CA, DB_SSL_REJECT_UNAUTHORIZED)");
     process.exit(1);
   }
 
