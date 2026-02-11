@@ -21,6 +21,8 @@ import TemplateManagerPage from "./pages/TemplateManagerPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import SystemHealthPage from "./pages/SystemHealthPage";
 import SystemSecurityPage from "./pages/SystemSecurityPage";
+import AlertCenterPage from "./pages/AlertCenterPage";
+import BackupRestorePage from "./pages/BackupRestorePage";
 import { getAuthToken } from "./utils/api";
 import GlobalSearchPage from "./pages/GlobalSearchPage";
 import DashboardAnalyticsPage from "./pages/DashboardAnalyticsPage";
@@ -218,6 +220,16 @@ const App: React.FC = () => (
         }
       />
       <Route
+        path="/alert-center"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <AlertCenterPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/my-activity"
         element={
           <RequireAuth>
@@ -233,6 +245,18 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <TemplateManagerPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/backup-restore"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <RequireRole roles={["admin"]}>
+                <BackupRestorePage />
+              </RequireRole>
             </MainLayout>
           </RequireAuth>
         }

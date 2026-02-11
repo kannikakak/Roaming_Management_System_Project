@@ -3,6 +3,7 @@ import { json, urlencoded } from 'body-parser';
 import cors from 'cors';
 import { dbPool } from './db';
 import { setRoutes } from './routes/index';
+import { startBackupScheduler } from "./services/backupScheduler";
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -24,6 +25,7 @@ app.use('/uploads', express.static('uploads')); // Serve uploaded files statical
 const startServer = async () => {
     // Optionally, test the connection here if you want
     setRoutes(app, dbPool);
+    await startBackupScheduler(dbPool);
     app.listen(PORT, () => {
         console.log(`🚀 Server is running on http://localhost:${PORT}`);
     });

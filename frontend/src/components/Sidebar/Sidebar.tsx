@@ -17,6 +17,8 @@ import {
   ShieldCheck,
   Shield,
   ClipboardList,
+  BellRing,
+  DatabaseBackup,
 } from 'lucide-react';
 import SidebarItem from './SidebarItem';
 
@@ -30,10 +32,12 @@ const navItems = [
   { label: 'Reports Library', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
   { label: 'Data Explorer', icon: <LayoutList size={20} />, path: '/data-explorer' },
   { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
+  { label: 'Alert Center', icon: <BellRing size={20} />, path: '/alert-center' },
   { label: 'Delivery History', icon: <History size={20} />, path: '/delivery-history' },
   { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
   { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
   { label: 'System Health', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
+  { label: 'Backup & Restore', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
   { label: 'Security Center', icon: <Shield size={20} />, path: '/security-center', roles: ['admin'] },
   { label: 'Account', icon: <User size={20} />, path: '/account' },
 ];
@@ -75,19 +79,27 @@ const Sidebar: React.FC = () => {
       </div>
       <nav className="flex-1 px-2 space-y-1">
         {navItems
-          .filter((item) => {
-            if (!item.roles || item.roles.length === 0) return true;
-            return userRoles.some((role: string) => item.roles?.includes(role));
-          })
-          .map(item => (
-            <SidebarItem
-              key={item.label}
-              icon={item.icon}
-              label={item.label}
-              active={location.pathname.startsWith(item.path)}
-              onClick={() => navigate(item.path)}
-            />
-          ))}
+          .map((item) => {
+            const canAccess =
+              !item.roles ||
+              item.roles.length === 0 ||
+              userRoles.some((role: string) => item.roles?.includes(role));
+
+            return (
+              <SidebarItem
+                key={item.label}
+                icon={item.icon}
+                label={item.label}
+                active={canAccess && location.pathname.startsWith(item.path)}
+                disabled={!canAccess}
+                hint={!canAccess ? "Admin access required" : undefined}
+                onClick={() => {
+                  if (!canAccess) return;
+                  navigate(item.path);
+                }}
+              />
+            );
+          })}
       </nav>
       <div className="px-4 pb-6 mt-auto">
         <div className="rounded-xl p-3 shadow-sm bg-white/80 border border-amber-100 dark:bg-white/5 dark:border-white/10">

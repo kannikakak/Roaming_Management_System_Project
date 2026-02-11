@@ -11,6 +11,7 @@ import {
   sendTelegram,
 } from "./delivery";
 import { writeAuditLog } from "../utils/auditLogger";
+import { runAlertDetections, upsertAlert } from "./alerts";
 
 export type ScheduleFrequency = "daily" | "weekly" | "monthly";
 
@@ -92,6 +93,30 @@ async function createNotification(
   );
 }
 
+async function createFailedScheduleAlert(
+  dbPool: Pool,
+  schedule: ScheduleRow,
+  reason: string,
+  severity: "low" | "medium" | "high",
+  message: string,
+  payload: Record<string, unknown>
+) {
+  await upsertAlert(dbPool, {
+    fingerprint: `failed_scheduled_job|schedule:${schedule.id}|reason:${reason}`,
+    alertType: "failed_scheduled_job",
+    severity,
+    title: `Failed scheduled job: ${schedule.name}`,
+    message,
+    source: "scheduler",
+    payload: {
+      scheduleId: schedule.id,
+      scheduleName: schedule.name,
+      reason,
+      ...payload,
+    },
+  });
+}
+
 export async function runDueSchedules(dbPool: Pool) {
   const [rows]: any = await dbPool.query(
     "SELECT * FROM report_schedules WHERE is_active = 1 AND next_run_at <= NOW()"
@@ -113,6 +138,14 @@ export async function runDueSchedules(dbPool: Pool) {
       const attachment = await loadAttachmentFromSchedule(schedule);
       const attachmentMissing = Boolean(schedule.attachment_path && !attachment);
       if (attachmentMissing) {
+        await createFailedScheduleAlert(
+          dbPool,
+          schedule,
+          "missing_attachment",
+          "high",
+          `Attachment "${schedule.attachment_name || "unknown"}" is missing.`,
+          { attachmentName: schedule.attachment_name || null }
+        );
         if (settings.in_app_enabled) {
           await createNotification(dbPool, "schedule_error", "system", "Attachment missing", {
             scheduleId: schedule.id,
@@ -150,6 +183,20 @@ export async function runDueSchedules(dbPool: Pool) {
       if (settings.email_enabled && isEmailReady && recipientsEmail.length > 0) {
         deliveryAttempts += 1;
         const result = await sendEmail(recipientsEmail, subject, message, attachment || undefined);
+        if (!result.ok) {
+          await createFailedScheduleAlert(
+            dbPool,
+            schedule,
+            "email_delivery_failed",
+            "medium",
+            `Email delivery failed: ${result.reason || "unknown error"}`,
+            {
+              channel: "email",
+              recipientsCount: recipientsEmail.length,
+              reason: result.reason || null,
+            }
+          );
+        }
         await createNotification(dbPool, "schedule_delivery", "email", message, {
           scheduleId: schedule.id,
           recipients: recipientsEmail,
@@ -162,6 +209,20 @@ export async function runDueSchedules(dbPool: Pool) {
       if (settings.telegram_enabled && isTelegramReady && recipientsTelegram.length > 0) {
         deliveryAttempts += 1;
         const result = await sendTelegram(recipientsTelegram, message, attachment || undefined);
+        if (!result.ok) {
+          await createFailedScheduleAlert(
+            dbPool,
+            schedule,
+            "telegram_delivery_failed",
+            "medium",
+            `Telegram delivery failed: ${result.reason || "unknown error"}`,
+            {
+              channel: "telegram",
+              recipientsCount: recipientsTelegram.length,
+              reason: result.reason || null,
+            }
+          );
+        }
         await createNotification(dbPool, "schedule_delivery", "telegram", message, {
           scheduleId: schedule.id,
           recipients: recipientsTelegram,
@@ -174,6 +235,19 @@ export async function runDueSchedules(dbPool: Pool) {
       if (isTeamsReady) {
         deliveryAttempts += 1;
         const teamsResult = await sendTeams(message, attachment || undefined);
+        if (!teamsResult.ok) {
+          await createFailedScheduleAlert(
+            dbPool,
+            schedule,
+            "teams_delivery_failed",
+            "low",
+            `Teams delivery failed: ${teamsResult.reason || "unknown error"}`,
+            {
+              channel: "teams",
+              reason: teamsResult.reason || null,
+            }
+          );
+        }
         await createNotification(dbPool, "schedule_delivery", "teams", message, {
           scheduleId: schedule.id,
           format: schedule.file_format,
@@ -216,6 +290,7 @@ export async function runDueSchedules(dbPool: Pool) {
         },
       });
     } catch (err: any) {
+      const errorMessage = err?.message || String(err);
       // Prevent alert storms: advance the schedule even if a run fails.
       try {
         const nextRunOnError = computeNextRunAt(
@@ -233,10 +308,19 @@ export async function runDueSchedules(dbPool: Pool) {
         console.error("Failed to advance schedule after error:", updateErr);
       }
 
+      await createFailedScheduleAlert(
+        dbPool,
+        schedule,
+        "run_failed",
+        "high",
+        `Schedule run failed: ${errorMessage}`,
+        { error: errorMessage }
+      );
+
       if (settings.in_app_enabled) {
         await createNotification(dbPool, "schedule_error", "system", "Schedule run failed", {
           scheduleId: schedule.id,
-          error: err?.message || String(err),
+          error: errorMessage,
         });
       }
       await writeAuditLog(dbPool, {
@@ -245,7 +329,7 @@ export async function runDueSchedules(dbPool: Pool) {
         details: {
           scheduleId: schedule.id,
           scheduleName: schedule.name,
-          error: err?.message || String(err),
+          error: errorMessage,
         },
       });
     }
@@ -255,6 +339,11 @@ export async function runDueSchedules(dbPool: Pool) {
 export function startScheduler(dbPool: Pool) {
   const intervalMs = 60 * 1000;
   let lastRetentionRun = 0;
+  let lastAlertDetectionRun = 0;
+  let alertDetectionRunning = false;
+  const alertDetectionIntervalMs =
+    Math.max(1, Number(process.env.ALERT_DETECTION_INTERVAL_MINUTES || 15)) * 60 * 1000;
+
   setInterval(() => {
     runDueSchedules(dbPool).catch((err) => {
       console.error("Scheduler error:", err);
@@ -277,5 +366,17 @@ export function startScheduler(dbPool: Pool) {
       .catch((err) => {
         console.error("Retention error:", err);
       });
+
+    if (!alertDetectionRunning && now - lastAlertDetectionRun >= alertDetectionIntervalMs) {
+      alertDetectionRunning = true;
+      lastAlertDetectionRun = now;
+      runAlertDetections(dbPool)
+        .catch((err) => {
+          console.error("Alert detection error:", err);
+        })
+        .finally(() => {
+          alertDetectionRunning = false;
+        });
+    }
   }, intervalMs);
 }

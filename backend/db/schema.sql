@@ -198,6 +198,77 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS alerts (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  fingerprint VARCHAR(255) NOT NULL UNIQUE,
+  alert_type VARCHAR(64) NOT NULL,
+  severity VARCHAR(16) NOT NULL DEFAULT 'medium',
+  status VARCHAR(16) NOT NULL DEFAULT 'open',
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  source VARCHAR(64) NOT NULL DEFAULT 'system',
+  project_id INT NULL,
+  project_name VARCHAR(255) NULL,
+  partner VARCHAR(255) NULL,
+  payload JSON NULL,
+  first_detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME NULL,
+  resolved_by VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_alerts_status (status),
+  INDEX idx_alerts_severity (severity),
+  INDEX idx_alerts_project (project_id),
+  INDEX idx_alerts_partner (partner),
+  INDEX idx_alerts_alert_type (alert_type),
+  INDEX idx_alerts_last_detected (last_detected_at),
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS backup_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  trigger_type VARCHAR(16) NOT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'success',
+  file_name VARCHAR(255) NULL,
+  file_path VARCHAR(1024) NULL,
+  file_size BIGINT NULL,
+  tables_count INT NOT NULL DEFAULT 0,
+  records_count BIGINT NOT NULL DEFAULT 0,
+  created_by VARCHAR(255) NULL,
+  notes TEXT NULL,
+  error_message TEXT NULL,
+  restored_from_id INT NULL,
+  restored_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_backup_history_created_at (created_at),
+  INDEX idx_backup_history_trigger_type (trigger_type),
+  INDEX idx_backup_history_status (status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS deleted_file_backups (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  original_file_id INT NOT NULL,
+  project_id INT NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(32) NOT NULL,
+  backup_file_name VARCHAR(255) NOT NULL,
+  backup_file_path VARCHAR(1024) NOT NULL,
+  backup_file_size BIGINT NOT NULL DEFAULT 0,
+  rows_count INT NOT NULL DEFAULT 0,
+  columns_count INT NOT NULL DEFAULT 0,
+  deleted_by VARCHAR(255) NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'available',
+  restored_file_id INT NULL,
+  restored_by VARCHAR(255) NULL,
+  restored_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_deleted_file_backups_project_id (project_id),
+  INDEX idx_deleted_file_backups_original_file_id (original_file_id),
+  INDEX idx_deleted_file_backups_status (status),
+  INDEX idx_deleted_file_backups_created_at (created_at)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS notification_settings (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NULL,

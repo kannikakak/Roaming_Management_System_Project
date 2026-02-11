@@ -68,8 +68,8 @@ const suggestChartSelection = (columns: string[], rows: any[]) => {
   if (!categoryCol || valueCols.length === 0) return null;
 
   return {
-    chartType: valueCols.length > 1 ? 'Bar' : 'Line',
-    selectedCols: [categoryCol, ...valueCols],
+    chartType: 'Line',
+    selectedCols: [categoryCol, ...valueCols.slice(0, 2)],
   };
 };
 
@@ -231,7 +231,7 @@ const CardDetail: React.FC = () => {
   const handleMouseDown = (e: React.MouseEvent, column: string) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = columnWidths[column] || 120;
+    const startWidth = columnWidths[column] || 220;
     resizingRef.current = { column, startX, startWidth };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -1279,14 +1279,14 @@ const CardDetail: React.FC = () => {
                           <tr>
                             {activeFile.columns.map((col) => {
                               const isSelected = selectedChartCols.includes(col);
-                              const width = columnWidths[col] || 140;
+                              const width = columnWidths[col] || 220;
                               return (
                                 <th
                                   key={col}
                                   className={`relative px-3 py-2 text-left font-semibold cursor-pointer border-r border-amber-300 last:border-r-0 ${
                                     isSelected ? 'bg-amber-600' : ''
                                   }`}
-                                  style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }}
+                                  style={{ width: `${width}px`, minWidth: `${width}px` }}
                                   onClick={() => {
                                     setSelectedChartCols(prev =>
                                       prev.includes(col)
@@ -1295,9 +1295,9 @@ const CardDetail: React.FC = () => {
                                     );
                                   }}
                                 >
-                                  <div className="flex items-center gap-2 text-white text-xs overflow-hidden">
+                                  <div className="flex items-start gap-2 text-white text-xs">
                                     {isSelected ? <CheckSquare className="w-4 h-4 flex-shrink-0" /> : <Square className="w-4 h-4 flex-shrink-0" />}
-                                    <span className="truncate">{col}</span>
+                                    <span className="whitespace-normal break-words leading-snug" title={col}>{col}</span>
                                   </div>
                                   <div
                                     className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-white/20 flex items-center justify-center"
@@ -1332,16 +1332,16 @@ const CardDetail: React.FC = () => {
                                 }`}
                               >
                                 {activeFile.columns.map((col, colIndex) => {
-                                  const width = columnWidths[col] || 140;
+                                  const width = columnWidths[col] || 220;
                                   return (
                                     <td
                                       key={col}
                                       className={`px-3 py-2 text-gray-800 text-xs border-r border-amber-50 last:border-r-0 ${
                                         colIndex === 0 ? 'font-semibold text-gray-900' : ''
                                       }`}
-                                      style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }}
+                                      style={{ width: `${width}px`, minWidth: `${width}px` }}
                                     >
-                                      <div className="truncate" title={row[col] ?? '-'}>
+                                      <div className="whitespace-normal break-words leading-snug" title={row[col] ?? '-'}>
                                         {row[col] ?? '-'}
                                       </div>
                                     </td>

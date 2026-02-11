@@ -16,6 +16,8 @@ import {
 import { buildDataJsonExpr, buildEncryptedValue, buildKeyParams, getEncryptionKey } from "../utils/dbEncryption";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { buildFileProfile, ensureFileProfileTable, saveFileProfile, FileProfile } from "../services/fileProfile";
+import { upsertAlert } from "../services/alerts";
+import { createDeletedSourceFileBackup } from "../services/backupRecovery";
 import { writeAuditLog } from "../utils/auditLogger";
 
 type ParsedFile = {
@@ -180,13 +182,68 @@ const parseFile = async (
   }
 
   if (ext === ".xlsx" || ext === ".xls") {
-    const workbook = XLSX.readFile(file.path);
+    const workbook = XLSX.readFile(file.path, { cellDates: true });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "-" });
     const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0] as string[] | undefined;
     const columns = headerRow || (rows[0] ? Object.keys(rows[0] as Record<string, unknown>) : []);
-    return { columns, rows };
+    const date1904 = Boolean((workbook as any)?.Workbook?.WBProps?.date1904);
+
+    const isDateLikeColumn = (name: string) =>
+      /\b(date|datetime|timestamp|time)\b/i.test(String(name || "").replace(/[_-]/g, " "));
+
+    const pad2 = (value: number) => String(value).padStart(2, "0");
+
+    const formatDate = (value: Date) => {
+      const y = value.getFullYear();
+      const m = pad2(value.getMonth() + 1);
+      const d = pad2(value.getDate());
+      const h = pad2(value.getHours());
+      const mm = pad2(value.getMinutes());
+      const s = pad2(value.getSeconds());
+      return `${y}-${m}-${d} ${h}:${mm}:${s}`;
+    };
+
+    const excelSerialToDateTime = (serial: number) => {
+      if (!Number.isFinite(serial)) return null;
+      const parsed = XLSX.SSF.parse_date_code(serial, { date1904 });
+      if (!parsed || !parsed.y || !parsed.m || !parsed.d) return null;
+      const year = Number(parsed.y);
+      if (year < 1900 || year > 2100) return null;
+      const hour = Number(parsed.H || 0);
+      const minute = Number(parsed.M || 0);
+      const second = Math.round(Number(parsed.S || 0));
+      return `${year}-${pad2(Number(parsed.m))}-${pad2(Number(parsed.d))} ${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+    };
+
+    const normalizedRows = rows.map((row: any) => {
+      const next: Record<string, any> = {};
+      for (const col of columns) {
+        const raw = row?.[col];
+        if (raw === "-" || raw === null || raw === undefined || !isDateLikeColumn(col)) {
+          next[col] = raw;
+          continue;
+        }
+        if (raw instanceof Date) {
+          next[col] = formatDate(raw);
+          continue;
+        }
+        if (typeof raw === "number") {
+          next[col] = excelSerialToDateTime(raw) || raw;
+          continue;
+        }
+        if (typeof raw === "string") {
+          const asNumber = Number(raw);
+          next[col] = Number.isFinite(asNumber) ? excelSerialToDateTime(asNumber) || raw : raw;
+          continue;
+        }
+        next[col] = raw;
+      }
+      return next;
+    });
+
+    return { columns, rows: normalizedRows };
   }
 
   throw new Error(`Unsupported file type: ${file.originalname}`);
@@ -384,6 +441,11 @@ const ingestFiles = async (
   const emitNotifications = options.emitNotifications !== false;
   const settings = emitNotifications ? await getNotificationSettings(dbPool) : null;
   await ensureQualityTable(dbPool);
+  const [projectRows]: any = await dbPool.query(
+    "SELECT name FROM projects WHERE id = ? LIMIT 1",
+    [projectId]
+  );
+  const projectName = String(projectRows?.[0]?.name || `Project ${projectId}`);
 
   const committedPaths = new Set<string>();
   const usedNames = new Set<string>();
@@ -485,6 +547,7 @@ const ingestFiles = async (
       const commitStart = Date.now();
       const connection = await dbPool.getConnection();
       let uniqueNameForMetrics = entry.safeName;
+      let committedFileId: number | null = null;
       try {
         await connection.beginTransaction();
 
@@ -496,6 +559,7 @@ const ingestFiles = async (
           [projectId, uniqueName, entry.fileType, entry.file.path, null]
         );
         const fileId = fileResult.insertId as number;
+        committedFileId = fileId;
 
         if (entry.columns.length > 0) {
           for (let i = 0; i < entry.columns.length; i++) {
@@ -581,6 +645,43 @@ const ingestFiles = async (
         columns: entry.columns.length,
         timings: entry.timings,
       });
+
+      const shouldRaiseDataQualityAlert =
+        entry.quality.score < 70 ||
+        entry.quality.trustLevel === "Low" ||
+        entry.quality.invalidRate >= 0.15 ||
+        entry.quality.schemaInconsistencyRate >= 0.2;
+
+      if (shouldRaiseDataQualityAlert && committedFileId) {
+        const severity: "medium" | "high" =
+          entry.quality.score < 50 || entry.quality.invalidRate >= 0.3 ? "high" : "medium";
+        const message =
+          `Score ${entry.quality.score.toFixed(1)} | trust ${entry.quality.trustLevel} | ` +
+          `invalid ${(entry.quality.invalidRate * 100).toFixed(1)}% | ` +
+          `schema inconsistency ${(entry.quality.schemaInconsistencyRate * 100).toFixed(1)}%`;
+        try {
+          await upsertAlert(dbPool, {
+            fingerprint: `data_quality_warning|file:${committedFileId}`,
+            alertType: "data_quality_warning",
+            severity,
+            title: `Data quality warning on ${uniqueNameForMetrics}`,
+            message,
+            source: "upload_pipeline",
+            projectId,
+            projectName,
+            payload: {
+              fileId: committedFileId,
+              fileName: uniqueNameForMetrics,
+              quality: entry.quality,
+            },
+          });
+        } catch (alertErr: any) {
+          console.error(
+            `[alerts] failed to create data quality alert for file ${committedFileId}:`,
+            alertErr?.message || alertErr
+          );
+        }
+      }
     }
 
     const totalMs = Date.now() - overallStart;
@@ -895,6 +996,20 @@ export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) 
     );
     const metadata = metaRows?.[0] || null;
 
+    let sourceBackup: any = null;
+    try {
+      sourceBackup = await createDeletedSourceFileBackup(
+        dbPool,
+        access.fileId,
+        req.user?.email || `user:${req.user?.id || "unknown"}`
+      );
+    } catch (backupErr: any) {
+      return res.status(500).json({
+        message: "Cannot delete file because source backup failed.",
+        error: backupErr?.message || backupErr,
+      });
+    }
+
     await dbPool.query("DELETE FROM files WHERE id = ?", [access.fileId]);
     await writeAuditLog(dbPool, {
       req,
@@ -904,9 +1019,13 @@ export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) 
         projectId: access.projectId,
         fileName: metadata?.name || null,
         fileType: metadata?.fileType || null,
+        sourceBackup,
       },
     });
-    res.json({ message: "File deleted" });
+    res.json({
+      message: "File deleted with source backup.",
+      sourceBackup,
+    });
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
   }

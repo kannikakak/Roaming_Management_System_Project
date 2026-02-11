@@ -1,11 +1,35 @@
 import React, { useEffect, useState } from "react";
-import { Activity, AlertTriangle, Clock, Database, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Clock,
+  Database,
+  FileUp,
+  HardDrive,
+  RefreshCw,
+  ShieldCheck,
+  TriangleAlert,
+  UserRound,
+} from "lucide-react";
 import { apiFetch } from "../utils/api";
+
+type HealthMetrics = {
+  activeUsers: number;
+  filesProcessedToday: number;
+  avgProcessingTimeMs: number;
+  failedJobs: number;
+  storageUsageBytes: number;
+  storageBreakdown?: {
+    databaseBytes: number;
+    uploadsBytes: number;
+  };
+};
 
 type Health = {
   ok: boolean;
   db: string;
   schedules?: { total: number; active: number; lastRun: string | null };
+  metrics?: HealthMetrics;
 };
 
 type RetentionConfig = {
@@ -14,6 +38,26 @@ type RetentionConfig = {
   mode: "delete" | "archive";
   deleteFiles: boolean;
   intervalHours: number;
+};
+
+const formatStorage = (bytes: number) => {
+  const value = Number(bytes || 0);
+  if (value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let next = value;
+  let idx = 0;
+  while (next >= 1024 && idx < units.length - 1) {
+    next /= 1024;
+    idx += 1;
+  }
+  return `${next.toFixed(next >= 100 ? 0 : next >= 10 ? 1 : 2)} ${units[idx]}`;
+};
+
+const formatAvgProcessing = (ms: number) => {
+  const value = Number(ms || 0);
+  if (value <= 0) return "N/A";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(value / 1000).toFixed(2)} s`;
 };
 
 const SystemHealthPage: React.FC = () => {
@@ -85,6 +129,13 @@ const SystemHealthPage: React.FC = () => {
   const schedulerPercent =
     schedulerTotal > 0 ? Math.round((schedulerActive / schedulerTotal) * 100) : 0;
   const overallOk = health?.ok ?? false;
+  const activeUsers = health?.metrics?.activeUsers ?? 0;
+  const filesProcessedToday = health?.metrics?.filesProcessedToday ?? 0;
+  const avgProcessingTimeMs = health?.metrics?.avgProcessingTimeMs ?? 0;
+  const failedJobs = health?.metrics?.failedJobs ?? 0;
+  const storageUsageBytes = health?.metrics?.storageUsageBytes ?? 0;
+  const storageDbBytes = health?.metrics?.storageBreakdown?.databaseBytes ?? 0;
+  const storageUploadsBytes = health?.metrics?.storageBreakdown?.uploadsBytes ?? 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6">
@@ -171,6 +222,69 @@ const SystemHealthPage: React.FC = () => {
               </div>
               <div className="mt-2 text-xs text-gray-500">{schedulerPercent}% coverage</div>
             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+          <div className="bg-white border rounded-2xl p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+              Active Users
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <UserRound className="w-5 h-5 text-amber-600" />
+              <span className="text-xl font-semibold text-gray-900">{activeUsers}</span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Signed-in users with valid sessions now.</p>
+          </div>
+
+          <div className="bg-white border rounded-2xl p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+              Files Today
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <FileUp className="w-5 h-5 text-amber-600" />
+              <span className="text-xl font-semibold text-gray-900">{filesProcessedToday}</span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Files uploaded and processed since midnight.</p>
+          </div>
+
+          <div className="bg-white border rounded-2xl p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+              Avg Processing Time
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-600" />
+              <span className="text-xl font-semibold text-gray-900">
+                {formatAvgProcessing(avgProcessingTimeMs)}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Average ingestion job duration for today.</p>
+          </div>
+
+          <div className="bg-white border rounded-2xl p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+              Failed Jobs
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <TriangleAlert className="w-5 h-5 text-red-600" />
+              <span className="text-xl font-semibold text-gray-900">{failedJobs}</span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Ingestion and scheduler failures today.</p>
+          </div>
+
+          <div className="bg-white border rounded-2xl p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+              Storage Usage
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <HardDrive className="w-5 h-5 text-amber-600" />
+              <span className="text-xl font-semibold text-gray-900">
+                {formatStorage(storageUsageBytes)}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              DB {formatStorage(storageDbBytes)} + uploads {formatStorage(storageUploadsBytes)}.
+            </p>
           </div>
         </div>
 

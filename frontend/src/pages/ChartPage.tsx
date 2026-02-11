@@ -226,33 +226,172 @@ const ChartPage: React.FC = () => {
     return () => window.clearInterval(intervalId);
   }, [sessionId, loadSession]);
 
-  // Chart data
-  const chartData =
-    currentFile && currentSelectedCols.length > 0
-      ? (currentFile.rows || []).map((row: any) => {
-          const obj: any = {};
-          currentSelectedCols.forEach((col: string) => (obj[col] = row[col]));
-          return obj;
-        })
-      : [];
+  const toNumericValue = (value: any) => {
+    if (value === null || value === undefined) return null;
+    const raw = String(value).trim().replace(/,/g, "");
+    if (!raw || raw === "-") return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
-  const isNumericCol = (col: string) =>
-    chartData.some(
+  const parseDateValue = (value: any): Date | null => {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+    if (typeof value === "number" && Number.isFinite(value) && value > 20000 && value < 70000) {
+      const converted = new Date((value - 25569) * 86400 * 1000);
+      return Number.isNaN(converted.getTime()) ? null : converted;
+    }
+
+    const raw = String(value ?? "").trim();
+    if (!raw || raw === "-") return null;
+
+    const asNumber = Number(raw);
+    if (Number.isFinite(asNumber) && asNumber > 20000 && asNumber < 70000) {
+      const converted = new Date((asNumber - 25569) * 86400 * 1000);
+      return Number.isNaN(converted.getTime()) ? null : converted;
+    }
+
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const isDateLikeCol = useCallback(
+    (col: string) => {
+      if (!currentFile?.rows?.length) return false;
+      const normalized = String(col || "").replace(/[_-]/g, " ");
+      const nameSuggestsDate = /\b(date|time|timestamp)\b/i.test(normalized);
+
+      const sample = (currentFile.rows || []).slice(0, 300);
+      let nonEmpty = 0;
+      let parseable = 0;
+      for (const row of sample) {
+        const raw = row?.[col];
+        if (raw === null || raw === undefined || String(raw).trim() === "" || String(raw).trim() === "-") {
+          continue;
+        }
+        nonEmpty += 1;
+        if (parseDateValue(raw)) parseable += 1;
+      }
+      const parseRatio = nonEmpty > 0 ? parseable / nonEmpty : 0;
+      return nameSuggestsDate || (nonEmpty >= 5 && parseRatio >= 0.6);
+    },
+    [currentFile?.rows]
+  );
+
+  const isNumericCol = useCallback(
+    (col: string) => {
+      if (isDateLikeCol(col)) return false;
+      const sample = (currentFile?.rows || []).slice(0, 500);
+      let nonEmpty = 0;
+      let numeric = 0;
+      for (const row of sample) {
+        const raw = row?.[col];
+        if (raw === null || raw === undefined || String(raw).trim() === "" || String(raw).trim() === "-") {
+          continue;
+        }
+        nonEmpty += 1;
+        if (toNumericValue(raw) !== null) numeric += 1;
+      }
+      return nonEmpty >= 5 && numeric / nonEmpty >= 0.7;
+    },
+    [currentFile?.rows, isDateLikeCol]
+  );
+
+  const pickDefaultCategoryCol = useCallback(() => {
+    if (!currentSelectedCols.length) return "";
+    const dateCol = currentSelectedCols.find((col) => isDateLikeCol(col));
+    if (dateCol) return dateCol;
+    const textCol = currentSelectedCols.find((col) => !isNumericCol(col));
+    return textCol || currentSelectedCols[0];
+  }, [currentSelectedCols, isDateLikeCol, isNumericCol]);
+
+  const getAvailableValueCols = useCallback(
+    (category: string) =>
+      currentSelectedCols.filter(
+        (col) => col !== category && !isDateLikeCol(col) && isNumericCol(col)
+      ),
+    [currentSelectedCols, isDateLikeCol, isNumericCol]
+  );
+
+  const effectiveCategoryCol = currentSelectedCols.includes(categoryCol)
+    ? categoryCol
+    : pickDefaultCategoryCol();
+  const availableValueCols = getAvailableValueCols(effectiveCategoryCol);
+  const activeValueCols = valueCols.filter((col) => availableValueCols.includes(col));
+  const isCategoryDateLike = isDateLikeCol(effectiveCategoryCol);
+
+  useEffect(() => {
+    if (!currentSelectedCols.length) return;
+    const nextCategory = currentSelectedCols.includes(categoryCol)
+      ? categoryCol
+      : pickDefaultCategoryCol();
+    const nextAvailable = getAvailableValueCols(nextCategory);
+    const cleaned = valueCols.filter((col) => nextAvailable.includes(col));
+    const nextValues = cleaned.length > 0 ? cleaned : nextAvailable.slice(0, 2);
+
+    if (nextCategory !== categoryCol) {
+      setCategoryCol(nextCategory);
+    }
+    if (JSON.stringify(nextValues) !== JSON.stringify(valueCols)) {
+      setValueCols(nextValues);
+    }
+  }, [currentSelectedCols, categoryCol, valueCols, pickDefaultCategoryCol, getAvailableValueCols]);
+
+  const chartData = (() => {
+    if (!currentFile || currentSelectedCols.length === 0) return [];
+
+    const rows = (currentFile.rows || []).map((row: any) => {
+      const obj: any = {};
+      currentSelectedCols.forEach((col: string) => {
+        if (activeValueCols.includes(col)) {
+          obj[col] = toNumericValue(row?.[col]);
+        } else {
+          obj[col] = row?.[col];
+        }
+      });
+      return obj;
+    });
+
+    let nextRows = rows.filter(
       (row: any) =>
-        row[col] !== undefined && row[col] !== null && row[col] !== "" && !isNaN(Number(row[col]))
+        row[effectiveCategoryCol] !== undefined &&
+        row[effectiveCategoryCol] !== null &&
+        String(row[effectiveCategoryCol]).trim() !== ""
     );
 
-  const availableValueCols = currentSelectedCols.filter((c) => c !== categoryCol && isNumericCol(c));
+    if (isCategoryDateLike) {
+      nextRows = nextRows.sort((a: any, b: any) => {
+        const left = parseDateValue(a[effectiveCategoryCol])?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const right = parseDateValue(b[effectiveCategoryCol])?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return left - right;
+      });
+    }
 
-  const pieValueCol = valueCols[0] || availableValueCols[0];
+    const maxPoints = chartType === "Line" ? 280 : 500;
+    if (nextRows.length <= maxPoints) return nextRows;
+    const step = Math.ceil(nextRows.length / maxPoints);
+    return nextRows.filter((_row: any, idx: number) => idx % step === 0 || idx === nextRows.length - 1);
+  })();
+
+  const formatCategoryTick = (value: any) => {
+    if (!isCategoryDateLike) return String(value ?? "");
+    const parsed = parseDateValue(value);
+    if (!parsed) return String(value ?? "");
+    const date = parsed.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+    const time = parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return `${date} ${time}`;
+  };
+
+  const pieValueCol = activeValueCols[0] || availableValueCols[0];
   const pieData =
     chartType === "Pie" && pieValueCol
       ? chartData
           .map((row: any) => ({
-            name: row[categoryCol],
-            value: Number(row[pieValueCol]),
+            name: row[effectiveCategoryCol],
+            value: toNumericValue(row[pieValueCol]),
           }))
-          .filter((d: any) => !isNaN(d.value))
+          .filter((d: any) => d.value !== null)
       : [];
 
   const handleValueColChange = (col: string) => {
@@ -266,7 +405,9 @@ const ChartPage: React.FC = () => {
   const handleCategoryColChange = (col: string) => {
     setCategoryCol(col);
     setValueCols((prev) => {
-      const next = prev.filter((c) => c !== col);
+      const allowed = getAvailableValueCols(col);
+      const cleaned = prev.filter((c) => allowed.includes(c));
+      const next = cleaned.length > 0 ? cleaned : allowed.slice(0, 2);
       scheduleSessionUpdate({ categoryCol: col, valueCols: next });
       return next;
     });
@@ -291,8 +432,8 @@ const ChartPage: React.FC = () => {
           fileId: currentFile?.id || null,
           fileName: currentFile?.name || currentFile?.fileName || null,
           chartType,
-          categoryCol,
-          valueCols,
+          categoryCol: effectiveCategoryCol,
+          valueCols: activeValueCols,
           selectedCols: currentSelectedCols,
           chartImage,
         }),
@@ -314,8 +455,8 @@ const ChartPage: React.FC = () => {
         name: fileName,
         createdAt: new Date().toISOString(),
         config: {
-          categoryCol,
-          valueCols,
+            categoryCol: effectiveCategoryCol,
+            valueCols: activeValueCols,
           chartType,
           selectedCols: currentSelectedCols,
           file: currentFile, // ⚠️ if too big, localStorage can fail
@@ -328,8 +469,8 @@ const ChartPage: React.FC = () => {
 
       logAudit("Save Chart Card", {
         chartType,
-        categoryCol,
-        valueCols,
+        categoryCol: effectiveCategoryCol,
+        valueCols: activeValueCols,
         fileName,
         selectedCols: currentSelectedCols,
       });
@@ -382,8 +523,8 @@ const ChartPage: React.FC = () => {
       logAudit("Export Chart", {
         type: ext,
         chartType,
-        categoryCol,
-        valueCols,
+        categoryCol: effectiveCategoryCol,
+        valueCols: activeValueCols,
         fileName: currentFile?.name || currentFile?.fileName,
         selectedCols: currentSelectedCols,
       });
@@ -406,12 +547,12 @@ const ChartPage: React.FC = () => {
       chartImage: pngDataUrl,
       title: currentFile?.name || "Report Slide",
       subtitle: new Date().toLocaleDateString(),
-      summary: `Chart: ${chartType} | X: ${categoryCol} | Y: ${valueCols.join(", ")}`,
+      summary: `Chart: ${chartType} | X: ${effectiveCategoryCol} | Y: ${activeValueCols.join(", ")}`,
       createdAt: new Date().toISOString(),
       chartMeta: {
         chartType,
-        categoryCol,
-        valueCols,
+        categoryCol: effectiveCategoryCol,
+        valueCols: activeValueCols,
         selectedCols: currentSelectedCols,
         fileName: currentFile?.name || currentFile?.fileName,
         fileId: currentFile?.id,
@@ -425,15 +566,15 @@ const ChartPage: React.FC = () => {
     logAudit("Add Slide To Draft", {
       slidesCount: updated.length,
       chartType,
-      categoryCol,
-      valueCols,
+      categoryCol: effectiveCategoryCol,
+      valueCols: activeValueCols,
       fileName: currentFile?.name || currentFile?.fileName,
     });
 
     navigate("/slide-builder");
   };
 
-  const hasChart = !!currentFile && currentSelectedCols.length >= 2;
+  const hasChart = !!currentFile && currentSelectedCols.length >= 2 && activeValueCols.length > 0;
 
   const getChartIcon = (type: string) => {
     if (type === "Bar") return <BarChart3 className="w-4 h-4" />;
@@ -510,7 +651,7 @@ const ChartPage: React.FC = () => {
         {/* If no chart data */}
         {!hasChart ? (
           <div className="bg-white border rounded-xl p-6 text-gray-700 dark:bg-gray-900/60 dark:border-white/10 dark:text-gray-200">
-            No chart data. Go back and select at least 2 columns.
+            No chart data. Select at least one numeric column for Y-axis and one category/date column for X-axis.
           </div>
         ) : (
           <>
@@ -533,7 +674,7 @@ const ChartPage: React.FC = () => {
                     Category Axis (X)
                   </label>
                   <select
-                    value={categoryCol}
+                    value={effectiveCategoryCol}
                     onChange={(e) => handleCategoryColChange(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-100 dark:focus:border-amber-400"
                   >
@@ -615,14 +756,14 @@ const ChartPage: React.FC = () => {
                   <label
                     key={col}
                     className={`px-4 py-2 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium ${
-                      valueCols.includes(col)
+                      activeValueCols.includes(col)
                         ? "bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-amber-500/20 dark:border-amber-300 dark:text-amber-200"
                         : "bg-white border-gray-300 text-gray-700 hover:border-yellow-300 hover:bg-yellow-50 dark:bg-gray-900/60 dark:border-white/10 dark:text-gray-100 dark:hover:bg-white/5"
                     }`}
                   >
                       <input
                         type="checkbox"
-                        checked={valueCols.includes(col)}
+                        checked={activeValueCols.includes(col)}
                         onChange={() => handleValueColChange(col)}
                         className="mr-2 accent-yellow-500"
                       />
@@ -649,17 +790,24 @@ const ChartPage: React.FC = () => {
                   {chartType === "Line" && (
                     <LineChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <XAxis dataKey={effectiveCategoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} tickFormatter={formatCategoryTick} />
                       <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
-                      <Tooltip />
+                      <Tooltip
+                        labelFormatter={(label) => formatCategoryTick(label)}
+                        formatter={(value: any) =>
+                          typeof value === "number" ? value.toLocaleString() : value
+                        }
+                      />
                       <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="line" />
-                      {valueCols.map((col, idx) => (
+                      {activeValueCols.map((col, idx) => (
                         <Line
                           key={col}
                           type="monotone"
                           dataKey={col}
                           stroke={COLORS[idx % COLORS.length]}
-                          strokeWidth={2}
+                          strokeWidth={2.5}
+                          dot={false}
+                          activeDot={{ r: 4 }}
                         />
                       ))}
                     </LineChart>
@@ -668,11 +816,16 @@ const ChartPage: React.FC = () => {
                   {chartType === "Bar" && (
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <XAxis dataKey={effectiveCategoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} tickFormatter={formatCategoryTick} />
                       <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
-                      <Tooltip />
+                      <Tooltip
+                        labelFormatter={(label) => formatCategoryTick(label)}
+                        formatter={(value: any) =>
+                          typeof value === "number" ? value.toLocaleString() : value
+                        }
+                      />
                       <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="rect" />
-                      {valueCols.map((col, idx) => (
+                      {activeValueCols.map((col, idx) => (
                         <Bar
                           key={col}
                           dataKey={col}
@@ -686,11 +839,16 @@ const ChartPage: React.FC = () => {
                   {chartType === "Stacked Bar" && (
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <XAxis dataKey={effectiveCategoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} tickFormatter={formatCategoryTick} />
                       <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
-                      <Tooltip />
+                      <Tooltip
+                        labelFormatter={(label) => formatCategoryTick(label)}
+                        formatter={(value: any) =>
+                          typeof value === "number" ? value.toLocaleString() : value
+                        }
+                      />
                       <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="rect" />
-                      {valueCols.map((col, idx) => (
+                      {activeValueCols.map((col, idx) => (
                         <Bar
                           key={col}
                           dataKey={col}
@@ -705,11 +863,16 @@ const ChartPage: React.FC = () => {
                   {chartType === "Area" && (
                     <AreaChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey={categoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} />
+                      <XAxis dataKey={effectiveCategoryCol} stroke="#6b7280" style={{ fontSize: "12px" }} tickFormatter={formatCategoryTick} />
                       <YAxis stroke="#6b7280" style={{ fontSize: "12px" }} />
-                      <Tooltip />
+                      <Tooltip
+                        labelFormatter={(label) => formatCategoryTick(label)}
+                        formatter={(value: any) =>
+                          typeof value === "number" ? value.toLocaleString() : value
+                        }
+                      />
                       <Legend wrapperStyle={{ paddingTop: "20px" }} iconType="rect" />
-                      {valueCols.map((col, idx) => (
+                      {activeValueCols.map((col, idx) => (
                         <Area
                           key={col}
                           type="monotone"

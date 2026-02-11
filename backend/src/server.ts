@@ -7,6 +7,7 @@ import { dbPool } from "./db";
 import { setRoutes } from "./routes";
 import { startScheduler } from "./services/scheduler";
 import { startIngestionRunner } from "./services/ingestionRunner";
+import { startBackupScheduler } from "./services/backupScheduler";
 import { ensureBootstrapAdmin } from "./services/bootstrapAdmin";
 import { validateSecurityCompliance } from "./utils/securityCompliance";
 
@@ -112,6 +113,7 @@ const startServer = async () => {
 
   setRoutes(app, dbPool);
   startScheduler(dbPool);
+  await startBackupScheduler(dbPool);
   const ingestionRunnerEnabled =
     String(process.env.ENABLE_INGESTION_RUNNER || "true").toLowerCase() !== "false";
   if (ingestionRunnerEnabled) {

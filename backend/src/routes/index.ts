@@ -23,6 +23,7 @@ import { ingestionSourceRoutes } from "./ingestionSourceRoutes";
 import { impactRoutes } from "./impactRoutes";
 import { dataQualityRoutes } from "./dataQualityRoutes";
 import { operationsRoutes } from "./operationsRoutes";
+import { alertRoutes } from "./alertRoutes";
 // ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -98,4 +99,7 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Operations snapshot and telemetry
   app.use("/api/operations", operationsRoutes(dbPool));
+
+  // Alert center
+  app.use("/api/alerts", alertRoutes(dbPool));
 };
