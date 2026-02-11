@@ -123,7 +123,6 @@ const ChartPage: React.FC = () => {
   }, []);
 
   const currentRowCount = Array.isArray(currentFile?.rows) ? currentFile.rows.length : 0;
-  const selectedSignature = currentSelectedCols.join("|");
 
   useEffect(() => {
     if (!currentFile?.id) return;
@@ -137,7 +136,7 @@ const ChartPage: React.FC = () => {
     currentFile?.name,
     currentFile?.fileName,
     currentRowCount,
-    selectedSignature,
+    currentSelectedCols,
     loadFileData,
   ]);
 
