@@ -420,27 +420,6 @@ const ChartPage: React.FC = () => {
 
     const existing = JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]");
     const updated = [...existing, slide];
-    const collabReportId = localStorage.getItem("reportDraftId");
-
-    if (collabReportId) {
-      try {
-        await apiFetch(`/api/reports/${collabReportId}/slides`, {
-          method: "POST",
-          body: JSON.stringify({ slides: [slide] }),
-        });
-        logAudit("Add Slide To Shared Draft", {
-          reportId: collabReportId,
-          chartType,
-          categoryCol,
-          valueCols,
-          fileName: currentFile?.name || currentFile?.fileName,
-        });
-        navigate(`/slide-builder?reportId=${collabReportId}`);
-        return;
-      } catch (err) {
-        console.error("Failed to append slide to shared draft:", err);
-      }
-    }
 
     localStorage.setItem(DRAFT_KEY, JSON.stringify(updated));
     logAudit("Add Slide To Draft", {

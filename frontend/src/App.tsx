@@ -180,7 +180,9 @@ const App: React.FC = () => (
         element={
           <RequireAuth>
             <MainLayout>
-              <ReportsLibraryPage />
+              <RequireRole roles={["admin", "analyst"]}>
+                <ReportsLibraryPage />
+              </RequireRole>
             </MainLayout>
           </RequireAuth>
         }

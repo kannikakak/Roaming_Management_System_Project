@@ -1,6 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, Trash2, Users, Copy } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Image as ImageIcon,
+  LayoutPanelLeft,
+  Search,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { logAudit } from "../utils/auditLog";
 import { apiFetch } from "../utils/api";
 
@@ -37,22 +47,7 @@ type SlidePayload = {
 };
 
 const STORAGE_KEY = "reportDraftSlides";
-const COLLAB_KEY = "reportDraftId";
-const SYNC_INTERVAL_MS = 5000;
-const LOCAL_EDIT_GRACE_MS = 2000;
-
-const parseJsonArray = (value: any): string[] => {
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-};
+const LEGACY_COLLAB_KEY = "reportDraftId";
 
 const buildSlidePayloads = (slides: ReportSlide[]): SlidePayload[] =>
   slides.map((s) => ({
@@ -63,25 +58,29 @@ const buildSlidePayloads = (slides: ReportSlide[]): SlidePayload[] =>
     chartMeta: s.chartMeta,
   }));
 
-const mapServerSlides = (slides: any[], createdAtFallback: string): ReportSlide[] =>
-  slides.map((slide: any) => ({
-    id: `slide-${slide.id ?? slide.slide_index}`,
-    chartImage: slide.chart_image_url,
-    title: slide.title || "",
-    subtitle: slide.subtitle || "",
-    summary: slide.summary || "",
-    createdAt: createdAtFallback,
-    chartMeta: slide.chart_type
-      ? {
-          chartType: slide.chart_type,
-          categoryCol: slide.category_col,
-          valueCols: parseJsonArray(slide.value_cols),
-          selectedCols: parseJsonArray(slide.selected_cols),
-          fileName: slide.file_name || undefined,
-          fileId: slide.file_id || undefined,
-        }
-      : undefined,
-  }));
+const parseStoredSlides = (): ReportSlide[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((slide: any, idx: number) => {
+        const nowIso = new Date().toISOString();
+        return {
+          id: typeof slide?.id === "string" && slide.id ? slide.id : `slide-${idx + 1}`,
+          chartImage: typeof slide?.chartImage === "string" ? slide.chartImage : "",
+          title: typeof slide?.title === "string" ? slide.title : "",
+          subtitle: typeof slide?.subtitle === "string" ? slide.subtitle : "",
+          summary: typeof slide?.summary === "string" ? slide.summary : "",
+          createdAt: typeof slide?.createdAt === "string" ? slide.createdAt : nowIso,
+          chartMeta: slide?.chartMeta,
+        } as ReportSlide;
+      })
+      .filter((slide: ReportSlide) => typeof slide.id === "string");
+  } catch {
+    return [];
+  }
+};
 
 const formatDateLabel = (value?: string) => {
   if (!value) return "-";
@@ -92,196 +91,99 @@ const formatDateLabel = (value?: string) => {
 
 const SlideBuilderPage: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [slides, setSlides] = useState<ReportSlide[]>([]);
   const [activeId, setActiveId] = useState<string>("");
-  const [reportId, setReportId] = useState<number | null>(null);
-  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [copyNotice, setCopyNotice] = useState<string | null>(null);
-  const lastLocalEditAt = useRef(0);
-  const updateTimers = useRef<Map<string, number>>(new Map());
+  const [slideQuery, setSlideQuery] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const paramId = params.get("reportId");
-    const storedId = localStorage.getItem(COLLAB_KEY);
-    const resolvedId = paramId || storedId;
+    const loadedSlides = parseStoredSlides();
+    setSlides(loadedSlides);
+    setActiveId(loadedSlides[0]?.id || "");
 
-    if (resolvedId) {
-      const parsedId = Number(resolvedId);
-      if (Number.isFinite(parsedId)) {
-        setReportId(parsedId);
-        localStorage.setItem(COLLAB_KEY, String(parsedId));
-        if (!paramId) {
-          navigate(`/slide-builder?reportId=${parsedId}`, { replace: true });
-          return;
-        }
-        loadFromServer(parsedId);
-        return;
-      }
+    const hadLegacyCollab = Boolean(localStorage.getItem(LEGACY_COLLAB_KEY));
+    if (hadLegacyCollab) {
+      localStorage.removeItem(LEGACY_COLLAB_KEY);
+      setNotice("Collaboration removed. Slide Builder is now local-only.");
     }
 
-    setReportId(null);
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    setSlides(saved);
-    if (saved.length > 0) setActiveId(saved[0].id);
-  }, [location.search, navigate]);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reportId")) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!reportId) return;
-    const intervalId = window.setInterval(() => {
-      if (Date.now() - lastLocalEditAt.current < LOCAL_EDIT_GRACE_MS) return;
-      loadFromServer(reportId, { silent: true });
-    }, SYNC_INTERVAL_MS);
-    return () => window.clearInterval(intervalId);
-  }, [reportId]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slides));
+  }, [slides]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (slides.length === 0) {
+      setActiveId("");
+      return;
+    }
+    if (!slides.some((s) => s.id === activeId)) {
+      setActiveId(slides[0].id);
+    }
+  }, [slides, activeId]);
 
   const activeSlide = useMemo(
     () => slides.find((s) => s.id === activeId),
     [slides, activeId]
   );
 
-  const isCollabEnabled = reportId !== null;
+  const activeSlideIndex = useMemo(
+    () => slides.findIndex((s) => s.id === activeId),
+    [slides, activeId]
+  );
 
-  const loadFromServer = async (id: number, options: { silent?: boolean } = {}) => {
-    if (!options.silent) {
-      setIsSyncing(true);
-    }
-    setSyncError(null);
-    try {
-      const res = await apiFetch(`/api/reports/${id}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      const createdAtFallback = data?.report?.created_at
-        ? new Date(data.report.created_at).toISOString()
-        : new Date().toISOString();
-      const nextSlides = mapServerSlides(data.slides || [], createdAtFallback);
-      setSlides(nextSlides);
-      setActiveId((prev) => nextSlides.find((s) => s.id === prev)?.id || nextSlides[0]?.id || "");
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSlides));
-      setLastSyncAt(new Date());
-    } catch (err: any) {
-      setSyncError(err.message || "Failed to sync report.");
-    } finally {
-      if (!options.silent) {
-        setIsSyncing(false);
-      }
-    }
+  const activeSlideSummaryCount = useMemo(
+    () => (activeSlide?.summary || "").trim().length,
+    [activeSlide]
+  );
+
+  const filteredSlides = useMemo(() => {
+    const query = slideQuery.trim().toLowerCase();
+    if (!query) return slides;
+    return slides.filter((slide) => {
+      const haystack = `${slide.title} ${slide.subtitle} ${slide.summary}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [slides, slideQuery]);
+
+  const goToPreviousSlide = () => {
+    if (activeSlideIndex <= 0) return;
+    setActiveId(slides[activeSlideIndex - 1].id);
   };
 
-  const startCollaboration = async () => {
-    if (slides.length === 0) {
-      alert("Add at least one slide before enabling collaboration.");
-      return;
-    }
-    setIsSyncing(true);
-    setSyncError(null);
-    try {
-      const res = await apiFetch("/api/reports", {
-        method: "POST",
-        body: JSON.stringify({
-          name: `Draft Report ${new Date().toISOString().slice(0, 10)}`,
-          slides: buildSlidePayloads(slides),
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      const id = Number(data.reportId);
-      if (!Number.isFinite(id)) throw new Error("Invalid report ID.");
-      setReportId(id);
-      localStorage.setItem(COLLAB_KEY, String(id));
-      navigate(`/slide-builder?reportId=${id}`, { replace: true });
-      await loadFromServer(id);
-    } catch (err: any) {
-      setSyncError(err.message || "Failed to start collaboration.");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleCopyLink = async () => {
-    if (!reportId) return;
-    const shareUrl = `${window.location.origin}/slide-builder?reportId=${reportId}`;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopyNotice("Link copied.");
-    } catch {
-      setCopyNotice("Unable to copy link.");
-    }
-    window.setTimeout(() => setCopyNotice(null), 2000);
-  };
-
-  const scheduleSlideUpdate = (slideId: string, slideIndex: number, patch: Partial<ReportSlide>) => {
-    if (!reportId) return;
-    const key = `${slideId}`;
-    const existing = updateTimers.current.get(key);
-    if (existing) window.clearTimeout(existing);
-    const timer = window.setTimeout(async () => {
-      try {
-        await apiFetch(`/api/reports/${reportId}/slides/${slideIndex}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            title: patch.title,
-            subtitle: patch.subtitle,
-            summary: patch.summary,
-          }),
-        });
-        setLastSyncAt(new Date());
-      } catch (err: any) {
-        setSyncError(err.message || "Failed to sync slide.");
-      }
-    }, 500);
-    updateTimers.current.set(key, timer);
-    lastLocalEditAt.current = Date.now();
+  const goToNextSlide = () => {
+    if (activeSlideIndex < 0 || activeSlideIndex >= slides.length - 1) return;
+    setActiveId(slides[activeSlideIndex + 1].id);
   };
 
   const updateSlide = (id: string, patch: Partial<ReportSlide>) => {
-    setSlides((prev) => {
-      const updated = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      if (reportId) {
-        const slideIndex = prev.findIndex((s) => s.id === id);
-        if (slideIndex >= 0) {
-          scheduleSlideUpdate(id, slideIndex, updated[slideIndex]);
-        }
-      }
-      return updated;
-    });
+    setSlides((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
-  const deleteSlide = async (id: string) => {
-    const slideIndex = slides.findIndex((s) => s.id === id);
-    setSlides((prev) => {
-      const updated = prev.filter((s) => s.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      if (activeId === id && updated.length > 0) setActiveId(updated[0].id);
-      if (updated.length === 0) setActiveId("");
-      return updated;
-    });
-    if (reportId && slideIndex >= 0) {
-      try {
-        await apiFetch(`/api/reports/${reportId}/slides/${slideIndex}`, { method: "DELETE" });
-        await loadFromServer(reportId, { silent: true });
-      } catch (err: any) {
-        setSyncError(err.message || "Failed to delete slide.");
-      }
-    }
+  const deleteSlide = (id: string) => {
+    setSlides((prev) => prev.filter((s) => s.id !== id));
+    setNotice("Slide deleted.");
   };
 
-  const clearAll = () => {
-    if (reportId) {
-      apiFetch(`/api/reports/${reportId}`, { method: "DELETE" }).catch(() => {
-        // ignore errors on cleanup
-      });
-      localStorage.removeItem(COLLAB_KEY);
-      navigate("/slide-builder", { replace: true });
-      setReportId(null);
-    }
+  const clearDraft = () => {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_COLLAB_KEY);
     setSlides([]);
     setActiveId("");
+    setSlideQuery("");
+    setNotice("Draft cleared.");
   };
 
   const exportPPTX = async () => {
@@ -290,14 +192,14 @@ const SlideBuilderPage: React.FC = () => {
       return;
     }
 
+    setIsExporting(true);
     try {
-      // Best-effort persistence (may be restricted to admin/analyst on the backend).
       try {
         const reportRes = await apiFetch("/api/reports", {
           method: "POST",
           body: JSON.stringify({
             name: `Roaming Report ${new Date().toISOString().slice(0, 10)}`,
-            slides,
+            slides: buildSlidePayloads(slides),
           }),
         });
         if (!reportRes.ok) {
@@ -310,7 +212,7 @@ const SlideBuilderPage: React.FC = () => {
       const res = await apiFetch("/api/export/pptx-multi", {
         method: "POST",
         body: JSON.stringify({
-          slides,
+          slides: buildSlidePayloads(slides),
           fileName: `Roaming_Report_${new Date().toISOString().slice(0, 10)}.pptx`,
         }),
       });
@@ -324,194 +226,306 @@ const SlideBuilderPage: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Roaming_Report.pptx`;
+      a.download = "Roaming_Report.pptx";
       a.click();
       URL.revokeObjectURL(url);
 
       logAudit("Export Multi Slide PPTX", { slidesCount: slides.length });
-
+      setNotice("PPTX exported.");
     } catch (err: any) {
       alert(err.message || "Export error");
+    } finally {
+      setIsExporting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border hover:bg-gray-50"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-
-          <div className="flex gap-2">
-            <button
-              onClick={clearAll}
-              className="px-4 py-2 rounded-lg bg-white border text-gray-700 hover:bg-gray-50"
-            >
-              Clear Draft
-            </button>
-
-            <button
-              onClick={exportPPTX}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
-            >
-              <Download className="w-4 h-4" />
-              Export PPTX ({slides.length})
-            </button>
-          </div>
-        </div>
-
-        <div className="mb-6 bg-white border rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
-            </div>
+    <div className="min-h-screen bg-[linear-gradient(160deg,#f8fafc_0%,#fff7ed_40%,#eef2ff_100%)] p-4 sm:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <section className="rounded-3xl border border-amber-200/80 bg-white/90 backdrop-blur p-5 sm:p-7 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.45)]">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="font-semibold text-gray-800">Collaboration</div>
-              <div className="text-xs text-gray-500">
-                {isCollabEnabled
-                  ? `Live sync on (Report #${reportId})`
-                  : "Create a shared draft to edit with others."}
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                <LayoutPanelLeft className="h-3.5 w-3.5" />
+                Local Draft Mode
               </div>
-              {lastSyncAt && (
-                <div className="text-[11px] text-gray-400">
-                  Last sync {lastSyncAt.toLocaleTimeString()}
+              <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
+                Slide Builder
+              </h1>
+              <p className="mt-2 text-sm text-slate-600 max-w-2xl leading-relaxed">
+                Collaboration has been removed from this page. Build, edit, and export your slides from local draft data.
+              </p>
+              {notice && (
+                <div className="mt-3 inline-flex rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                  {notice}
                 </div>
               )}
-              {copyNotice && <div className="text-[11px] text-amber-700">{copyNotice}</div>}
-              {syncError && <div className="text-[11px] text-red-600">{syncError}</div>}
+            </div>
+
+            <div className="flex flex-wrap gap-2 sm:gap-3">
+              <button
+                onClick={() => navigate(-1)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </button>
+
+              <button
+                onClick={clearDraft}
+                className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
+              >
+                Clear Draft
+              </button>
+
+              <button
+                onClick={exportPPTX}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60"
+                disabled={isExporting || slides.length === 0}
+              >
+                <Download className="w-4 h-4" />
+                {isExporting ? "Exporting..." : `Export PPTX (${slides.length})`}
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {isCollabEnabled ? (
-              <>
-                <button
-                  onClick={handleCopyLink}
-                  className="px-3 py-2 rounded-lg border text-gray-700 text-sm hover:bg-gray-50 flex items-center gap-2"
-                >
-                  <Copy className="w-4 h-4" />
-                  Copy link
-                </button>
-                <button
-                  onClick={() => reportId && loadFromServer(reportId)}
-                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
-                  disabled={isSyncing}
-                >
-                  {isSyncing ? "Syncing..." : "Sync now"}
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={startCollaboration}
-                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
-                disabled={isSyncing || slides.length === 0}
-              >
-                Start collaboration
-              </button>
-            )}
-          </div>
-        </div>
 
-        {slides.length === 0 ? (
-          <div className="bg-white border rounded-xl p-6">
-            <p className="text-gray-700 font-semibold">
-              No draft slides yet. Go to Chart Page and click “Add to Report”.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Left: Slide list */}
-            <div className="bg-white border rounded-xl p-4 lg:col-span-1">
-              <h2 className="font-bold mb-3">Slides</h2>
-              <div className="space-y-2">
-                {slides.map((s, idx) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setActiveId(s.id)}
-                    className={`w-full text-left p-2 rounded-lg border ${
-                      s.id === activeId ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
-                    }`}
-                  >
-                    <div className="text-sm font-semibold">Slide {idx + 1}</div>
-                    <div className="text-xs text-gray-500 truncate">{s.title}</div>
-
-                    <div className="mt-2 flex justify-between items-center">
-                      <span className="text-xs text-gray-400">{formatDateLabel(s.createdAt)}</span>
-                      <Trash2
-                        className="w-4 h-4 text-red-500"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteSlide(s.id);
-                        }}
-                      />
-                    </div>
-                  </button>
-                ))}
+          <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-amber-700">Total Slides</div>
+              <div className="text-lg font-bold text-slate-900">{slides.length}</div>
+            </div>
+            <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-blue-700">Active Slide</div>
+              <div className="text-lg font-bold text-slate-900">
+                {activeSlideIndex >= 0 ? activeSlideIndex + 1 : "-"}
               </div>
             </div>
+            <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-emerald-700">Filtered</div>
+              <div className="text-lg font-bold text-slate-900">{filteredSlides.length}</div>
+            </div>
+            <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-violet-700">Storage</div>
+              <div className="text-lg font-bold text-slate-900">Local</div>
+            </div>
+          </div>
+        </section>
 
-            {/* Right: Edit + Preview */}
-            <div className="lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Edit */}
-              <div className="bg-white border rounded-xl p-6">
-                <h2 className="text-lg font-bold mb-4">Edit Slide</h2>
+        {slides.length === 0 ? (
+          <section className="rounded-3xl border border-dashed border-slate-300 bg-white/85 p-10 text-center shadow-[0_8px_24px_-18px_rgba(15,23,42,0.5)]">
+            <div className="mx-auto h-12 w-12 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center">
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <h2 className="mt-4 text-xl font-bold text-slate-900">No Draft Slides Yet</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Go to Chart Page, generate a chart, then click <span className="font-semibold">Report</span> to add it here.
+            </p>
+            <button
+              onClick={() => navigate("/charts")}
+              className="mt-5 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+            >
+              Open Chart Page
+            </button>
+          </section>
+        ) : (
+          <section className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+            <aside className="xl:col-span-3 rounded-3xl border border-slate-200 bg-white/90 p-4 sm:p-5 xl:sticky xl:top-6 shadow-[0_8px_26px_-20px_rgba(15,23,42,0.45)]">
+              <h2 className="text-lg font-bold text-slate-900">Slides</h2>
+              <div className="mt-3 relative">
+                <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={slideQuery}
+                  onChange={(e) => setSlideQuery(e.target.value)}
+                  placeholder="Search title, subtitle, summary..."
+                  className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+              <div className="mt-4 space-y-3 max-h-[70vh] overflow-auto pr-1">
+                {filteredSlides.map((slide, idx) => {
+                  const isActive = slide.id === activeId;
+                  return (
+                    <button
+                      key={slide.id}
+                      onClick={() => setActiveId(slide.id)}
+                      className={`w-full text-left rounded-2xl border p-3 transition-all duration-150 ${
+                        isActive
+                          ? "border-blue-400 bg-blue-50/80 ring-2 ring-blue-100 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {slide.chartImage ? (
+                          <img
+                            src={slide.chartImage}
+                            alt={slide.title || `Slide ${idx + 1}`}
+                            className="h-12 w-16 rounded-lg border border-slate-200 object-cover bg-white"
+                          />
+                        ) : (
+                          <div className="h-12 w-16 rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400">
+                            <ImageIcon className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Slide {slides.findIndex((s) => s.id === slide.id) + 1}
+                          </div>
+                          <div className="text-sm font-semibold text-slate-900 truncate">
+                            {slide.title || "Untitled"}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {slide.subtitle || "-"}
+                          </div>
+                        </div>
+                        <Trash2
+                          className="h-4 w-4 text-rose-500 shrink-0 hover:text-rose-700"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSlide(slide.id);
+                          }}
+                        />
+                      </div>
+                      <div className="mt-2 text-[11px] text-slate-400">
+                        {formatDateLabel(slide.createdAt)}
+                      </div>
+                    </button>
+                  );
+                })}
+                {filteredSlides.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-5 text-center text-sm text-slate-500">
+                    No slides match your search.
+                  </div>
+                )}
+              </div>
+            </aside>
 
-                {activeSlide ? (
-                  <>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Title</label>
+            <div className="xl:col-span-5 rounded-3xl border border-slate-200 bg-white/90 p-5 sm:p-6 shadow-[0_8px_26px_-20px_rgba(15,23,42,0.45)]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Edit Slide</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Slide {activeSlideIndex >= 0 ? activeSlideIndex + 1 : "-"} of {slides.length}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={goToPreviousSlide}
+                    disabled={activeSlideIndex <= 0}
+                    className="h-9 w-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    <ChevronLeft className="h-4 w-4 mx-auto" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNextSlide}
+                    disabled={activeSlideIndex < 0 || activeSlideIndex >= slides.length - 1}
+                    className="h-9 w-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    <ChevronRight className="h-4 w-4 mx-auto" />
+                  </button>
+                </div>
+              </div>
+              {activeSlide ? (
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Title</label>
                     <input
-                      className="w-full border rounded-lg px-3 py-2 mb-4"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
                       value={activeSlide.title}
                       onChange={(e) => updateSlide(activeSlide.id, { title: e.target.value })}
                     />
+                  </div>
 
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Subtitle</label>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Subtitle</label>
                     <input
-                      className="w-full border rounded-lg px-3 py-2 mb-4"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
                       value={activeSlide.subtitle}
                       onChange={(e) => updateSlide(activeSlide.id, { subtitle: e.target.value })}
                     />
+                  </div>
 
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Summary</label>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Summary</label>
                     <textarea
-                      className="w-full border rounded-lg px-3 py-2 min-h-[140px] mb-4"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 min-h-[190px] text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
                       value={activeSlide.summary}
                       onChange={(e) => updateSlide(activeSlide.id, { summary: e.target.value })}
                     />
-                  </>
-                ) : null}
-              </div>
-
-              {/* Preview */}
-              <div className="bg-white border rounded-xl p-6">
-                <h2 className="text-lg font-bold mb-4">Preview</h2>
-                {activeSlide ? (
-                  <div className="border rounded-xl overflow-hidden bg-white">
-                    <div className="p-4 border-b bg-gray-50">
-                      <div className="text-xl font-bold">{activeSlide.title}</div>
-                      <div className="text-sm text-gray-500">{activeSlide.subtitle}</div>
-                    </div>
-
-                    <div className="p-4">
-                      <img
-                        src={activeSlide.chartImage}
-                        alt="Chart"
-                        className="w-full rounded border"
-                      />
-                    </div>
-
-                    <div className="p-4 border-t bg-gray-50 text-sm text-gray-700 whitespace-pre-wrap">
-                      {activeSlide.summary}
+                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Tip: keep summary concise and action-oriented.</span>
+                      <span>{activeSlideSummaryCount} chars</span>
                     </div>
                   </div>
-                ) : null}
-              </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-500">Chart Type</div>
+                      <div className="text-sm font-semibold text-slate-900">
+                        {activeSlide.chartMeta?.chartType || "-"}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-500">File</div>
+                      <div className="text-sm font-semibold text-slate-900 truncate">
+                        {activeSlide.chartMeta?.fileName || "-"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 text-sm text-slate-500">Select a slide to edit.</div>
+              )}
             </div>
-          </div>
+
+            <div className="xl:col-span-4 rounded-3xl border border-slate-200 bg-white/90 p-5 sm:p-6 xl:sticky xl:top-6 shadow-[0_8px_26px_-20px_rgba(15,23,42,0.45)]">
+              <h2 className="text-xl font-bold text-slate-900">Live Preview</h2>
+              {activeSlide ? (
+                <div className="mt-5 rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
+                  <div className="p-4 border-b border-slate-200 bg-slate-50">
+                    <div className="text-lg font-extrabold text-slate-900 break-words">
+                      {activeSlide.title || "Untitled"}
+                    </div>
+                    <div className="text-sm text-slate-500 break-words">
+                      {activeSlide.subtitle || "-"}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="inline-flex rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold px-2 py-0.5">
+                        {activeSlide.chartMeta?.chartType || "Chart"}
+                      </span>
+                      {activeSlide.chartMeta?.fileName && (
+                        <span className="inline-flex rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5 max-w-full truncate">
+                          {activeSlide.chartMeta.fileName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+                    <div className="aspect-[16/9] rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                      {activeSlide.chartImage ? (
+                        <img
+                          src={activeSlide.chartImage}
+                          alt="Chart preview"
+                          className="h-full w-full object-contain bg-white"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-slate-400">
+                          <ImageIcon className="h-8 w-8" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-4 border-t border-slate-200 bg-slate-50 text-sm text-slate-700 whitespace-pre-wrap break-words">
+                    {activeSlide.summary || "No summary"}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 text-sm text-slate-500">Select a slide to preview.</div>
+              )}
+            </div>
+          </section>
         )}
       </div>
     </div>
