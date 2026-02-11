@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Filter, TrendingUp } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -19,6 +19,18 @@ import { useTheme } from "../theme/ThemeProvider";
 type Project = { id: number; name: string };
 type FileItem = { id: number; name: string };
 type QaItem = { value: string; count: number; compare?: number | null };
+type FileQaResult = {
+  fileId: number;
+  fileName: string;
+  answer: string;
+  items: QaItem[];
+  columns: string[];
+  value: number | null;
+  intent: string | null;
+  column: string | null;
+  compareColumn: string | null;
+  error: string | null;
+};
 type InsightDailyPoint = {
   day: string;
   rows: number;
@@ -75,29 +87,25 @@ type DashboardInsights = {
   summaries: string[];
 };
 
-type InsightsFilterState = {
-  startDate: string;
-  endDate: string;
-  partner: string;
-  country: string;
-};
-
 const CHART_TYPES = ["Line", "Bar"] as const;
-const AUTO_DELAY_MS = 700;
+const DEFAULT_SUGGESTIONS = [
+  "How many rows are in this file?",
+  "Top 5 values of Service",
+  "Compare Revenue vs Cost by Country",
+  "Average of Revenue",
+];
+const FILE_CARD_STYLES = [
+  "border-sky-200 bg-sky-50/60",
+  "border-emerald-200 bg-emerald-50/60",
+  "border-rose-200 bg-rose-50/60",
+  "border-violet-200 bg-violet-50/60",
+];
+const AUTO_SEARCH_DELAY_MS = 650;
 
 const toDateLabel = (day: string) => {
   const parsed = new Date(day);
   if (Number.isNaN(parsed.getTime())) return day;
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
-
-const buildInsightsParams = (filters: InsightsFilterState) => {
-  const params = new URLSearchParams();
-  if (filters.startDate) params.set("startDate", filters.startDate);
-  if (filters.endDate) params.set("endDate", filters.endDate);
-  if (filters.partner.trim()) params.set("partner", filters.partner.trim());
-  if (filters.country.trim()) params.set("country", filters.country.trim());
-  return params;
 };
 
 const AiChartsPage: React.FC = () => {
@@ -106,6 +114,10 @@ const AiChartsPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [scopeMode, setScopeMode] = useState<"single" | "all">("single");
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
+  const [fileResults, setFileResults] = useState<FileQaResult[]>([]);
+  const [activeFileResultId, setActiveFileResultId] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [qaItems, setQaItems] = useState<QaItem[]>([]);
@@ -117,17 +129,9 @@ const AiChartsPage: React.FC = () => {
   const [chartType, setChartType] = useState<(typeof CHART_TYPES)[number]>("Line");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [autoAsk, setAutoAsk] = useState(true);
-  const debounceRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const autoSearchTimerRef = useRef<number | null>(null);
   const lastAskedKeyRef = useRef("");
-  const [insightFilters, setInsightFilters] = useState<InsightsFilterState>({
-    startDate: "",
-    endDate: "",
-    partner: "",
-    country: "",
-  });
-  const [insightAppliedFilters, setInsightAppliedFilters] = useState<InsightsFilterState>(insightFilters);
   const [insightLoading, setInsightLoading] = useState(true);
   const [insightError, setInsightError] = useState<string | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
@@ -140,11 +144,17 @@ const AiChartsPage: React.FC = () => {
     setQaIntent(null);
     setQaColumn(null);
     setQaCompareColumn(null);
+    setFileResults([]);
+    setActiveFileResultId(null);
     setError("");
   }, []);
 
-  const buildKey = (activeProjectId: number | null, text: string) =>
-    `${activeProjectId ?? "none"}:${text.trim().toLowerCase()}`;
+  const buildKey = (
+    activeProjectId: number | null,
+    mode: "single" | "all",
+    activeFileId: number | null,
+    text: string
+  ) => `${activeProjectId ?? "none"}:${mode}:${activeFileId ?? "all"}:${text.trim().toLowerCase()}`;
 
   const loadFiles = useCallback(
     async (options: { keepSelection?: boolean } = {}) => {
@@ -159,12 +169,21 @@ const AiChartsPage: React.FC = () => {
         setFiles(nextFiles);
 
         if (nextFiles.length === 0) {
+          setSelectedFileId(null);
           return;
         }
+
+        setSelectedFileId((prev) => {
+          if (options.keepSelection && prev && nextFiles.some((f: FileItem) => f.id === prev)) {
+            return prev;
+          }
+          return nextFiles[0].id;
+        });
 
         if (options.keepSelection) return;
       } catch {
         setFiles([]);
+        setSelectedFileId(null);
       }
     },
     [projectId]
@@ -181,32 +200,27 @@ const AiChartsPage: React.FC = () => {
       });
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    const run = async () => {
-      try {
-        setInsightLoading(true);
-        setInsightError(null);
-        const params = buildInsightsParams(insightAppliedFilters);
-        const res = await apiFetch(`/api/dashboard/insights?${params.toString()}`);
-        if (!res.ok) {
-          const message = await res.text();
-          throw new Error(message || "Failed to load insights");
-        }
-        const json = (await res.json()) as DashboardInsights;
-        if (mounted) setInsights(json);
-      } catch (err: any) {
-        if (mounted) setInsightError(err.message || "Failed to load insights.");
-      } finally {
-        if (mounted) setInsightLoading(false);
+  const loadInsights = useCallback(async () => {
+    try {
+      setInsightLoading(true);
+      setInsightError(null);
+      const res = await apiFetch("/api/dashboard/insights");
+      if (!res.ok) {
+        const message = await res.text();
+        throw new Error(message || "Failed to load insights");
       }
-    };
+      const json = (await res.json()) as DashboardInsights;
+      setInsights(json);
+    } catch (err: any) {
+      setInsightError(err.message || "Failed to load insights.");
+    } finally {
+      setInsightLoading(false);
+    }
+  }, []);
 
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, [insightAppliedFilters]);
+  useEffect(() => {
+    loadInsights();
+  }, [loadInsights]);
 
   useEffect(() => {
     loadFiles();
@@ -219,9 +233,9 @@ const AiChartsPage: React.FC = () => {
   }, [loadFiles]);
 
   useEffect(() => {
-    if (debounceRef.current) {
-      window.clearTimeout(debounceRef.current);
-      debounceRef.current = null;
+    if (autoSearchTimerRef.current) {
+      window.clearTimeout(autoSearchTimerRef.current);
+      autoSearchTimerRef.current = null;
     }
     if (abortRef.current) {
       abortRef.current.abort();
@@ -230,6 +244,8 @@ const AiChartsPage: React.FC = () => {
     setLoading(false);
     resetQaState();
     lastAskedKeyRef.current = "";
+    setScopeMode("single");
+    setSelectedFileId(null);
   }, [projectId, resetQaState]);
 
   const chartData = useMemo(
@@ -262,7 +278,15 @@ const AiChartsPage: React.FC = () => {
       return;
     }
 
-    const key = buildKey(projectId, trimmed);
+    const isSingleMode = scopeMode === "single";
+    const hasSelectedFile = Number.isFinite(selectedFileId) && (selectedFileId ?? 0) > 0;
+    if (isSingleMode && !hasSelectedFile) {
+      resetQaState();
+      setError("Select a file for accurate AI results.");
+      return;
+    }
+
+    const key = buildKey(projectId, scopeMode, hasSelectedFile ? selectedFileId : null, trimmed);
     if (!options.force && key === lastAskedKeyRef.current) {
       return;
     }
@@ -275,26 +299,115 @@ const AiChartsPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const res = await apiFetch("/api/data-qa/ask", {
-        method: "POST",
-        body: JSON.stringify({ projectId, question: trimmed }),
-        signal: controller.signal,
-      });
-      const contentType = res.headers.get("content-type") || "";
-      let data: any = null;
-      if (contentType.includes("application/json")) {
-        data = await res.json().catch(() => null);
-      } else {
+      const parseResponse = async (res: Response) => {
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          return res.json().catch(() => null);
+        }
         const text = await res.text().catch(() => "");
-        data = text ? { message: text } : null;
-      }
+        return text ? { message: text } : null;
+      };
 
-      if (!res.ok) {
-        const message =
-          (typeof data?.message === "string" && data.message.trim()) ||
-          `Request failed with status ${res.status}.`;
-        setError(message);
+      if (!isSingleMode) {
+        if (files.length === 0) {
+          setError("No files uploaded yet.");
+          return;
+        }
+
+        const results = await Promise.all(
+          files.map(async (file): Promise<FileQaResult> => {
+            try {
+              const res = await apiFetch("/api/data-qa/ask", {
+                method: "POST",
+                body: JSON.stringify({ fileId: file.id, projectId, question: trimmed }),
+                signal: controller.signal,
+              });
+              const data = await parseResponse(res);
+              if (!res.ok) {
+                const message =
+                  (typeof data?.message === "string" && data.message.trim()) ||
+                  `Request failed with status ${res.status}.`;
+                return {
+                  fileId: file.id,
+                  fileName: file.name,
+                  answer: "",
+                  items: [],
+                  columns: [],
+                  value: null,
+                  intent: null,
+                  column: null,
+                  compareColumn: null,
+                  error: message,
+                };
+              }
+              const numericValue = Number(data?.value);
+              return {
+                fileId: file.id,
+                fileName: file.name,
+                answer: data?.answer || "No answer returned.",
+                items: Array.isArray(data?.items) ? data.items : [],
+                columns: Array.isArray(data?.columns) ? data.columns : [],
+                value: Number.isFinite(numericValue) ? numericValue : null,
+                intent: typeof data?.intent === "string" ? data.intent : null,
+                column: typeof data?.column === "string" ? data.column : null,
+                compareColumn: typeof data?.compareColumn === "string" ? data.compareColumn : null,
+                error: null,
+              };
+            } catch (err: any) {
+              if (err?.name === "AbortError") throw err;
+              return {
+                fileId: file.id,
+                fileName: file.name,
+                answer: "",
+                items: [],
+                columns: [],
+                value: null,
+                intent: null,
+                column: null,
+                compareColumn: null,
+                error: "Network error.",
+              };
+            }
+          })
+        );
+
+        const successResults = results.filter((r) => !r.error);
+        const dataResults = successResults.filter((r) => r.items.length > 0 || r.value !== null || r.answer);
+        const active = dataResults[0] || successResults[0] || null;
+
+        setFileResults(results);
+        if (!active) {
+          setError("AI could not return results for uploaded files.");
+          return;
+        }
+
+        setActiveFileResultId(active.fileId);
+        setAnswer(active.answer);
+        setQaItems(active.items);
+        setQaColumns(active.columns);
+        setQaValue(active.value);
+        setQaIntent(active.intent);
+        setQaColumn(active.column);
+        setQaCompareColumn(active.compareColumn);
+
+        if (successResults.length < files.length) {
+          setError(`Read ${successResults.length}/${files.length} files. Some files failed to process.`);
+        }
       } else {
+        const res = await apiFetch("/api/data-qa/ask", {
+          method: "POST",
+          body: JSON.stringify({ fileId: selectedFileId, projectId, question: trimmed }),
+          signal: controller.signal,
+        });
+        const data = await parseResponse(res);
+        if (!res.ok) {
+          const message =
+            (typeof data?.message === "string" && data.message.trim()) ||
+            `Request failed with status ${res.status}.`;
+          setError(message);
+          return;
+        }
+
         setAnswer(data?.answer || "No answer returned.");
         setQaItems(Array.isArray(data?.items) ? data.items : []);
         setQaColumns(Array.isArray(data?.columns) ? data.columns : []);
@@ -313,7 +426,24 @@ const AiChartsPage: React.FC = () => {
       }
       setLoading(false);
     }
-  }, [projectId, resetQaState]);
+  }, [projectId, resetQaState, scopeMode, selectedFileId, files]);
+
+  const selectedFile = useMemo(
+    () => files.find((f) => f.id === selectedFileId) || null,
+    [files, selectedFileId]
+  );
+
+  const applyFileResult = useCallback((result: FileQaResult) => {
+    setActiveFileResultId(result.fileId);
+    setAnswer(result.answer || `No answer for ${result.fileName}.`);
+    setQaItems(result.items);
+    setQaColumns(result.columns);
+    setQaValue(result.value);
+    setQaIntent(result.intent);
+    setQaColumn(result.column);
+    setQaCompareColumn(result.compareColumn);
+    setError(result.error || "");
+  }, []);
 
   const askQuestion = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -325,13 +455,42 @@ const AiChartsPage: React.FC = () => {
     submitQuestion(text, { force: true });
   };
 
-  const suggestions = [
-    "How many rows are in this file?",
-    "Top 5 values of Service",
-    "Compare Revenue vs Cost by Country",
-    "Average of Revenue",
-    "Distinct values of KPI",
-  ];
+  useEffect(() => {
+    if (autoSearchTimerRef.current) {
+      window.clearTimeout(autoSearchTimerRef.current);
+      autoSearchTimerRef.current = null;
+    }
+
+    const trimmed = question.trim();
+    if (!trimmed) return;
+    if (!projectId || files.length === 0) return;
+    if (scopeMode === "single" && !selectedFileId) return;
+
+    autoSearchTimerRef.current = window.setTimeout(() => {
+      submitQuestion(trimmed);
+    }, AUTO_SEARCH_DELAY_MS);
+
+    return () => {
+      if (autoSearchTimerRef.current) {
+        window.clearTimeout(autoSearchTimerRef.current);
+        autoSearchTimerRef.current = null;
+      }
+    };
+  }, [question, projectId, files.length, scopeMode, selectedFileId, submitQuestion]);
+
+  const quickPrompts = useMemo(() => {
+    const items = [...DEFAULT_SUGGESTIONS];
+    if (qaColumn) {
+      items.unshift(`Show top 5 ${qaColumn}`);
+    }
+    if (qaColumn && qaCompareColumn) {
+      items.unshift(`Compare ${qaColumn} vs ${qaCompareColumn} by Country`);
+    }
+    if (insights?.metrics.revenueKey && insights?.metrics.costKey) {
+      items.push(`Compare ${insights.metrics.revenueKey} vs ${insights.metrics.costKey}`);
+    }
+    return Array.from(new Set(items)).slice(0, 5);
+  }, [qaColumn, qaCompareColumn, insights]);
 
   const hasChart = chartData.length > 0;
 
@@ -383,43 +542,37 @@ const AiChartsPage: React.FC = () => {
     return Array.from(map.values()).sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
   }, [insightObservedSeries, insights]);
 
-  const onApplyInsightFilters = (e: React.FormEvent) => {
-    e.preventDefault();
-    setInsightAppliedFilters(insightFilters);
-  };
+  const aiSummaryLines = useMemo(() => {
+    return (insights?.summaries || []).filter(Boolean).slice(0, 3);
+  }, [insights]);
 
-  const onClearInsightFilters = () => {
-    const empty: InsightsFilterState = { startDate: "", endDate: "", partner: "", country: "" };
-    setInsightFilters(empty);
-    setInsightAppliedFilters(empty);
-  };
+  const topAnomaly = useMemo(() => {
+    const points = insights?.anomalies.points || [];
+    if (points.length === 0) return null;
+    return [...points].sort((a, b) => Math.abs(b.zScore) - Math.abs(a.zScore))[0];
+  }, [insights]);
 
-  useEffect(() => {
-    if (!autoAsk) return;
-    if (!projectId) return;
-    const trimmed = question.trim();
-    if (!trimmed) return;
-    const key = buildKey(projectId, trimmed);
-    if (key === lastAskedKeyRef.current) return;
+  const topLeakage = useMemo(() => {
+    const items = insights?.leakage.items || [];
+    if (items.length === 0) return null;
+    return [...items].sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))[0];
+  }, [insights]);
 
-    if (debounceRef.current) {
-      window.clearTimeout(debounceRef.current);
+  const aiSignalText = useMemo(() => {
+    if (topLeakage && topLeakage.diff > 0) {
+      const pct = topLeakage.diffPct === null ? "" : ` (${topLeakage.diffPct.toLocaleString()}%)`;
+      return `Highest leakage: ${topLeakage.partner} / ${topLeakage.country} +${topLeakage.diff.toLocaleString()}${pct}`;
     }
-    debounceRef.current = window.setTimeout(() => {
-      submitQuestion(trimmed);
-    }, AUTO_DELAY_MS);
-
-    return () => {
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current);
-      }
-    };
-  }, [autoAsk, projectId, question, submitQuestion]);
+    if (topAnomaly) {
+      return `Strong anomaly on ${topAnomaly.day}: ${topAnomaly.value.toLocaleString()} (z=${topAnomaly.zScore})`;
+    }
+    return "No high-risk signals detected from the latest AI insights.";
+  }, [topLeakage, topAnomaly]);
 
   useEffect(() => {
     return () => {
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current);
+      if (autoSearchTimerRef.current) {
+        window.clearTimeout(autoSearchTimerRef.current);
       }
       if (abortRef.current) {
         abortRef.current.abort();
@@ -464,12 +617,60 @@ const AiChartsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-gray-600">Files</label>
+              <label className="text-xs font-semibold text-gray-600">Data Scope</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setScopeMode("single")}
+                  className={`flex-1 px-3 py-2 rounded-lg border text-xs font-semibold ${
+                    scopeMode === "single"
+                      ? "bg-amber-600 text-white border-amber-600"
+                      : "bg-white text-amber-700 border-amber-200 hover:bg-amber-50"
+                  }`}
+                >
+                  Single File
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScopeMode("all")}
+                  className={`flex-1 px-3 py-2 rounded-lg border text-xs font-semibold ${
+                    scopeMode === "all"
+                      ? "bg-amber-600 text-white border-amber-600"
+                      : "bg-white text-amber-700 border-amber-200 hover:bg-amber-50"
+                  }`}
+                >
+                  All Files
+                </button>
+              </div>
+
+              {scopeMode === "single" && (
+                <select
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  value={selectedFileId ?? ""}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setSelectedFileId(Number.isFinite(next) && next > 0 ? next : null);
+                  }}
+                >
+                  {files.length === 0 ? (
+                    <option value="">No files uploaded</option>
+                  ) : (
+                    files.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              )}
+
               <div className="flex items-center gap-2">
-                <div className="w-full border rounded-lg px-3 py-2 text-sm text-gray-700 bg-gray-50">
+                <div className="w-full border rounded-lg px-3 py-2 text-xs text-gray-600 bg-gray-50">
                   {files.length === 0
                     ? "No files uploaded yet"
-                    : `All ${files.length} uploaded files in this project`}
+                    : scopeMode === "single"
+                      ? `Focused on: ${selectedFile?.name || "Select a file"}`
+                      : `AI checks all ${files.length} files separately (no merge)`}
                 </div>
                 <button
                   type="button"
@@ -506,34 +707,30 @@ const AiChartsPage: React.FC = () => {
         <div className="bg-white border rounded-2xl p-5">
           <form onSubmit={askQuestion} className="space-y-3">
             <div className="flex flex-col md:flex-row gap-3">
-                <input
-                  className="flex-1 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
-                  placeholder="Example: Top 5 values of Service"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  disabled={files.length === 0}
-                />
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-semibold shadow disabled:opacity-60"
-                  disabled={loading || files.length === 0}
-                >
+              <input
+                className="flex-1 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                placeholder="Example: Top 5 values of Service"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                disabled={files.length === 0}
+              />
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-semibold shadow disabled:opacity-60"
+                disabled={loading || files.length === 0 || (scopeMode === "single" && !selectedFileId)}
+              >
                 {loading ? "Asking..." : "Ask"}
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={autoAsk}
-                  onChange={(e) => setAutoAsk(e.target.checked)}
-                  className="accent-amber-500"
-                />
-                Auto-run search
-              </label>
-              <span>Tip: use column names from Data Explorer for best results.</span>
+            <div className="text-xs text-gray-500">
+              {files.length === 0
+                ? "Upload at least one file to start asking AI."
+                : scopeMode === "single"
+                  ? `Accuracy mode: AI reads only "${selectedFile?.name || "selected file"}".`
+                  : `All-files mode: AI reads each file independently and shows per-file results.`}
             </div>
+            <div className="text-[11px] text-gray-400">Auto search is on while typing.</div>
 
             {error && (
               <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -547,21 +744,8 @@ const AiChartsPage: React.FC = () => {
               </div>
             )}
 
-            {qaColumns.length > 0 && (
-              <div className="flex flex-wrap gap-2 text-xs">
-                {qaColumns.slice(0, 12).map((c) => (
-                  <span
-                    key={c}
-                    className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200"
-                  >
-                    {c}
-                  </span>
-                ))}
-              </div>
-            )}
-
             <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-              {suggestions.map((text) => (
+              {quickPrompts.map((text) => (
                 <button
                   key={text}
                   type="button"
@@ -572,8 +756,68 @@ const AiChartsPage: React.FC = () => {
                 </button>
               ))}
             </div>
+
+            {qaColumns.length > 0 && (
+              <div className="text-xs text-gray-500">
+                Detected columns: {qaColumns.slice(0, 6).join(", ")}
+                {qaColumns.length > 6 ? ` +${qaColumns.length - 6} more` : ""}
+              </div>
+            )}
           </form>
         </div>
+
+        {scopeMode === "all" && fileResults.length > 0 && (
+          <div className="bg-white border rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">Per-File AI Results</h3>
+              <div className="text-xs text-gray-500">
+                Read {fileResults.filter((r) => !r.error).length}/{fileResults.length} files
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {fileResults.map((result, index) => {
+                const isActive = activeFileResultId === result.fileId;
+                const style = FILE_CARD_STYLES[index % FILE_CARD_STYLES.length];
+                const hasData = result.items.length > 0 || result.value !== null;
+                return (
+                  <button
+                    key={result.fileId}
+                    type="button"
+                    onClick={() => applyFileResult(result)}
+                    className={`text-left rounded-xl border p-3 transition ${style} ${
+                      isActive ? "ring-2 ring-amber-400 border-amber-400" : "hover:border-amber-300"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold text-sm text-gray-900">{result.fileName}</div>
+                      <div
+                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                          result.error
+                            ? "text-red-600 border-red-200 bg-red-50"
+                            : hasData
+                              ? "text-emerald-700 border-emerald-200 bg-emerald-50"
+                              : "text-gray-600 border-gray-200 bg-white"
+                        }`}
+                      >
+                        {result.error ? "Failed" : hasData ? "Has Result" : "No Result"}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-600">
+                      {result.column
+                        ? `Detected column: ${result.column}`
+                        : result.columns.length > 0
+                          ? `Columns: ${result.columns.slice(0, 3).join(", ")}${result.columns.length > 3 ? "..." : ""}`
+                          : "No columns detected in AI response."}
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      {result.error ? result.error : result.answer || "No answer."}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {hasChart && (
           <div className="bg-white border rounded-2xl p-5">
@@ -650,58 +894,22 @@ const AiChartsPage: React.FC = () => {
         )}
 
         <div className="bg-white border rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Filter className="w-5 h-5 text-amber-700" />
+          <div className="flex items-center gap-2 mb-4">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">AI Insights</h3>
-              <p className="text-xs text-gray-500">Forecasts, anomalies, leakage checks, and summaries.</p>
+              <h3 className="text-lg font-semibold text-gray-900">AI Highlights</h3>
+              <p className="text-xs text-gray-500">
+                Simplified view with the most important AI signals only.
+              </p>
             </div>
             <TrendingUp className="w-5 h-5 text-amber-700 ml-auto" />
+            <button
+              type="button"
+              onClick={() => loadInsights()}
+              className="px-3 py-1.5 rounded-lg border border-amber-200 text-amber-700 text-xs font-semibold hover:bg-amber-50"
+            >
+              Refresh AI
+            </button>
           </div>
-
-          <form onSubmit={onApplyInsightFilters} className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
-            <input
-              type="date"
-              value={insightFilters.startDate}
-              onChange={(e) => setInsightFilters((prev) => ({ ...prev, startDate: e.target.value }))}
-              className="px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300"
-              placeholder="Start date"
-            />
-            <input
-              type="date"
-              value={insightFilters.endDate}
-              onChange={(e) => setInsightFilters((prev) => ({ ...prev, endDate: e.target.value }))}
-              className="px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300"
-              placeholder="End date"
-            />
-            <input
-              value={insightFilters.partner}
-              onChange={(e) => setInsightFilters((prev) => ({ ...prev, partner: e.target.value }))}
-              className="px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-              placeholder="Partner"
-            />
-            <input
-              value={insightFilters.country}
-              onChange={(e) => setInsightFilters((prev) => ({ ...prev, country: e.target.value }))}
-              className="px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-              placeholder="Country"
-            />
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600"
-              >
-                Apply
-              </button>
-              <button
-                type="button"
-                onClick={onClearInsightFilters}
-                className="px-4 py-2.5 rounded-xl border border-amber-200 text-amber-700 font-semibold hover:bg-amber-50"
-              >
-                Clear
-              </button>
-            </div>
-          </form>
 
           {insightError && (
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">
@@ -714,157 +922,100 @@ const AiChartsPage: React.FC = () => {
           ) : !insights ? (
             <div className="text-sm text-gray-500">No insights data yet.</div>
           ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-              <div className="xl:col-span-1 rounded-2xl border border-amber-100 p-4 bg-amber-50/40">
-                <div className="text-xs font-semibold text-amber-700 mb-2">Automated Summaries</div>
-                <ul className="space-y-2 text-sm text-gray-700">
-                  {insights.summaries.map((line, idx) => (
-                    <li key={`${idx}-${line}`} className="leading-relaxed">
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-3 text-[11px] text-gray-500">
-                  Forecast metric: <span className="font-semibold">{insightMetricLabel}</span>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-amber-100 p-4 bg-amber-50/40">
+                  <div className="text-xs font-semibold text-amber-700 mb-2">Top AI Summary</div>
+                  {aiSummaryLines.length === 0 ? (
+                    <div className="text-sm text-gray-500">No summary yet.</div>
+                  ) : (
+                    <ul className="space-y-2 text-sm text-gray-700">
+                      {aiSummaryLines.map((line, idx) => (
+                        <li key={`${idx}-${line}`} className="leading-relaxed">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-amber-100 p-4 bg-white">
+                  <div className="text-xs font-semibold text-amber-700 mb-2">Key AI Signal</div>
+                  <p className="text-sm text-gray-700 leading-relaxed">{aiSignalText}</p>
+                  <div className="mt-2 text-[11px] text-gray-500">
+                    Forecast metric: <span className="font-semibold">{insightMetricLabel}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="xl:col-span-2 rounded-2xl border border-amber-100 p-4 bg-white">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">
-                      Predictive Trend ({insightMetricLabel})
-                    </h4>
-                    <p className="text-xs text-gray-500">Observed values with a short forward forecast.</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <div className="text-[11px] text-gray-500">Rows Scanned</div>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {insights.totals.rowsScanned.toLocaleString()}
                   </div>
                 </div>
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={insightForecastSeries}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
-                      <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
-                      <YAxis stroke={chartPalette.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} width={56} />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: 12,
-                          borderColor: chartPalette.tooltipBorder,
-                          background: chartPalette.tooltipBg,
-                          color: theme === "dark" ? "#F9FAFB" : "#111827",
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="observed"
-                        name={`Observed ${insightMetricLabel}`}
-                        stroke="#F59E0B"
-                        strokeWidth={3}
-                        dot={false}
-                        connectNulls
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="forecast"
-                        name="Forecast"
-                        stroke="#FCD34D"
-                        strokeWidth={3}
-                        strokeDasharray="6 6"
-                        dot={false}
-                        connectNulls
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <div className="text-[11px] text-gray-500">Rows Matched</div>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {insights.totals.rowsMatched.toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <div className="text-[11px] text-gray-500">Anomalies</div>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {insights.anomalies.points.length.toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <div className="text-[11px] text-gray-500">Leakage Items</div>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {insights.leakage.items.length.toLocaleString()}
+                  </div>
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-amber-100 p-4 bg-white">
-                <div className="flex items-center justify-between mb-2.5">
-                  <h4 className="font-semibold text-gray-900">Anomalies</h4>
-                  <div className="text-[11px] text-gray-500">z-score &gt;= 2.5</div>
-                </div>
-                {insights.anomalies.points.length === 0 ? (
-                  <div className="text-sm text-gray-500">No anomalies detected.</div>
-                ) : (
-                  <div className="overflow-auto">
-                    <table className="min-w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-gray-500">
-                          <th className="py-1 pr-3">Day</th>
-                          <th className="py-1 pr-3">{insightMetricLabel}</th>
-                          <th className="py-1">z</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-gray-700">
-                        {insights.anomalies.points.map((p) => (
-                          <tr key={`${p.day}-${p.zScore}`} className="border-t border-amber-100/60">
-                            <td className="py-1.5 pr-3">{p.day}</td>
-                            <td className="py-1.5 pr-3">{p.value.toLocaleString()}</td>
-                            <td className="py-1.5">{p.zScore}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              <div className="xl:col-span-2 rounded-2xl border border-amber-100 p-4 bg-white">
-                <div className="flex items-center justify-between mb-2.5">
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Cost Leakage Detection</h4>
-                    <p className="text-[11px] text-gray-500">Expected vs actual charges by partner and country.</p>
-                  </div>
-                  <div className="text-[11px] text-gray-500">
-                    {insights.metrics.expectedKey && insights.metrics.actualKey
-                      ? `${insights.metrics.expectedKey} vs ${insights.metrics.actualKey}`
-                      : "Needs expected + actual columns"}
+              {insightForecastSeries.length > 0 && (
+                <div className="rounded-2xl border border-amber-100 p-4 bg-white">
+                  <h4 className="font-semibold text-gray-900 mb-2">Predictive Trend ({insightMetricLabel})</h4>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={insightForecastSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
+                        <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
+                        <YAxis stroke={chartPalette.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} width={56} />
+                        <Tooltip
+                          contentStyle={{
+                            borderRadius: 12,
+                            borderColor: chartPalette.tooltipBorder,
+                            background: chartPalette.tooltipBg,
+                            color: theme === "dark" ? "#F9FAFB" : "#111827",
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="observed"
+                          name={`Observed ${insightMetricLabel}`}
+                          stroke="#F59E0B"
+                          strokeWidth={3}
+                          dot={false}
+                          connectNulls
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="forecast"
+                          name="Forecast"
+                          stroke="#FCD34D"
+                          strokeWidth={3}
+                          strokeDasharray="6 6"
+                          dot={false}
+                          connectNulls
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-                {insights.leakage.items.length === 0 ? (
-                  <div className="text-sm text-gray-500">
-                    {insights.metrics.expectedKey && insights.metrics.actualKey
-                      ? "No major leakage signals found."
-                      : "Upload data with expected tariff and actual charge columns to enable this check."}
-                  </div>
-                ) : (
-                  <div className="overflow-auto">
-                    <table className="min-w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-gray-500">
-                          <th className="py-1 pr-3">Partner</th>
-                          <th className="py-1 pr-3">Country</th>
-                          <th className="py-1 pr-3">Expected</th>
-                          <th className="py-1 pr-3">Actual</th>
-                          <th className="py-1 pr-3">Diff</th>
-                          <th className="py-1">% Diff</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-gray-700">
-                        {insights.leakage.items.map((item) => (
-                          <tr
-                            key={`${item.partner}-${item.country}`}
-                            className="border-t border-amber-100/60"
-                          >
-                            <td className="py-1.5 pr-3">{item.partner}</td>
-                            <td className="py-1.5 pr-3">{item.country}</td>
-                            <td className="py-1.5 pr-3">{item.expected.toLocaleString()}</td>
-                            <td className="py-1.5 pr-3">{item.actual.toLocaleString()}</td>
-                            <td
-                              className={`py-1.5 pr-3 font-semibold ${
-                                item.diff >= 0 ? "text-red-600" : "text-emerald-600"
-                              }`}
-                            >
-                              {item.diff.toLocaleString()}
-                            </td>
-                            <td className="py-1.5">
-                              {item.diffPct === null ? "-" : `${item.diffPct.toLocaleString()}%`}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           )}
         </div>
