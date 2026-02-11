@@ -84,6 +84,30 @@ export const dbPool = mysql.createPool({
     ssl: buildSslConfig(),
 });
 
+const dbBlockEncryptionMode = firstNonEmpty(
+    process.env.DB_BLOCK_ENCRYPTION_MODE,
+    process.env.MYSQL_BLOCK_ENCRYPTION_MODE
+);
+if (dbBlockEncryptionMode) {
+    const rawPool: any = (dbPool as any).pool;
+    if (rawPool && typeof rawPool.on === "function") {
+        rawPool.on("connection", (connection: any) => {
+            connection.query(
+                "SET SESSION block_encryption_mode = ?",
+                [dbBlockEncryptionMode],
+                (err: any) => {
+                    if (err) {
+                        console.error(
+                            `[db] failed to set block_encryption_mode=${dbBlockEncryptionMode}:`,
+                            err?.message || err
+                        );
+                    }
+                }
+            );
+        });
+    }
+}
+
 function loadSslValue(value?: string) {
     if (!value) return undefined;
     const trimmed = value.trim();
@@ -96,11 +120,15 @@ function loadSslValue(value?: string) {
 }
 
 function buildSslConfig() {
+    const sslEnabled =
+        String(process.env.DB_SSL_ENABLED || process.env.DB_SSL || '')
+            .trim()
+            .toLowerCase() === 'true';
     const ca = loadSslValue(process.env.DB_SSL_CA);
     const cert = loadSslValue(process.env.DB_SSL_CERT);
     const key = loadSslValue(process.env.DB_SSL_KEY);
-    if (!ca && !cert && !key) return undefined;
     const rejectUnauthorized =
         String(process.env.DB_SSL_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false';
+    if (!ca && !cert && !key && !sslEnabled) return undefined;
     return { ca, cert, key, rejectUnauthorized };
 }

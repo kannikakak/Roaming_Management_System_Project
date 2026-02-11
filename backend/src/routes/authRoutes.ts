@@ -31,6 +31,9 @@ export const authRoutes = (dbPool: Pool) => {
   const authLimiter = createRateLimiter({
     windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000),
     max: Number(process.env.AUTH_RATE_LIMIT_MAX || 20),
+    keyBy: "ip",
+    scope: "auth",
+    message: "Too many authentication attempts. Please try again later.",
   });
 
   router.post('/register', authLimiter, register(dbPool));

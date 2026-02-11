@@ -395,8 +395,16 @@ const OperationsCenterPage: React.FC = () => {
           type: "local",
           projectId: Number(newSource.projectId),
           pollIntervalMinutes: 5,
-          connectionConfig: { path: newSource.path.trim() },
-          filePattern: "*.csv",
+          connectionConfig: {
+            path: newSource.path.trim(),
+            paths: newSource.path
+              .split(/[\r\n;,]+/)
+              .map((p) => p.trim())
+              .filter(Boolean),
+            recursive: true,
+            extensions: [".csv", ".xlsx", ".xls"],
+          },
+          filePattern: "*.csv;*.xlsx;*.xls",
           enabled: true,
         }),
       });
@@ -469,7 +477,7 @@ const OperationsCenterPage: React.FC = () => {
                 Roaming control tower
               </h1>
               <p className="mt-2 text-gray-600 dark:text-gray-300 max-w-2xl">
-                Monitor ingestion sources, track file processing, and analyze upload impacts in real-time.
+                This page is used to manage source folders, run scans, and verify what changed after each upload.
               </p>
             </div>
 
@@ -489,9 +497,27 @@ const OperationsCenterPage: React.FC = () => {
             <div className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400 tracking-[0.5em]">
               {heroStatus}
             </div>
-            {loadingSnapshot ? <span className="text-xs text-gray-500">Updating snapshot…</span> : null}
+            {loadingSnapshot ? <span className="text-xs text-gray-500">Updating snapshot...</span> : null}
           </div>
         </div>
+
+        <Surface className="p-4 border border-amber-100">
+          <p className="text-xs uppercase tracking-[0.4em] text-amber-500">Purpose</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-3 text-sm">
+            <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
+              <p className="font-semibold text-gray-900 dark:text-white">1. Connect folders</p>
+              <p className="text-gray-600 dark:text-gray-300">Create source paths and test access.</p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
+              <p className="font-semibold text-gray-900 dark:text-white">2. Ingest automatically</p>
+              <p className="text-gray-600 dark:text-gray-300">Scan and import new or updated files.</p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
+              <p className="font-semibold text-gray-900 dark:text-white">3. Compare impact</p>
+              <p className="text-gray-600 dark:text-gray-300">See metric and schema changes between uploads.</p>
+            </div>
+          </div>
+        </Surface>
 
         {flash ? (
           <div className="p-3 border border-amber-200 bg-amber-50 rounded-xl text-sm text-amber-800">
@@ -503,7 +529,8 @@ const OperationsCenterPage: React.FC = () => {
         <section className="space-y-4">
           <SectionHeader
             kicker="Upload intelligence"
-            title="What changed?"
+            title="Latest upload impact"
+            description="Compare the latest file with the previous file for the same project."
             right={
               <button
                 onClick={refreshImpact}
@@ -527,12 +554,12 @@ const OperationsCenterPage: React.FC = () => {
               {/* Header - File Comparison */}
               <div className="rounded-lg bg-amber-50/50 border border-amber-200 p-4">
                 <p className="text-xs uppercase tracking-wider text-amber-600 mb-3 font-semibold">
-                  📊 Comparing Two Files
+                  Comparing latest and previous uploads
                 </p>
                 <div className="grid md:grid-cols-2 gap-4">
                   {/* Current File */}
                   <div className="bg-white rounded-lg p-3 border-2 border-emerald-300">
-                    <p className="text-xs text-emerald-600 font-semibold mb-1">📄 LATEST UPLOAD (NEW)</p>
+                    <p className="text-xs text-emerald-600 font-semibold mb-1">Latest upload (new)</p>
                     <p className="text-sm font-bold text-gray-900 dark:text-white">{impact.currentFile.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {formatDateTime(impact.currentFile.uploadedAt)}
@@ -542,7 +569,7 @@ const OperationsCenterPage: React.FC = () => {
                   {/* Previous File */}
                   {impact.previousFile ? (
                     <div className="bg-white rounded-lg p-3 border-2 border-gray-300">
-                      <p className="text-xs text-gray-600 font-semibold mb-1">📄 PREVIOUS UPLOAD (OLD)</p>
+                      <p className="text-xs text-gray-600 font-semibold mb-1">Previous upload (old)</p>
                       <p className="text-sm font-bold text-gray-900 dark:text-white">{impact.previousFile.name}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {formatDateTime(impact.previousFile.uploadedAt)}
@@ -555,7 +582,7 @@ const OperationsCenterPage: React.FC = () => {
                   )}
                 </div>
                 <p className="text-xs text-gray-600 mt-3 text-center">
-                  ⚡ The metrics below show how values changed between these two files
+                  Metrics below show what changed between these two uploads.
                 </p>
               </div>
 
@@ -582,7 +609,7 @@ const OperationsCenterPage: React.FC = () => {
                   <p className="text-xs text-gray-500 uppercase tracking-wider">Key insights</p>
                   <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
                     {impact.insights.slice(0, 3).map((insight, idx) => (
-                      <li key={idx}>• {insight}</li>
+                      <li key={idx}>- {insight}</li>
                     ))}
                   </ul>
                 </div>
@@ -597,7 +624,7 @@ const OperationsCenterPage: React.FC = () => {
                       <span className="text-emerald-600">+{impact.schemaChanges.newColumns.length} new</span>
                     ) : null}
                     {impact.schemaChanges.removedColumns.length ? (
-                      <span className="text-red-600">−{impact.schemaChanges.removedColumns.length} removed</span>
+                      <span className="text-red-600">-{impact.schemaChanges.removedColumns.length} removed</span>
                     ) : null}
                     {impact.schemaChanges.renamedColumns.length ? (
                       <span className="text-blue-600">{impact.schemaChanges.renamedColumns.length} renamed</span>
@@ -608,7 +635,7 @@ const OperationsCenterPage: React.FC = () => {
             </Surface>
           ) : (
             <Surface className="p-5 border border-amber-100 text-sm text-gray-500">
-              Impact analysis will appear once uploads are available.
+              Impact analysis will appear after you upload at least one file.
             </Surface>
           )}
         </section>
@@ -742,13 +769,16 @@ const OperationsCenterPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block mb-1 font-medium text-gray-700 dark:text-gray-200">Local path</label>
+                  <label className="block mb-1 font-medium text-gray-700 dark:text-gray-200">Local path(s)</label>
                   <input
                     value={newSource.path}
                     onChange={(e) => setNewSource((prev) => ({ ...prev, path: e.target.value }))}
                     className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-                    placeholder="e.g. D:\\data\\roaming"
+                    placeholder="e.g. /ingest/roaming;/ingest/partner-b"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Use `;` to add multiple folders. Subfolders are scanned automatically.
+                  </p>
                 </div>
               </div>
 
@@ -878,3 +908,7 @@ const OperationsCenterPage: React.FC = () => {
 };
 
 export default OperationsCenterPage;
+
+
+
+

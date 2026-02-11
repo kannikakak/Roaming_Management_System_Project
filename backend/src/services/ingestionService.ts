@@ -20,6 +20,14 @@ type IngestionSourceRow = {
 const STAGING_DIR =
   process.env.INGEST_STAGING_DIR || path.join(process.cwd(), "uploads", "ingest-staging");
 const STABLE_SECONDS = Number(process.env.INGEST_STABLE_SECONDS || 60);
+const DEFAULT_MAX_DEPTH = Number(process.env.INGEST_MAX_DEPTH || 6);
+const DEFAULT_MAX_FILES = Number(process.env.INGEST_MAX_FILES || 5000);
+const DEFAULT_ALLOWED_EXTENSIONS = [".csv", ".xlsx", ".xls"];
+
+const toPositiveInt = (value: any, fallback: number) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
 
 const toRegex = (pattern: string) => {
   const escaped = pattern.replace(/[-/\\^$+?.()|[\]{}]/g, "\\$&");
@@ -38,6 +46,58 @@ const ensureStagingDir = async () => {
   await fs.mkdir(STAGING_DIR, { recursive: true });
 };
 
+const parseConnectionConfig = (raw: any) => {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return { path: raw };
+    }
+  }
+  return raw;
+};
+
+const normalizeList = (value: any) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/[\r\n;,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+export const normalizeLocalSourceConfig = (rawConfig: any) => {
+  const config = parseConnectionConfig(rawConfig);
+  const single = typeof config?.path === "string" ? normalizeList(config.path) : [];
+  const many = normalizeList(config?.paths);
+  const directories = Array.from(new Set([...single, ...many].map((p) => p.trim()).filter(Boolean)));
+
+  const recursive = config?.recursive !== false;
+  const maxDepth = toPositiveInt(config?.maxDepth, DEFAULT_MAX_DEPTH);
+  const maxFiles = toPositiveInt(config?.maxFiles, DEFAULT_MAX_FILES);
+  const extensionCandidates = normalizeList(config?.extensions ?? config?.allowedExtensions);
+  const allowedExtensions = (
+    extensionCandidates.length ? extensionCandidates : DEFAULT_ALLOWED_EXTENSIONS
+  ).map((ext) => {
+    const cleaned = String(ext || "").trim().toLowerCase();
+    if (!cleaned) return "";
+    return cleaned.startsWith(".") ? cleaned : `.${cleaned}`;
+  }).filter(Boolean);
+
+  return {
+    directories,
+    recursive,
+    maxDepth,
+    maxFiles,
+    allowedExtensions,
+  };
+};
+
 const computeChecksum = async (filePath: string) => {
   const hash = crypto.createHash("sha256");
   const stream = (await import("fs")).createReadStream(filePath);
@@ -52,6 +112,43 @@ const isStableFile = (stat: { mtimeMs: number }) => {
   if (!Number.isFinite(stat.mtimeMs)) return false;
   const ageMs = Date.now() - stat.mtimeMs;
   return ageMs >= STABLE_SECONDS * 1000;
+};
+
+const isAllowedExtension = (fileName: string, allowedExtensions: string[]) => {
+  const ext = path.extname(fileName || "").toLowerCase();
+  if (!ext) return false;
+  if (!allowedExtensions.length) return true;
+  return allowedExtensions.includes(ext);
+};
+
+const collectFiles = async (
+  rootDir: string,
+  recursive: boolean,
+  maxDepth: number,
+  maxFiles: number
+) => {
+  const files: string[] = [];
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: rootDir, depth: 0 }];
+
+  while (queue.length > 0 && files.length < maxFiles) {
+    const current = queue.shift()!;
+    const entries = await fs.readdir(current.dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(current.dir, entry.name);
+      if (entry.isFile()) {
+        files.push(fullPath);
+        if (files.length >= maxFiles) break;
+        continue;
+      }
+
+      if (entry.isDirectory() && recursive && current.depth < maxDepth) {
+        queue.push({ dir: fullPath, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  return files;
 };
 
 const getEnabledSources = async (dbPool: Pool) => {
@@ -105,15 +202,23 @@ const ensureFileRecord = async (
   lastModified: Date | null,
   checksum: string
 ) => {
-  const [rows]: any = await dbPool.query(
-    `SELECT id, status
+  const [latestRows]: any = await dbPool.query(
+    `SELECT id, status, checksum_sha256 as checksum
      FROM ingestion_files
-     WHERE source_id = ? AND remote_path = ? AND checksum_sha256 = ?
+     WHERE source_id = ? AND remote_path = ?
+     ORDER BY id DESC
      LIMIT 1`,
-    [sourceId, remotePath, checksum]
+    [sourceId, remotePath]
   );
-  if (rows?.length) {
-    return { id: rows[0].id as number, status: rows[0].status as string, created: false };
+
+  const latest = latestRows?.[0];
+  if (latest && String(latest.checksum || "") === checksum) {
+    return {
+      id: latest.id as number,
+      status: latest.status as string,
+      created: false,
+      updated: false,
+    };
   }
 
   const [result]: any = await dbPool.query(
@@ -122,7 +227,12 @@ const ensureFileRecord = async (
      VALUES (?, ?, ?, ?, ?, ?, 'NEW')`,
     [sourceId, remotePath, fileName, fileSize, lastModified, checksum]
   );
-  return { id: result.insertId as number, status: "NEW", created: true };
+  return {
+    id: result.insertId as number,
+    status: "NEW",
+    created: true,
+    updated: Boolean(latest),
+  };
 };
 
 const enqueueJob = async (dbPool: Pool, sourceId: number, fileId: number) => {
@@ -134,62 +244,88 @@ const enqueueJob = async (dbPool: Pool, sourceId: number, fileId: number) => {
 };
 
 const scanLocalSource = async (dbPool: Pool, source: IngestionSourceRow) => {
-  const config =
-    typeof source.connectionConfig === "string"
-      ? JSON.parse(source.connectionConfig)
-      : source.connectionConfig;
-  const directory = config?.path as string | undefined;
-  if (!directory) {
+  const config = normalizeLocalSourceConfig(source.connectionConfig);
+  if (!config.directories.length) {
     await updateSourceScanStatus(dbPool, source.id, "Missing connection_config.path");
-    return { discovered: 0, queued: 0, skipped: 0 };
+    return { discovered: 0, queued: 0, skipped: 0, updated: 0 };
   }
 
   try {
-    const entries = await fs.readdir(directory);
     let discovered = 0;
     let queued = 0;
     let skipped = 0;
+    let updated = 0;
+    let remainingBudget = config.maxFiles;
+    const directoryErrors: string[] = [];
 
-    for (const entry of entries) {
-      if (!matchesPattern(entry, source.filePattern || "*")) {
-        skipped += 1;
-        continue;
-      }
-      const fullPath = path.join(directory, entry);
-      const stat = await fs.stat(fullPath);
-      if (!stat.isFile()) {
-        skipped += 1;
-        continue;
-      }
-      if (!isStableFile(stat)) {
-        skipped += 1;
+    for (const directory of config.directories) {
+      if (remainingBudget <= 0) break;
+      let files: string[] = [];
+      try {
+        files = await collectFiles(directory, config.recursive, config.maxDepth, remainingBudget);
+      } catch (err: any) {
+        directoryErrors.push(`${directory}: ${err?.message || String(err)}`);
         continue;
       }
 
-      const checksum = await computeChecksum(fullPath);
-      const record = await ensureFileRecord(
-        dbPool,
-        source.id,
-        fullPath,
-        entry,
-        stat.size,
-        new Date(stat.mtimeMs),
-        checksum
-      );
-      if (!record.created) {
-        skipped += 1;
-        continue;
+      remainingBudget -= files.length;
+
+      for (const fullPath of files) {
+        const entry = path.basename(fullPath);
+        if (!matchesPattern(entry, source.filePattern || "*")) {
+          skipped += 1;
+          continue;
+        }
+        if (!isAllowedExtension(entry, config.allowedExtensions)) {
+          skipped += 1;
+          continue;
+        }
+
+        let stat: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+          stat = await fs.stat(fullPath);
+        } catch {
+          skipped += 1;
+          continue;
+        }
+
+        if (!stat.isFile()) {
+          skipped += 1;
+          continue;
+        }
+        if (!isStableFile(stat)) {
+          skipped += 1;
+          continue;
+        }
+
+        const checksum = await computeChecksum(fullPath);
+        const record = await ensureFileRecord(
+          dbPool,
+          source.id,
+          fullPath,
+          entry,
+          stat.size,
+          new Date(stat.mtimeMs),
+          checksum
+        );
+        if (!record.created) {
+          skipped += 1;
+          continue;
+        }
+
+        if (record.updated) updated += 1;
+        discovered += 1;
+        await enqueueJob(dbPool, source.id, record.id);
+        queued += 1;
       }
-      discovered += 1;
-      await enqueueJob(dbPool, source.id, record.id);
-      queued += 1;
     }
 
-    await updateSourceScanStatus(dbPool, source.id, null);
-    return { discovered, queued, skipped };
+    const errorSummary = directoryErrors.length ? directoryErrors.join(" | ") : null;
+    await updateSourceScanStatus(dbPool, source.id, errorSummary);
+    return { discovered, queued, skipped, updated };
   } catch (err: any) {
     await updateSourceScanStatus(dbPool, source.id, err?.message || String(err));
-    return { discovered: 0, queued: 0, skipped: 0 };
+    return { discovered: 0, queued: 0, skipped: 0, updated: 0 };
   }
 };
 

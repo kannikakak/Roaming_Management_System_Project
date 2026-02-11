@@ -26,6 +26,7 @@ type IntentType =
   | "min"
   | "max"
   | "top"
+  | "compare"
   | "summary"
   | "types";
 
@@ -64,6 +65,9 @@ function detectIntent(question: string): { type: IntentType; topN: number } {
   }
   if (/\btop\b|\bmost common\b|\bmost frequent\b/.test(lower)) {
     return { type: "top", topN };
+  }
+  if (/\bcompare\b|\bvs\b|\bversus\b/.test(lower)) {
+    return { type: "compare", topN };
   }
   if (/\bdistinct\b|\bunique\b/.test(lower)) {
     return { type: "distinct", topN };
@@ -313,6 +317,743 @@ function pickColumnWithProfile(
   return profile.columns[0]?.name || "";
 }
 
+type QaRowObject = Record<string, any>;
+
+type FallbackFileContext = {
+  id: number;
+  name: string;
+  columns: string[];
+  rows: QaRowObject[];
+  profile: FileProfile | null;
+};
+
+function isBlankLikeValue(value: any) {
+  if (value === null || value === undefined) return true;
+  const str = String(value).trim();
+  if (!str) return true;
+  const lower = str.toLowerCase();
+  return lower === "-" || lower === "null" || lower === "nan" || lower === "n/a";
+}
+
+function normalizeCellValue(value: any) {
+  if (isBlankLikeValue(value)) return "";
+  return String(value).trim();
+}
+
+function parseNumericValue(value: any) {
+  const normalized = normalizeCellValue(value);
+  if (!normalized) return null;
+  const parsed = Number(normalized.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function inferNumericColumnsFromRows(columns: string[], rows: QaRowObject[]) {
+  const result: string[] = [];
+  const sampledRows = rows.slice(0, 400);
+  for (const col of columns) {
+    let nonBlank = 0;
+    let numeric = 0;
+    for (const row of sampledRows) {
+      const raw = row?.[col];
+      if (isBlankLikeValue(raw)) continue;
+      nonBlank += 1;
+      if (parseNumericValue(raw) !== null) numeric += 1;
+    }
+    if (nonBlank > 0 && numeric / nonBlank >= 0.6) {
+      result.push(col);
+    }
+  }
+  return result;
+}
+
+function inferCategoricalColumnsFromRows(columns: string[], rows: QaRowObject[]) {
+  const result: string[] = [];
+  const sampledRows = rows.slice(0, 400);
+  for (const col of columns) {
+    let nonBlank = 0;
+    let numeric = 0;
+    for (const row of sampledRows) {
+      const raw = row?.[col];
+      if (isBlankLikeValue(raw)) continue;
+      nonBlank += 1;
+      if (parseNumericValue(raw) !== null) numeric += 1;
+    }
+    if (nonBlank > 0 && numeric / nonBlank <= 0.35) {
+      result.push(col);
+    }
+  }
+  return result;
+}
+
+function pickFallbackColumn(
+  questionNorm: string,
+  columns: string[],
+  rows: QaRowObject[],
+  profile: FileProfile | null,
+  intentType: IntentType
+) {
+  const direct = pickColumn(questionNorm, columns);
+  if (direct) return direct;
+
+  const numericCols =
+    profile?.overview.numericColumns?.length
+      ? profile.overview.numericColumns
+      : inferNumericColumnsFromRows(columns, rows);
+  const categoricalCols =
+    profile?.overview.categoricalColumns?.length
+      ? profile.overview.categoricalColumns
+      : inferCategoricalColumnsFromRows(columns, rows);
+
+  const preferNumeric =
+    intentType === "sum" ||
+    intentType === "avg" ||
+    intentType === "min" ||
+    intentType === "max" ||
+    intentType === "compare";
+  const preferCategorical = intentType === "top" || intentType === "distinct";
+
+  if (preferNumeric && numericCols.length) return numericCols[0];
+  if (preferCategorical && categoricalCols.length) return categoricalCols[0];
+  return columns[0] || "";
+}
+
+function inferColumnByValueFromRows(columns: string[], rows: QaRowObject[], rawValue: string) {
+  const target = rawValue.trim().toLowerCase();
+  if (!target) return null;
+
+  const counts = new Map<string, number>();
+  for (const row of rows.slice(0, 500)) {
+    for (const col of columns) {
+      const value = normalizeCellValue(row?.[col]).toLowerCase();
+      if (!value) continue;
+      if (value === target) {
+        counts.set(col, (counts.get(col) || 0) + 1);
+      }
+    }
+  }
+
+  let bestCol = "";
+  let bestCount = 0;
+  for (const [col, count] of counts.entries()) {
+    if (count > bestCount) {
+      bestCol = col;
+      bestCount = count;
+    }
+  }
+  if (!bestCol) return null;
+  return { column: bestCol, value: rawValue };
+}
+
+function parseJsonObject(input: any): QaRowObject | null {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    return input as QaRowObject;
+  }
+  if (typeof input !== "string") return null;
+  try {
+    const parsed = JSON.parse(input);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as QaRowObject;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadRowsForFallback(
+  dbPool: Pool,
+  fileId: number,
+  maxRows: number
+): Promise<QaRowObject[]> {
+  const encryptionKey = getEncryptionKey();
+  const dataTextExpr = encryptionKey
+    ? "COALESCE(CAST(AES_DECRYPT(data_json, ?) AS CHAR CHARACTER SET utf8mb4), CAST(data_json AS CHAR CHARACTER SET utf8mb4))"
+    : "CAST(data_json AS CHAR CHARACTER SET utf8mb4)";
+  const params = encryptionKey ? [encryptionKey, fileId, maxRows] : [fileId, maxRows];
+  const [rows]: any = await dbPool.query(
+    `SELECT ${dataTextExpr} as data_text
+     FROM file_rows
+     WHERE file_id = ?
+     ORDER BY row_index ASC
+     LIMIT ?`,
+    params
+  );
+
+  const parsed: QaRowObject[] = [];
+  for (const row of rows || []) {
+    const obj = parseJsonObject(row?.data_text);
+    if (obj) parsed.push(obj);
+  }
+  return parsed;
+}
+
+function parseCompareHints(question: string) {
+  const lower = question.toLowerCase();
+  const compareMatch = lower.match(
+    /\bcompare\s+(.+?)\s+(?:and|vs|versus)\s+(.+?)(?:\s+\bby\b|\s+\bper\b|$)/
+  );
+  if (compareMatch?.[1] && compareMatch?.[2]) {
+    return { leftHint: compareMatch[1].trim(), rightHint: compareMatch[2].trim() };
+  }
+  const vsMatch = lower.match(/\b(.+?)\s+(?:vs|versus)\s+(.+?)(?:\s+\bby\b|\s+\bper\b|$)/);
+  if (vsMatch?.[1] && vsMatch?.[2]) {
+    return { leftHint: vsMatch[1].trim(), rightHint: vsMatch[2].trim() };
+  }
+  return null;
+}
+
+function resolveCompareColumns(
+  questionRaw: string,
+  questionNorm: string,
+  columns: string[],
+  rows: QaRowObject[],
+  profile: FileProfile | null
+) {
+  const numericCandidates =
+    profile?.overview.numericColumns?.length
+      ? profile.overview.numericColumns
+      : inferNumericColumnsFromRows(columns, rows);
+  const categoricalCandidates =
+    profile?.overview.categoricalColumns?.length
+      ? profile.overview.categoricalColumns
+      : inferCategoricalColumnsFromRows(columns, rows);
+
+  const hints = parseCompareHints(questionRaw);
+  let left = hints?.leftHint ? pickColumn(normalizeText(hints.leftHint), columns) : "";
+  let right = hints?.rightHint ? pickColumn(normalizeText(hints.rightHint), columns) : "";
+
+  const ranked = columns
+    .map((col) => ({ col, score: scoreColumn(questionNorm, col) }))
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.col);
+
+  if (!left) {
+    left = ranked.find((col) => numericCandidates.includes(col)) || numericCandidates[0] || ranked[0] || "";
+  }
+  if (!right) {
+    right =
+      ranked.find((col) => col !== left && numericCandidates.includes(col)) ||
+      numericCandidates.find((col) => col !== left) ||
+      ranked.find((col) => col !== left) ||
+      "";
+  }
+
+  let groupBy = findGroupByColumn(questionRaw, columns);
+  if (!groupBy) {
+    groupBy =
+      categoricalCandidates.find((col) => col !== left && col !== right) ||
+      columns.find((col) => col !== left && col !== right) ||
+      "";
+  }
+
+  return { left, right, groupBy };
+}
+
+async function buildFallbackContexts(
+  dbPool: Pool,
+  options: { fileId: number; projectId: number }
+): Promise<FallbackFileContext[]> {
+  const { fileId, projectId } = options;
+  const rowLimit = Math.max(1000, Number(process.env.DATA_QA_FALLBACK_ROW_LIMIT || 25000));
+
+  let files: Array<{ id: number; name: string }> = [];
+  if (Number.isFinite(fileId) && fileId > 0) {
+    const [[fileRow]]: any = await dbPool.query(
+      "SELECT id, name FROM files WHERE id = ? LIMIT 1",
+      [fileId]
+    );
+    if (fileRow?.id) files = [fileRow];
+  } else if (Number.isFinite(projectId) && projectId > 0) {
+    const [fileRows]: any = await dbPool.query(
+      "SELECT id, name FROM files WHERE project_id = ? ORDER BY uploaded_at DESC",
+      [projectId]
+    );
+    files = (Array.isArray(fileRows) ? fileRows : []).map((row: any) => ({
+      id: Number(row.id),
+      name: String(row.name || `File ${row.id}`),
+    }));
+  }
+
+  const contexts: FallbackFileContext[] = [];
+  for (const file of files) {
+    const [colRows]: any = await dbPool.query(
+      "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
+      [file.id]
+    );
+    const columns = (Array.isArray(colRows) ? colRows : [])
+      .map((row: any) => String(row?.name || "").trim())
+      .filter(Boolean);
+    if (!columns.length) continue;
+
+    const rows = await loadRowsForFallback(dbPool, file.id, rowLimit);
+    let profile: FileProfile | null = null;
+    try {
+      profile = await loadFileProfile(dbPool, file.id);
+    } catch {
+      profile = null;
+    }
+
+    contexts.push({
+      id: file.id,
+      name: file.name,
+      columns,
+      rows,
+      profile,
+    });
+  }
+  return contexts;
+}
+
+async function answerQuestionWithFallback(
+  dbPool: Pool,
+  options: { fileId: number; projectId: number; questionRaw: string; forceIntent?: IntentType }
+) {
+  const contexts = await buildFallbackContexts(dbPool, {
+    fileId: options.fileId,
+    projectId: options.projectId,
+  });
+  if (!contexts.length) return null;
+
+  const detected = detectIntent(options.questionRaw);
+  const intentType = options.forceIntent || detected.type;
+  const intent = { type: intentType, topN: detected.topN };
+  const questionNorm = normalizeText(options.questionRaw);
+  const lowerQuestion = options.questionRaw.toLowerCase();
+
+  const allColumns = new Set<string>();
+  for (const context of contexts) {
+    context.columns.forEach((col) => allColumns.add(col));
+  }
+
+  if (intent.type === "columns") {
+    const columns = Array.from(allColumns);
+    const preview = columns.slice(0, 8);
+    const extra = columns.length > preview.length ? columns.length - preview.length : 0;
+    const list = preview.length ? `: ${preview.join(", ")}${extra ? ` and ${extra} more` : ""}` : "";
+    return {
+      answer:
+        contexts.length > 1
+          ? `Across ${contexts.length} files, there are ${columns.length} unique columns${list}.`
+          : `This file has ${columns.length} columns${list}.`,
+      intent: "columns",
+      columns,
+    };
+  }
+
+  if (intent.type === "rows") {
+    const totalRows = contexts.reduce((sum, context) => sum + context.rows.length, 0);
+    return {
+      answer:
+        contexts.length > 1
+          ? `There are ${totalRows} rows across ${contexts.length} files.`
+          : `There are ${totalRows} rows in ${contexts[0].name}.`,
+      intent: "rows",
+      value: totalRows,
+    };
+  }
+
+  if (contexts.length === 1 && intent.type === "summary") {
+    const context = contexts[0];
+    if (context.profile) {
+      return {
+        answer: formatProfileSummary(context.profile, context.name),
+        intent: "summary",
+        profile: context.profile,
+      };
+    }
+    return {
+      answer: `${context.name} has ${context.rows.length} rows and ${context.columns.length} columns.`,
+      intent: "summary",
+      value: { rows: context.rows.length, columns: context.columns.length },
+    };
+  }
+
+  if (contexts.length === 1 && intent.type === "types") {
+    const context = contexts[0];
+    if (context.profile) {
+      return {
+        answer: formatProfileTypes(context.profile),
+        intent: "types",
+        profile: {
+          numeric: context.profile.overview.numericColumns,
+          dates: context.profile.overview.dateColumns,
+          categorical: context.profile.overview.categoricalColumns,
+        },
+      };
+    }
+    const numeric = inferNumericColumnsFromRows(context.columns, context.rows);
+    const categorical = inferCategoricalColumnsFromRows(context.columns, context.rows);
+    const lineParts = [];
+    if (numeric.length) lineParts.push(`Numeric: ${numeric.slice(0, 8).join(", ")}`);
+    if (categorical.length) lineParts.push(`Categorical/String: ${categorical.slice(0, 8).join(", ")}`);
+    return {
+      answer: lineParts.join(". ") || "I could not infer column types yet.",
+      intent: "types",
+    };
+  }
+
+  if (intent.type === "compare") {
+    const compareItems = new Map<string, { count: number; compare: number }>();
+    let primaryLabel = "";
+    let secondaryLabel = "";
+    let groupLabel = "";
+    let matchedFiles = 0;
+
+    for (const context of contexts) {
+      const resolved = resolveCompareColumns(
+        options.questionRaw,
+        questionNorm,
+        context.columns,
+        context.rows,
+        context.profile
+      );
+      if (!resolved.left || !resolved.right || !resolved.groupBy) continue;
+      if (!primaryLabel) primaryLabel = resolved.left;
+      if (!secondaryLabel) secondaryLabel = resolved.right;
+      if (!groupLabel) groupLabel = resolved.groupBy;
+
+      let contributed = false;
+      for (const row of context.rows) {
+        const groupValue = normalizeCellValue(row?.[resolved.groupBy]);
+        if (!groupValue) continue;
+        const leftValue = parseNumericValue(row?.[resolved.left]) || 0;
+        const rightValue = parseNumericValue(row?.[resolved.right]) || 0;
+        if (leftValue === 0 && rightValue === 0) continue;
+        const current = compareItems.get(groupValue) || { count: 0, compare: 0 };
+        current.count += leftValue;
+        current.compare += rightValue;
+        compareItems.set(groupValue, current);
+        contributed = true;
+      }
+      if (contributed) matchedFiles += 1;
+    }
+
+    const items = Array.from(compareItems.entries())
+      .map(([value, pair]) => ({
+        value,
+        count: Number(pair.count || 0),
+        compare: Number(pair.compare || 0),
+      }))
+      .sort((a, b) => Math.max(b.count, b.compare) - Math.max(a.count, a.compare))
+      .slice(0, Math.max(2, intent.topN));
+
+    if (!items.length) {
+      return {
+        answer:
+          "I could not build a comparison from your data. Try: compare Revenue vs Cost by Country.",
+        intent: "compare",
+      };
+    }
+
+    const preview = items
+      .slice(0, 5)
+      .map((item) => `${item.value} (${formatNumber(item.count)} vs ${formatNumber(item.compare)})`)
+      .join(", ");
+    const scopeText = contexts.length > 1 ? `across ${matchedFiles || contexts.length} files` : `in ${contexts[0].name}`;
+    return {
+      answer: `Comparison of "${primaryLabel}" vs "${secondaryLabel}" by "${groupLabel}" ${scopeText}: ${preview}`,
+      intent: "compare",
+      column: primaryLabel,
+      compareColumn: secondaryLabel,
+      groupBy: groupLabel,
+      items,
+    };
+  }
+
+  const aggregatedItems = new Map<string, number>();
+  let aggregatedValue = 0;
+  let aggregatedCount = 0;
+  let selectedColumnAny = "";
+  let matchedFilter: { column: string; value: string } | null = null;
+  let matchedFiles = 0;
+  let minValue: number | null = null;
+  let maxValue: number | null = null;
+
+  for (const context of contexts) {
+    const columns = context.columns;
+    const rows = context.rows;
+    if (!columns.length || !rows.length) continue;
+
+    const groupByColumn = findGroupByColumn(options.questionRaw, columns);
+    let filter = findFilter(options.questionRaw, columns);
+    let selectedColumn =
+      filter?.column ||
+      pickFallbackColumn(questionNorm, columns, rows, context.profile, intent.type);
+
+    if (!selectedColumn && intent.type === "count") {
+      const impliedValue = extractValueHint(options.questionRaw);
+      if (impliedValue) {
+        const inferred = inferColumnByValueFromRows(columns, rows, impliedValue);
+        if (inferred?.column) {
+          selectedColumn = inferred.column;
+          filter = { column: inferred.column, value: inferred.value };
+        }
+      }
+    }
+
+    if (groupByColumn) {
+      const wantsTop = /\btop\b/.test(lowerQuestion);
+      const groupLimit = wantsTop ? intent.topN : 12;
+      const limit = Math.max(1, Math.min(20, groupLimit));
+      const groupMetric = intent.type === "distinct" ? "count" : intent.type;
+
+      if (["sum", "avg", "min", "max"].includes(groupMetric)) {
+        const measureQuestion = options.questionRaw.split(/\bby\b|\bper\b/)[0] || options.questionRaw;
+        const measureColumns = columns.filter((c) => c !== groupByColumn);
+        const measureColumn = pickFallbackColumn(
+          normalizeText(measureQuestion),
+          measureColumns,
+          rows,
+          context.profile,
+          intent.type
+        );
+        if (!measureColumn) continue;
+
+        const perGroup = new Map<string, { sum: number; count: number; min: number; max: number }>();
+        for (const row of rows) {
+          const groupValue = normalizeCellValue(row?.[groupByColumn]);
+          if (!groupValue) continue;
+          const numeric = parseNumericValue(row?.[measureColumn]);
+          if (numeric === null) continue;
+          const state = perGroup.get(groupValue) || {
+            sum: 0,
+            count: 0,
+            min: Number.POSITIVE_INFINITY,
+            max: Number.NEGATIVE_INFINITY,
+          };
+          state.sum += numeric;
+          state.count += 1;
+          state.min = Math.min(state.min, numeric);
+          state.max = Math.max(state.max, numeric);
+          perGroup.set(groupValue, state);
+        }
+
+        const derived = Array.from(perGroup.entries())
+          .map(([value, state]) => {
+            const metricValue =
+              groupMetric === "sum"
+                ? state.sum
+                : groupMetric === "avg"
+                ? state.sum / state.count
+                : groupMetric === "min"
+                ? state.min
+                : state.max;
+            return { value, count: metricValue };
+          })
+          .sort((a, b) => (groupMetric === "min" ? a.count - b.count : b.count - a.count))
+          .slice(0, limit);
+
+        if (!derived.length) continue;
+        selectedColumnAny = measureColumn;
+        if (!matchedFilter && filter) matchedFilter = filter;
+        matchedFiles += 1;
+        for (const item of derived) {
+          aggregatedItems.set(item.value, (aggregatedItems.get(item.value) || 0) + item.count);
+        }
+        continue;
+      }
+
+      const groupCounts = new Map<string, number>();
+      for (const row of rows) {
+        const groupValue = normalizeCellValue(row?.[groupByColumn]);
+        if (!groupValue) continue;
+        groupCounts.set(groupValue, (groupCounts.get(groupValue) || 0) + 1);
+      }
+      const derived = Array.from(groupCounts.entries())
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+      if (!derived.length) continue;
+      selectedColumnAny = groupByColumn;
+      if (!matchedFilter && filter) matchedFilter = filter;
+      matchedFiles += 1;
+      for (const item of derived) {
+        aggregatedItems.set(item.value, (aggregatedItems.get(item.value) || 0) + item.count);
+      }
+      continue;
+    }
+
+    if (!selectedColumn) continue;
+    selectedColumnAny = selectedColumn;
+    if (!matchedFilter && filter) matchedFilter = filter;
+
+    if (intent.type === "count") {
+      let count = 0;
+      for (const row of rows) {
+        const value = normalizeCellValue(row?.[selectedColumn]);
+        if (!value) continue;
+        if (filter?.value && value.toLowerCase() !== filter.value.toLowerCase()) continue;
+        count += 1;
+      }
+      aggregatedValue += count;
+      matchedFiles += 1;
+      continue;
+    }
+
+    if (intent.type === "distinct") {
+      const distinct = new Set<string>();
+      for (const row of rows) {
+        const value = normalizeCellValue(row?.[selectedColumn]);
+        if (!value) continue;
+        distinct.add(value);
+      }
+      aggregatedValue += distinct.size;
+      matchedFiles += 1;
+      continue;
+    }
+
+    if (intent.type === "top") {
+      const freq = new Map<string, number>();
+      for (const row of rows) {
+        const value = normalizeCellValue(row?.[selectedColumn]);
+        if (!value) continue;
+        freq.set(value, (freq.get(value) || 0) + 1);
+      }
+      for (const [value, count] of freq.entries()) {
+        aggregatedItems.set(value, (aggregatedItems.get(value) || 0) + count);
+      }
+      matchedFiles += 1;
+      continue;
+    }
+
+    if (["sum", "avg", "min", "max"].includes(intent.type)) {
+      let localCount = 0;
+      let localSum = 0;
+      let localMin = Number.POSITIVE_INFINITY;
+      let localMax = Number.NEGATIVE_INFINITY;
+
+      for (const row of rows) {
+        const numeric = parseNumericValue(row?.[selectedColumn]);
+        if (numeric === null) continue;
+        localCount += 1;
+        localSum += numeric;
+        localMin = Math.min(localMin, numeric);
+        localMax = Math.max(localMax, numeric);
+      }
+
+      if (localCount === 0) continue;
+      matchedFiles += 1;
+
+      if (intent.type === "sum") {
+        aggregatedValue += localSum;
+      } else if (intent.type === "avg") {
+        aggregatedValue += localSum;
+        aggregatedCount += localCount;
+      } else if (intent.type === "min") {
+        minValue = minValue === null ? localMin : Math.min(minValue, localMin);
+      } else if (intent.type === "max") {
+        maxValue = maxValue === null ? localMax : Math.max(maxValue, localMax);
+      }
+    }
+  }
+
+  if (matchedFiles === 0) {
+    return {
+      answer:
+        "I could not match a column across your files. Try mentioning a column name from Data Explorer.",
+      intent: "unknown",
+    };
+  }
+
+  if (intent.type === "top") {
+    const items = Array.from(aggregatedItems.entries())
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, intent.topN);
+    const list = items.length
+      ? items.map((item) => `${item.value} (${item.count})`).join(", ")
+      : "No values found.";
+    return {
+      answer:
+        contexts.length > 1
+          ? `Across ${matchedFiles} files, top values of "${selectedColumnAny}": ${list}`
+          : `Top ${items.length} values of "${selectedColumnAny}": ${list}`,
+      intent: "top",
+      column: selectedColumnAny,
+      items,
+    };
+  }
+
+  if (intent.type === "count") {
+    const target = matchedFilter?.value ? `"${matchedFilter.value}"` : `non-empty "${selectedColumnAny}"`;
+    return {
+      answer:
+        contexts.length > 1
+          ? `There are ${aggregatedValue} rows with ${target} across ${matchedFiles} files.`
+          : `There are ${aggregatedValue} rows with ${target}.`,
+      intent: "count",
+      column: selectedColumnAny,
+      filter: matchedFilter?.value ? { value: matchedFilter.value } : null,
+      value: aggregatedValue,
+    };
+  }
+
+  if (intent.type === "distinct") {
+    return {
+      answer:
+        contexts.length > 1
+          ? `"${selectedColumnAny}" has ${aggregatedValue} distinct values across ${matchedFiles} files.`
+          : `"${selectedColumnAny}" has ${aggregatedValue} distinct values.`,
+      intent: "distinct",
+      column: selectedColumnAny,
+      value: aggregatedValue,
+    };
+  }
+
+  if (intent.type === "sum") {
+    return {
+      answer:
+        contexts.length > 1
+          ? `The total of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(aggregatedValue)}.`
+          : `The total of "${selectedColumnAny}" is ${formatNumber(aggregatedValue)}.`,
+      intent: "sum",
+      column: selectedColumnAny,
+      value: aggregatedValue,
+    };
+  }
+
+  if (intent.type === "avg") {
+    const avgValue = aggregatedCount > 0 ? aggregatedValue / aggregatedCount : 0;
+    return {
+      answer:
+        contexts.length > 1
+          ? `The average of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(avgValue)}.`
+          : `The average of "${selectedColumnAny}" is ${formatNumber(avgValue)}.`,
+      intent: "avg",
+      column: selectedColumnAny,
+      value: avgValue,
+    };
+  }
+
+  if (intent.type === "min") {
+    const value = minValue ?? 0;
+    return {
+      answer:
+        contexts.length > 1
+          ? `The minimum of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(value)}.`
+          : `The minimum of "${selectedColumnAny}" is ${formatNumber(value)}.`,
+      intent: "min",
+      column: selectedColumnAny,
+      value,
+    };
+  }
+
+  if (intent.type === "max") {
+    const value = maxValue ?? 0;
+    return {
+      answer:
+        contexts.length > 1
+          ? `The maximum of "${selectedColumnAny}" across ${matchedFiles} files is ${formatNumber(value)}.`
+          : `The maximum of "${selectedColumnAny}" is ${formatNumber(value)}.`,
+      intent: "max",
+      column: selectedColumnAny,
+      value,
+    };
+  }
+
+  return null;
+}
+
 export function dataQaRoutes(dbPool: Pool) {
   const router = Router();
   router.use(requireAuth);
@@ -325,13 +1066,14 @@ export function dataQaRoutes(dbPool: Pool) {
     const encryptionKey = getEncryptionKey();
     const dataJsonExpr = buildDataJsonExpr(encryptionKey);
     const keyParams = (count: number) => buildKeyParams(encryptionKey, count);
+    try {
 
-    if ((!Number.isFinite(fileId) || fileId <= 0) && (!Number.isFinite(projectId) || projectId <= 0)) {
-      return res.status(400).json({ message: "fileId or projectId is required" });
-    }
-    if (!questionRaw) {
-      return res.status(400).json({ message: "question is required" });
-    }
+      if ((!Number.isFinite(fileId) || fileId <= 0) && (!Number.isFinite(projectId) || projectId <= 0)) {
+        return res.status(400).json({ message: "fileId or projectId is required" });
+      }
+      if (!questionRaw) {
+        return res.status(400).json({ message: "question is required" });
+      }
 
     if (!Number.isFinite(fileId) || fileId <= 0) {
       const [fileRows]: any = await dbPool.query(
@@ -346,6 +1088,19 @@ export function dataQaRoutes(dbPool: Pool) {
       const intent = detectIntent(questionRaw);
       const questionNorm = normalizeText(questionRaw);
       const lowerQuestion = questionRaw.toLowerCase();
+      if (intent.type === "compare") {
+        const compare = await answerQuestionWithFallback(dbPool, {
+          fileId: Number.NaN,
+          projectId,
+          questionRaw,
+          forceIntent: "compare",
+        });
+        if (compare) return res.json(compare);
+        return res.json({
+          answer: "I could not build a comparison. Try: compare Revenue vs Cost by Country.",
+          intent: "compare",
+        });
+      }
 
       const allColumns = new Set<string>();
       const perFileColumns = new Map<number, string[]>();
@@ -680,6 +1435,19 @@ export function dataQaRoutes(dbPool: Pool) {
     const intent = detectIntent(questionRaw);
     const questionNorm = normalizeText(questionRaw);
     const lowerQuestion = questionRaw.toLowerCase();
+    if (intent.type === "compare") {
+      const compare = await answerQuestionWithFallback(dbPool, {
+        fileId,
+        projectId: Number.NaN,
+        questionRaw,
+        forceIntent: "compare",
+      });
+      if (compare) return res.json(compare);
+      return res.json({
+        answer: "I could not build a comparison. Try: compare Revenue vs Cost by Country.",
+        intent: "compare",
+      });
+    }
     await ensureFileProfileTable(dbPool);
     let profile = await loadFileProfile(dbPool, fileId);
     if (!profile) {
@@ -1017,10 +1785,36 @@ export function dataQaRoutes(dbPool: Pool) {
       }
     }
 
-    return res.json({
-      answer: "I could not understand the question. Try asking for counts or top values.",
-      intent: "unknown",
-    });
+      return res.json({
+        answer: "I could not understand the question. Try asking for counts or top values.",
+        intent: "unknown",
+      });
+    } catch (error: any) {
+      console.error("[data-qa] /ask failed", {
+        message: error?.message,
+        code: error?.code,
+        sqlMessage: error?.sqlMessage,
+      });
+      try {
+        const fallback = await answerQuestionWithFallback(dbPool, {
+          fileId,
+          projectId,
+          questionRaw,
+        });
+        if (fallback) {
+          return res.json(fallback);
+        }
+      } catch (fallbackError: any) {
+        console.error("[data-qa] fallback failed", {
+          message: fallbackError?.message,
+          code: fallbackError?.code,
+          sqlMessage: fallbackError?.sqlMessage,
+        });
+      }
+      return res.status(500).json({
+        message: "AI Q&A request failed. Please verify file columns/data format and try again.",
+      });
+    }
   });
 
   return router;

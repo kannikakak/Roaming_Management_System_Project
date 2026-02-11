@@ -122,6 +122,25 @@ const ChartPage: React.FC = () => {
     }
   }, []);
 
+  const currentRowCount = Array.isArray(currentFile?.rows) ? currentFile.rows.length : 0;
+  const selectedSignature = currentSelectedCols.join("|");
+
+  useEffect(() => {
+    if (!currentFile?.id) return;
+    if (currentRowCount > 0) return;
+
+    loadFileData(currentFile.id, currentFile.name || currentFile.fileName, currentSelectedCols).catch((err) => {
+      console.error("Failed to load chart file rows:", err);
+    });
+  }, [
+    currentFile?.id,
+    currentFile?.name,
+    currentFile?.fileName,
+    currentRowCount,
+    selectedSignature,
+    loadFileData,
+  ]);
+
   const buildSessionState = (override: Partial<any> = {}) => ({
     fileId: override.fileId ?? currentFile?.id ?? null,
     fileName: override.fileName ?? currentFile?.name ?? currentFile?.fileName ?? null,

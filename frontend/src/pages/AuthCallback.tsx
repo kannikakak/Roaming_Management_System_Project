@@ -11,6 +11,7 @@ const AuthCallback: React.FC = () => {
     const token = params.get("token");
     const refreshToken = params.get("refreshToken");
     const mfaToken = params.get("mfaToken");
+    const mfaChallenge = params.get("mfaChallenge");
     const error = params.get("error");
 
     if (error) {
@@ -18,7 +19,10 @@ const AuthCallback: React.FC = () => {
       return;
     }
     if (mfaToken) {
-      navigate(`/login?mfaToken=${encodeURIComponent(mfaToken)}`, { replace: true });
+      const query = mfaChallenge
+        ? `/login?mfaToken=${encodeURIComponent(mfaToken)}&mfaChallenge=${encodeURIComponent(mfaChallenge)}`
+        : `/login?mfaToken=${encodeURIComponent(mfaToken)}`;
+      navigate(query, { replace: true });
       return;
     }
     if (!token) {

@@ -25,6 +25,54 @@ type ColumnEdit = {
 
 type ExportFormat = 'excel' | 'pdf' | 'png' | 'json' | 'xml';
 
+const toNumber = (value: any) => {
+  if (value === null || value === undefined) return NaN;
+  const normalized = String(value).trim().replace(/,/g, '');
+  if (!normalized || normalized === '-') return NaN;
+  return Number(normalized);
+};
+
+const suggestChartSelection = (columns: string[], rows: any[]) => {
+  if (!Array.isArray(columns) || columns.length < 2 || !Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+
+  const sample = rows.slice(0, 500);
+  const stats = columns.map((column) => {
+    let nonEmpty = 0;
+    let numeric = 0;
+    for (const row of sample) {
+      const raw = row?.[column];
+      if (raw === null || raw === undefined || String(raw).trim() === '' || String(raw).trim() === '-') {
+        continue;
+      }
+      nonEmpty += 1;
+      if (Number.isFinite(toNumber(raw))) {
+        numeric += 1;
+      }
+    }
+    return {
+      column,
+      nonEmpty,
+      numericRatio: nonEmpty > 0 ? numeric / nonEmpty : 0,
+    };
+  });
+
+  const numericColumns = stats
+    .filter((s) => s.nonEmpty >= 5 && s.numericRatio >= 0.8)
+    .sort((a, b) => b.nonEmpty - a.nonEmpty)
+    .map((s) => s.column);
+
+  const categoryCol = columns.find((col) => !numericColumns.includes(col)) || columns[0];
+  const valueCols = numericColumns.filter((col) => col !== categoryCol).slice(0, 3);
+  if (!categoryCol || valueCols.length === 0) return null;
+
+  return {
+    chartType: valueCols.length > 1 ? 'Bar' : 'Line',
+    selectedCols: [categoryCol, ...valueCols],
+  };
+};
+
 const CardDetail: React.FC = () => {
   const { cardId } = useParams();
   const [files, setFiles] = useState<FileData[]>([]);
@@ -63,36 +111,70 @@ const CardDetail: React.FC = () => {
     if (!cardId) return;
     const controller = new AbortController();
     setError(null);
+    const preferredFileId =
+      typeof location.state?.activeFileId === 'number' ? location.state.activeFileId : null;
 
-    apiFetch(`/api/files?projectId=${cardId}`, { signal: controller.signal })
-      .then(res => res.json())
-      .then(data => {
-        const normalized = (data.files || []).map((f: any) => ({
+    const loadFiles = async (signal?: AbortSignal, silent = false) => {
+      try {
+        const res = await apiFetch(`/api/files?projectId=${cardId}`, { signal });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          throw new Error(data?.message || `Failed to load files (HTTP ${res.status})`);
+        }
+        const incoming = (data.files || []).map((f: any) => ({
           id: f.id,
           name: f.name,
           fileType: f.fileType,
-          columns: [],
-          rows: [],
           uploadedAt: f.uploadedAt,
-          dataLoaded: false,
         }));
-        setFiles(normalized);
-        if (location.state?.activeFileId) {
-          setActiveFileId(location.state.activeFileId);
-        } else if (normalized.length > 0) {
-          setActiveFileId(normalized[0].id);
-        }
+
+        setFiles((prev) => {
+          const byId = new Map(prev.map((file) => [file.id, file]));
+          return incoming.map((file: any) => {
+            const existing = byId.get(file.id);
+            if (!existing) {
+              return {
+                ...file,
+                columns: [],
+                rows: [],
+                dataLoaded: false,
+              };
+            }
+            return {
+              ...existing,
+              name: file.name,
+              fileType: file.fileType,
+              uploadedAt: file.uploadedAt,
+            };
+          });
+        });
+
+        setActiveFileId((current) => {
+          if (current && incoming.some((f: any) => f.id === current)) return current;
+          if (preferredFileId && incoming.some((f: any) => f.id === preferredFileId)) return preferredFileId;
+          return incoming.length > 0 ? incoming[0].id : null;
+        });
+
         if (location.state?.selectedChartCols) {
           setSelectedChartCols(location.state.selectedChartCols);
         }
-      })
-      .catch(err => {
-        if (err.name !== 'AbortError') {
+      } catch (err: any) {
+        if (err?.name !== 'AbortError' && !silent) {
           setError('Failed to load files');
         }
-      });
+      }
+    };
 
-    return () => controller.abort();
+    void loadFiles(controller.signal);
+    const pollMs = Number(process.env.REACT_APP_FILES_POLL_MS || 15000);
+    const pollTimer = window.setInterval(() => {
+      void loadFiles(undefined, true);
+    }, pollMs);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(pollTimer);
+    };
   }, [cardId, location.state?.activeFileId, location.state?.selectedChartCols]);
 
   useEffect(() => {
@@ -102,28 +184,43 @@ const CardDetail: React.FC = () => {
 
     const controller = new AbortController();
     setLoadingFileId(activeFileId);
-    setError(null);
 
     apiFetch(`/api/files/${activeFileId}/data`, { signal: controller.signal })
-      .then(res => res.json())
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          throw new Error(data?.message || `Failed to load file data (HTTP ${res.status})`);
+        }
+        return data;
+      })
       .then(data => {
+        const nextRows = Array.isArray(data.rows) ? data.rows : [];
+        const apiColumns = Array.isArray(data.columns) ? data.columns : [];
+        const inferredColumns =
+          apiColumns.length > 0
+            ? apiColumns
+            : nextRows.length > 0 && nextRows[0] && typeof nextRows[0] === 'object'
+              ? Object.keys(nextRows[0] as Record<string, any>)
+              : [];
+
         setFiles(prev =>
           prev.map(f =>
             f.id === activeFileId
               ? {
                   ...f,
-                  columns: data.columns || [],
-                  rows: data.rows || [],
+                  columns: inferredColumns,
+                  rows: nextRows,
                   textContent: data.textContent || undefined,
                   dataLoaded: true,
                 }
               : f
           )
         );
+        setError(null);
       })
       .catch(err => {
         if (err.name !== 'AbortError') {
-          setError('Failed to load file data');
+          setError(err?.message || 'Failed to load file data');
         }
       })
       .finally(() => setLoadingFileId(null));
@@ -212,6 +309,32 @@ const CardDetail: React.FC = () => {
           uploadedAt: f.uploadedAt,
         });
       });
+
+      if (created.length === 1) {
+        try {
+          const file = created[0];
+          const chartRes = await apiFetch(`/api/files/${file.id}/data`);
+          if (chartRes.ok) {
+            const fileData = await chartRes.json();
+            const suggestion = suggestChartSelection(fileData.columns || [], fileData.rows || []);
+            if (suggestion) {
+              navigate('/charts', {
+                state: {
+                  file: {
+                    id: file.id,
+                    name: file.name,
+                    rows: fileData.rows || [],
+                  },
+                  selectedCols: suggestion.selectedCols,
+                  chartType: suggestion.chartType,
+                },
+              });
+            }
+          }
+        } catch {
+          // Ignore chart suggestion failures to keep upload successful.
+        }
+      }
     } catch (err: any) {
       const message =
         err?.response?.data?.message ||
@@ -1236,9 +1359,18 @@ const CardDetail: React.FC = () => {
               ) : (
                 <div className="h-full p-6 overflow-auto">
                   <div className="bg-white rounded-xl p-4 border border-amber-100 shadow-sm h-full">
-                    <pre className="text-xs whitespace-pre-wrap text-gray-800 font-mono">
-                      {activeFile.textContent}
-                    </pre>
+                    {activeFile.textContent ? (
+                      <pre className="text-xs whitespace-pre-wrap text-gray-800 font-mono">
+                        {activeFile.textContent}
+                      </pre>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-center px-6">
+                        <p className="text-sm font-semibold text-gray-700">No columns found for this file</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          This file has no detected table header. Try re-uploading with a valid CSV/XLSX header row.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -4,9 +4,11 @@ export const getEncryptionKey = () => {
   return raw.trim() || null;
 };
 
+const DATA_JSON_TEXT_EXPR = "CAST(data_json AS CHAR CHARACTER SET utf8mb4)";
+
 export const buildDataJsonExpr = (key: string | null) => {
-  if (!key) return "data_json";
-  return "COALESCE(CAST(AES_DECRYPT(data_json, ?) AS JSON), CAST(data_json AS JSON))";
+  if (!key) return DATA_JSON_TEXT_EXPR;
+  return `COALESCE(CAST(AES_DECRYPT(data_json, ?) AS CHAR CHARACTER SET utf8mb4), ${DATA_JSON_TEXT_EXPR})`;
 };
 
 export const buildKeyParams = (key: string | null, count: number) => {

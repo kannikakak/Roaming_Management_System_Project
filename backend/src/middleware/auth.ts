@@ -13,9 +13,13 @@ type JwtPayload = AuthUser & {
   exp?: number;
 };
 
-const jwtSecret = process.env.JWT_SECRET || "dev_secret_change_me";
+const getJwtSecret = () => String(process.env.JWT_SECRET || "").trim();
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const jwtSecret = getJwtSecret();
+  if (!jwtSecret) {
+    return res.status(500).json({ message: "JWT secret is not configured" });
+  }
   const header = req.headers.authorization || "";
   const [type, token] = header.split(" ");
   if (type !== "Bearer" || !token) {

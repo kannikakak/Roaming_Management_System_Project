@@ -33,12 +33,24 @@ Environment-based security controls (set in `.env`):
 - `DATA_ENCRYPTION_KEY`: AES key for encrypting `file_rows.data_json` at rest.
 - `DATA_ENCRYPTION_REQUIRED`: set to `true` to enforce encryption (required in production).
 - `FORCE_HTTPS`: set to `true` to require HTTPS for all requests.
+- `ALLOW_INSECURE_HTTP`: if `true`, bypasses strict HTTPS startup enforcement (not recommended in production).
+- `DB_SSL_ENABLED`, `DB_SSL_CA`, `DB_SSL_CERT`, `DB_SSL_KEY`, `DB_SSL_REJECT_UNAUTHORIZED`: DB TLS controls.
+- `DB_SSL_REQUIRED`: require DB TLS in production/runtime validation.
+- `DB_BLOCK_ENCRYPTION_MODE`: set DB session block mode (recommended `aes-256-ecb`) for MySQL AES functions.
 - `AUTH_RATE_LIMIT_WINDOW_MS`, `AUTH_RATE_LIMIT_MAX`: auth endpoint rate limiting.
 - `FILE_UPLOAD_RATE_LIMIT_WINDOW_MS`, `FILE_UPLOAD_RATE_LIMIT_MAX`: upload rate limiting.
+- `INGESTION_RATE_LIMIT_WINDOW_MS`, `INGESTION_RATE_LIMIT_MAX`: ingestion endpoint rate limiting.
 - `DATA_RETENTION_ENABLED`: enable retention job (true/false).
 - `DATA_RETENTION_DAYS`: delete/archive files older than this many days.
 - `DATA_RETENTION_MODE`: `delete` or `archive`.
 - `DATA_RETENTION_DELETE_FILES`: delete uploaded files from disk (true/false).
+- `DATA_RETENTION_CHECK_HOURS`: retention scheduler interval.
+
+Admin compliance endpoints:
+- `GET /api/system/security-check`: current security compliance snapshot and warnings/errors.
+- `GET /api/system/retention`: current retention settings.
+- `PUT /api/system/retention`: update retention settings.
+- `POST /api/system/retention/run?dryRun=true`: run retention on demand (dry-run or execute).
 
 ## Running the Application
 

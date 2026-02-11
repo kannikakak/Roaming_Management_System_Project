@@ -43,6 +43,9 @@ export function fileRoutes(dbPool: Pool) {
   const uploadLimiter = createRateLimiter({
     windowMs: Number(process.env.FILE_UPLOAD_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000),
     max: Number(process.env.FILE_UPLOAD_RATE_LIMIT_MAX || 30),
+    keyBy: "ip-user",
+    scope: "file-upload",
+    message: "Upload rate limit exceeded. Please wait before uploading again.",
   });
 
   // List files for a card

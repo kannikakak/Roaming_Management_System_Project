@@ -10,9 +10,19 @@ import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
 
-const jwtSecret = (process.env.JWT_SECRET || "dev_secret_change_me") as jwt.Secret;
+const getJwtSecret = (): jwt.Secret => {
+  const secret = String(process.env.JWT_SECRET || "").trim();
+  if (!secret) throw new Error("JWT_SECRET is not configured");
+  return secret as jwt.Secret;
+};
+
+const getRefreshTokenSecret = (): jwt.Secret => {
+  const secret = String(process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET || "").trim();
+  if (!secret) throw new Error("REFRESH_TOKEN_SECRET is not configured");
+  return secret as jwt.Secret;
+};
+
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
-const refreshTokenSecret = (process.env.REFRESH_TOKEN_SECRET || jwtSecret) as jwt.Secret;
 const refreshTokenExpiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || "30d";
 const selfRegisterRoles = process.env.SELF_REGISTER_ROLES || "viewer";
 const mfaTokenExpiresIn = process.env.MFA_TOKEN_EXPIRES_IN || "10m";
@@ -24,6 +34,18 @@ const msRedirectUri = process.env.MS_REDIRECT_URI || "";
 const msScope = process.env.MS_SCOPE || "openid profile email";
 const msDefaultRole = process.env.MS_DEFAULT_ROLE || "viewer";
 const mfaIssuer = process.env.MFA_ISSUER || "Cellcard";
+const mfaNumberMatchingEnabled = !["0", "false", "off", "no"].includes(
+  String(process.env.MFA_NUMBER_MATCHING || "true").trim().toLowerCase()
+);
+const localLoginEnabled = !["0", "false", "off", "no"].includes(
+  String(process.env.AUTH_LOCAL_LOGIN_ENABLED || "true").trim().toLowerCase()
+);
+const localRegisterEnabled = !["0", "false", "off", "no"].includes(
+  String(process.env.AUTH_LOCAL_REGISTER_ENABLED || "true").trim().toLowerCase()
+);
+const trustMicrosoftUpstreamMfa = !["0", "false", "off", "no"].includes(
+  String(process.env.MS_TRUST_UPSTREAM_MFA || "true").trim().toLowerCase()
+);
 
 type UserSchemaInfo = {
   hasFullName: boolean;
@@ -87,7 +109,7 @@ async function hasAnyUsers(dbPool: Pool) {
 function createAuthToken(userId: number, email: string, roles: Role[]) {
   const primary = roles[0] ?? ensureRole(undefined);
   const options: jwt.SignOptions = { expiresIn: jwtExpiresIn as any };
-  return jwt.sign({ id: userId, email, role: primary, roles }, jwtSecret, options);
+  return jwt.sign({ id: userId, email, role: primary, roles }, getJwtSecret(), options);
 }
 
 function createRefreshToken(userId: number, email: string, roles: Role[]) {
@@ -95,15 +117,30 @@ function createRefreshToken(userId: number, email: string, roles: Role[]) {
   const options: jwt.SignOptions = { expiresIn: refreshTokenExpiresIn as any };
   return jwt.sign(
     { id: userId, email, role: primary, roles, jti: crypto.randomUUID() },
-    refreshTokenSecret,
+    getRefreshTokenSecret(),
     options
   );
 }
 
-function createMfaToken(userId: number, email: string, roles: Role[]) {
+function createMfaToken(
+  userId: number,
+  email: string,
+  roles: Role[],
+  numberChallenge?: string
+) {
   const primary = roles[0] ?? ensureRole(undefined);
   const options: jwt.SignOptions = { expiresIn: mfaTokenExpiresIn as any };
-  return jwt.sign({ id: userId, email, role: primary, roles, mfa: true }, jwtSecret, options);
+  const payload: any = { id: userId, email, role: primary, roles, mfa: true };
+  if (numberChallenge) payload.numberChallenge = numberChallenge;
+  return jwt.sign(payload, getJwtSecret(), options);
+}
+
+function createMfaChallenge(roles: Role[], userId: number, email: string) {
+  const numberChallenge = mfaNumberMatchingEnabled
+    ? String(10 + crypto.randomInt(90))
+    : undefined;
+  const mfaToken = createMfaToken(userId, email, roles, numberChallenge);
+  return { mfaToken, numberChallenge };
 }
 
 function buildUserPayload(user: any, role: string, schema: UserSchemaInfo, roles?: Role[]) {
@@ -258,6 +295,11 @@ function generateRandomPassword() {
 }
 
 export const register = (dbPool: Pool) => async (req: Request, res: Response) => {
+  if (!localRegisterEnabled) {
+    return res.status(403).json({
+      message: "Self-registration is disabled. Please use Microsoft sign-in.",
+    });
+  }
   const { name, email, password, role } = req.body;
   const nameRaw = typeof name === "string" ? name : String(name || "");
   const emailRaw = typeof email === "string" ? email : String(email || "");
@@ -339,6 +381,11 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
 };
 
 export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
+  if (!localLoginEnabled) {
+    return res.status(403).json({
+      message: "Local email/password login is disabled. Please use Microsoft sign-in.",
+    });
+  }
   const { email, password } = req.body;
   const emailRaw = typeof email === "string" ? email : String(email || "");
   const passwordRaw = typeof password === "string" ? password : String(password || "");
@@ -394,12 +441,20 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         .map((r: string) => normalizeRoleConst(r))
         .filter((r): r is Role => Boolean(r));
       const rolesArr = roles.length ? roles : [primaryRole];
-      const twoFactorEnabled = schema.hasTwoFactorEnabled && user.two_factor_enabled === 1;
+      const twoFactorEnabled =
+        !trustMicrosoftUpstreamMfa &&
+        schema.hasTwoFactorEnabled &&
+        user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
-        const mfaToken = createMfaToken(user.id, user.email, rolesArr);
+        const { mfaToken, numberChallenge } = createMfaChallenge(
+          rolesArr,
+          user.id,
+          user.email
+        );
         return res.json({
           requires2fa: true,
           mfaToken,
+          numberChallenge,
           user: { id: user.id, email: user.email },
         });
       }
@@ -445,12 +500,20 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
 
       const role = ensureRole(user.role);
       const rolesArr: Role[] = [role];
-      const twoFactorEnabled = schema.hasTwoFactorEnabled && user.two_factor_enabled === 1;
+      const twoFactorEnabled =
+        !trustMicrosoftUpstreamMfa &&
+        schema.hasTwoFactorEnabled &&
+        user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
-        const mfaToken = createMfaToken(user.id, user.email, rolesArr);
+        const { mfaToken, numberChallenge } = createMfaChallenge(
+          rolesArr,
+          user.id,
+          user.email
+        );
         return res.json({
           requires2fa: true,
           mfaToken,
+          numberChallenge,
           user: { id: user.id, email: user.email },
         });
       }
@@ -728,20 +791,30 @@ export const disableTwoFactor = (dbPool: Pool) => async (req: Request, res: Resp
 };
 
 export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { mfaToken, code } = req.body as { mfaToken?: string; code?: string };
+  const { mfaToken, code, numberChallengeAnswer } = req.body as {
+    mfaToken?: string;
+    code?: string;
+    numberChallengeAnswer?: string;
+  };
   if (!mfaToken || !code) {
     return res.status(400).json({ message: "mfaToken and code are required." });
   }
 
   let payload: any = null;
   try {
-    payload = jwt.verify(mfaToken, jwtSecret) as any;
+    payload = jwt.verify(mfaToken, getJwtSecret()) as any;
   } catch {
     return res.status(401).json({ message: "Invalid verification token." });
   }
 
   if (!payload?.mfa || !payload?.id) {
     return res.status(401).json({ message: "Invalid verification token." });
+  }
+  if (payload?.numberChallenge) {
+    const provided = String(numberChallengeAnswer || "").trim();
+    if (provided !== String(payload.numberChallenge)) {
+      return res.status(400).json({ message: "Number challenge is invalid." });
+    }
   }
 
   const schema = await getUserSchemaInfo(dbPool);
@@ -836,7 +909,7 @@ export const startMicrosoftLogin = () => async (_req: Request, res: Response) =>
   try {
     const client = await getMicrosoftClient();
     const nonce = generators.nonce();
-    const state = jwt.sign({ nonce }, jwtSecret, { expiresIn: "10m" });
+    const state = jwt.sign({ nonce }, getJwtSecret(), { expiresIn: "10m" });
     const url = client.authorizationUrl({
       scope: msScope,
       response_type: "code",
@@ -869,7 +942,7 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
 
   let statePayload: any = null;
   try {
-    statePayload = jwt.verify(stateParam, jwtSecret) as any;
+    statePayload = jwt.verify(stateParam, getJwtSecret()) as any;
   } catch {
     return res.redirect(`${redirectBase}?error=Invalid%20state`);
   }
@@ -1007,8 +1080,15 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
       const rolesArr = roles.length ? roles : [primaryRole];
       const twoFactorEnabled = schema.hasTwoFactorEnabled && user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
-        const mfaToken = createMfaToken(user.id, user.email, rolesArr);
-        return res.redirect(`${redirectBase}?mfaToken=${encodeURIComponent(mfaToken)}`);
+        const { mfaToken, numberChallenge } = createMfaChallenge(
+          rolesArr,
+          user.id,
+          user.email
+        );
+        const query = `mfaToken=${encodeURIComponent(mfaToken)}${
+          numberChallenge ? `&mfaChallenge=${encodeURIComponent(numberChallenge)}` : ""
+        }`;
+        return res.redirect(`${redirectBase}?${query}`);
       }
 
       const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
@@ -1087,8 +1167,15 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
       const role = ensureRole(user.role, ensureRole(msDefaultRole));
       const twoFactorEnabled = schema.hasTwoFactorEnabled && user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
-        const mfaToken = createMfaToken(user.id, user.email, [role]);
-        return res.redirect(`${redirectBase}?mfaToken=${encodeURIComponent(mfaToken)}`);
+        const { mfaToken, numberChallenge } = createMfaChallenge(
+          [role],
+          user.id,
+          user.email
+        );
+        const query = `mfaToken=${encodeURIComponent(mfaToken)}${
+          numberChallenge ? `&mfaChallenge=${encodeURIComponent(numberChallenge)}` : ""
+        }`;
+        return res.redirect(`${redirectBase}?${query}`);
       }
 
       const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, [role]);
@@ -1112,7 +1199,7 @@ export const refreshToken = (dbPool: Pool) => async (req: Request, res: Response
 
   let payload: any = null;
   try {
-    payload = jwt.verify(token, refreshTokenSecret) as any;
+    payload = jwt.verify(token, getRefreshTokenSecret()) as any;
   } catch {
     return res.status(401).json({ message: "Invalid refresh token." });
   }

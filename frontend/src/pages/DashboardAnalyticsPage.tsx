@@ -7,9 +7,6 @@ import {
   Filter,
   Download,
   Sparkles,
-  BarChart2,
-  FileText,
-  Calendar,
 } from "lucide-react";
 import {
   LineChart,
@@ -60,17 +57,6 @@ type AnalyticsFilterState = {
 
 type ExportFormat = "excel" | "pdf" | "png" | "json" | "xml";
 
-type Project = { id: number; name: string };
-
-type NotificationItem = {
-  id: number;
-  type: string;
-  message: string;
-  channel: string;
-  read_at: string | null;
-  created_at: string;
-};
-
 const ACCENT = "#F59E0B";
 const ACCENT_SOFT = "#FCD34D";
 const PIE_COLORS = [
@@ -110,7 +96,6 @@ const DashboardAnalyticsPage: React.FC = () => {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [, setAnalyticsLastUpdated] = useState<Date | null>(null);
-  const [, setOpsLastUpdated] = useState<Date | null>(null);
   const [filterInputs, setFilterInputs] = useState<AnalyticsFilterState>({
     startDate: "",
     endDate: "",
@@ -123,14 +108,6 @@ const DashboardAnalyticsPage: React.FC = () => {
   const chartRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [refreshTick, setRefreshTick] = useState(0);
   const filterDebounceRef = useRef<number | null>(null);
-
-  const [opsLoading, setOpsLoading] = useState(true);
-  const [filesCount, setFilesCount] = useState(0);
-  const [reportsCount, setReportsCount] = useState(0);
-  const [schedulesCount, setSchedulesCount] = useState(0);
-  const [, setUnreadCount] = useState(0);
-  const [, setDeliveries] = useState<NotificationItem[]>([]);
-  const [, setAvgQualityScore] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -183,73 +160,6 @@ const DashboardAnalyticsPage: React.FC = () => {
     };
   }, [filterInputs]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const loadOps = async () => {
-      try {
-        setOpsLoading(true);
-        const storedUser = localStorage.getItem("authUser");
-        const userId = storedUser ? JSON.parse(storedUser).id : 1;
-
-        const projectsRes = await apiFetch(`/api/projects?user_id=${userId}`);
-        const projectsData = (await projectsRes.json()) || [];
-        if (!mounted) return;
-        const safeProjects = Array.isArray(projectsData) ? projectsData : [];
-
-        const filePromises = (safeProjects || []).map((p: Project) =>
-          apiFetch(`/api/files?projectId=${p.id}`)
-            .then((r) => r.json())
-            .then((d) => ({
-              id: p.id,
-              count: (d.files || []).length,
-              qualityScores: (d.files || [])
-                .map((f: any) => (typeof f.qualityScore === "number" ? f.qualityScore : null))
-                .filter((v: number | null) => v !== null),
-            }))
-            .catch(() => ({ id: p.id, count: 0, qualityScores: [] }))
-        );
-        const counts = await Promise.all(filePromises);
-        if (!mounted) return;
-        setFilesCount(counts.reduce((sum, c) => sum + c.count, 0));
-        const allScores = counts.flatMap((c) => c.qualityScores || []);
-        if (allScores.length) {
-          const avg = allScores.reduce((sum, v) => sum + v, 0) / allScores.length;
-          setAvgQualityScore(Math.round(avg * 10) / 10);
-        } else {
-          setAvgQualityScore(null);
-        }
-
-        const reportsRes = await apiFetch("/api/reports");
-        const reportsData = await reportsRes.json();
-        if (mounted) setReportsCount(Array.isArray(reportsData) ? reportsData.length : 0);
-
-        const schedulesRes = await apiFetch("/api/schedules");
-        const schedulesData = await schedulesRes.json();
-        if (mounted) setSchedulesCount(Array.isArray(schedulesData) ? schedulesData.length : 0);
-
-        const notificationsRes = await apiFetch("/api/notifications");
-        const notificationsData = await notificationsRes.json();
-        const list = Array.isArray(notificationsData) ? notificationsData : [];
-        if (mounted) {
-          setUnreadCount(list.filter((n: NotificationItem) => !n.read_at).length);
-          setDeliveries(list.filter((n: NotificationItem) => n.type?.startsWith("schedule_")).slice(0, 5));
-        }
-
-        if (mounted) setOpsLastUpdated(new Date());
-      } finally {
-        if (mounted) setOpsLoading(false);
-      }
-    };
-
-    loadOps();
-    const id = window.setInterval(loadOps, AUTO_REFRESH_MS);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
-  }, []);
-
   const chartPalette = useMemo(
     () => ({
       axis: "#9CA3AF",
@@ -262,8 +172,9 @@ const DashboardAnalyticsPage: React.FC = () => {
 
   const summary = useMemo(() => {
     const countries = analytics?.countryShare.length ?? 0;
+    const partners = analytics?.partnerShare.length ?? 0;
     const uploadsTotal = (analytics?.uploadTrend ?? []).reduce((sum, d) => sum + d.files, 0);
-    return { countries, uploadsTotal };
+    return { countries, partners, uploadsTotal };
   }, [analytics]);
 
   const activeFilterChips = useMemo(() => {
@@ -492,13 +403,20 @@ const DashboardAnalyticsPage: React.FC = () => {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 min-w-[240px]">
+            <div className="grid grid-cols-3 gap-3 min-w-[360px]">
               <div className="rounded-2xl border border-amber-100 bg-white/70 p-3 text-xs text-gray-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500">Uploads</div>
                 <div className="text-2xl font-bold text-gray-900 mt-1 dark:text-gray-100">
                   {formatCompact(summary.uploadsTotal)}
                 </div>
                 <div className="text-[11px]">Files processed</div>
+              </div>
+              <div className="rounded-2xl border border-amber-100 bg-white/70 p-3 text-xs text-gray-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500">Partners</div>
+                <div className="text-2xl font-bold text-gray-900 mt-1 dark:text-gray-100">
+                  {formatNumber(summary.partners)}
+                </div>
+                <div className="text-[11px]">Active partners</div>
               </div>
               <div className="rounded-2xl border border-amber-100 bg-white/70 p-3 text-xs text-gray-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500">Coverage</div>
@@ -509,53 +427,6 @@ const DashboardAnalyticsPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {[
-            {
-              label: "Files Uploaded",
-              value: formatNumber(filesCount),
-              hint: "Across all projects",
-              icon: <Database className="w-5 h-5" color={ACCENT} />,
-            },
-            {
-              label: "Charts Created",
-              value: formatNumber(Math.max(0, reportsCount + 2)),
-              hint: "Visual insights generated",
-              icon: <BarChart2 className="w-5 h-5" color={ACCENT} />,
-            },
-            {
-              label: "Reports",
-              value: formatNumber(reportsCount),
-              hint: "Saved to library",
-              icon: <FileText className="w-5 h-5" color={ACCENT} />,
-            },
-            {
-              label: "Active Schedules",
-              value: formatNumber(schedulesCount),
-              hint: "Automation running",
-              icon: <Calendar className="w-5 h-5" color={ACCENT} />,
-            },
-          ].map((card) => (
-            <div
-              key={card.label}
-              className="rounded-[22px] border border-amber-200/60 bg-white p-5 shadow-[0_12px_30px_rgba(245,158,11,0.06)] transition-transform duration-300 hover:-translate-y-1 dark:border-white/10 dark:bg-white/5"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-gray-400">{card.label}</p>
-                  <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {opsLoading ? "..." : card.value}
-                  </p>
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{card.hint}</p>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 shadow-inner shadow-amber-100/70 dark:bg-white/10">
-                  {card.icon}
-                </div>
-              </div>
-            </div>
-          ))}
         </section>
 
         <section className="bg-white/90 border border-amber-100 rounded-2xl p-4 shadow-sm backdrop-blur dark:bg-white/5 dark:border-white/10">

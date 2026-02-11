@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
 import fs from "fs/promises";
-import { runIngestionScanOnce } from "../services/ingestionService";
+import { normalizeLocalSourceConfig, runIngestionScanOnce } from "../services/ingestionService";
 
 type SourceInput = {
   name?: string;
@@ -51,8 +51,10 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
   if (type !== "local") {
     return res.status(400).json({ message: "Only local sources are supported right now." });
   }
-  if (!connectionConfig?.path) {
-    return res.status(400).json({ message: "connectionConfig.path is required for local sources" });
+
+  const normalizedConfig = normalizeLocalSourceConfig(connectionConfig);
+  if (!normalizedConfig.directories.length) {
+    return res.status(400).json({ message: "connectionConfig.path (or paths) is required for local sources" });
   }
 
   try {
@@ -63,7 +65,15 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
       [
         name,
         type,
-        JSON.stringify(connectionConfig),
+        JSON.stringify({
+          ...connectionConfig,
+          path: normalizedConfig.directories[0],
+          paths: normalizedConfig.directories,
+          recursive: normalizedConfig.recursive,
+          maxDepth: normalizedConfig.maxDepth,
+          maxFiles: normalizedConfig.maxFiles,
+          extensions: normalizedConfig.allowedExtensions,
+        }),
         filePattern || "*",
         Number.isFinite(pollIntervalMinutes) ? pollIntervalMinutes : 5,
         enabled ? 1 : 0,
@@ -100,8 +110,22 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
     values.push(type);
   }
   if (body.connectionConfig !== undefined) {
+    const normalizedConfig = normalizeLocalSourceConfig(body.connectionConfig || {});
+    if (!normalizedConfig.directories.length) {
+      return res.status(400).json({ message: "connectionConfig.path (or paths) is required" });
+    }
     fields.push("connection_config = ?");
-    values.push(JSON.stringify(body.connectionConfig || {}));
+    values.push(
+      JSON.stringify({
+        ...(body.connectionConfig || {}),
+        path: normalizedConfig.directories[0],
+        paths: normalizedConfig.directories,
+        recursive: normalizedConfig.recursive,
+        maxDepth: normalizedConfig.maxDepth,
+        maxFiles: normalizedConfig.maxFiles,
+        extensions: normalizedConfig.allowedExtensions,
+      })
+    );
   }
   if (body.filePattern !== undefined) {
     fields.push("file_pattern = ?");
@@ -156,11 +180,21 @@ export const testSource = (dbPool: Pool) => async (req: Request, res: Response) 
     const config = typeof source.connectionConfig === "string"
       ? JSON.parse(source.connectionConfig)
       : source.connectionConfig;
-    if (!config?.path) {
-      return res.status(400).json({ message: "connection_config.path is missing" });
+
+    const normalizedConfig = normalizeLocalSourceConfig(config);
+    if (!normalizedConfig.directories.length) {
+      return res.status(400).json({ message: "connection_config.path (or paths) is missing" });
     }
-    await fs.access(config.path);
-    res.json({ ok: true });
+
+    for (const dir of normalizedConfig.directories) {
+      await fs.access(dir);
+    }
+
+    res.json({
+      ok: true,
+      directories: normalizedConfig.directories,
+      recursive: normalizedConfig.recursive,
+    });
   } catch (err) {
     res.status(500).json({ message: "Connection test failed.", error: err });
   }

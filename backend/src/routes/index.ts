@@ -22,6 +22,7 @@ import { exportRoutes } from "./exportRoutes";
 import { ingestionSourceRoutes } from "./ingestionSourceRoutes";
 import { impactRoutes } from "./impactRoutes";
 import { dataQualityRoutes } from "./dataQualityRoutes";
+import { operationsRoutes } from "./operationsRoutes";
 // ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -94,4 +95,7 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Data quality summaries
   app.use("/api/data-quality", dataQualityRoutes(dbPool));
+
+  // Operations snapshot and telemetry
+  app.use("/api/operations", operationsRoutes(dbPool));
 };

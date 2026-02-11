@@ -232,7 +232,13 @@ export function startScheduler(dbPool: Pool) {
         const interval = retentionConfig.intervalHours * 60 * 60 * 1000;
         if (now - lastRetentionRun < interval) return;
         lastRetentionRun = now;
-        return runDataRetention(dbPool);
+        return runDataRetention(dbPool).then((summary) => {
+          if (summary.filesFound > 0 || summary.filesDeleted > 0) {
+            console.log(
+              `[retention] mode=${summary.mode} found=${summary.filesFound} deleted=${summary.filesDeleted} archived=${summary.filesArchived}`
+            );
+          }
+        });
       })
       .catch((err) => {
         console.error("Retention error:", err);

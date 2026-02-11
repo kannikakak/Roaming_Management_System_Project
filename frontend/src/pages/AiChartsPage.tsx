@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -17,7 +18,7 @@ import { useTheme } from "../theme/ThemeProvider";
 
 type Project = { id: number; name: string };
 type FileItem = { id: number; name: string };
-type QaItem = { value: string; count: number };
+type QaItem = { value: string; count: number; compare?: number | null };
 type InsightDailyPoint = {
   day: string;
   rows: number;
@@ -111,6 +112,8 @@ const AiChartsPage: React.FC = () => {
   const [qaColumns, setQaColumns] = useState<string[]>([]);
   const [qaValue, setQaValue] = useState<number | null>(null);
   const [qaIntent, setQaIntent] = useState<string | null>(null);
+  const [qaColumn, setQaColumn] = useState<string | null>(null);
+  const [qaCompareColumn, setQaCompareColumn] = useState<string | null>(null);
   const [chartType, setChartType] = useState<(typeof CHART_TYPES)[number]>("Line");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -135,6 +138,8 @@ const AiChartsPage: React.FC = () => {
     setQaColumns([]);
     setQaValue(null);
     setQaIntent(null);
+    setQaColumn(null);
+    setQaCompareColumn(null);
     setError("");
   }, []);
 
@@ -232,8 +237,16 @@ const AiChartsPage: React.FC = () => {
       qaItems.map((item) => ({
         label: String(item.value ?? "Unknown"),
         count: Number(item.count || 0),
+        compare:
+          item.compare === null || item.compare === undefined
+            ? undefined
+            : Number(item.compare || 0),
       })),
     [qaItems]
+  );
+  const hasCompareSeries = useMemo(
+    () => chartData.some((item) => Number.isFinite(item.compare as number)),
+    [chartData]
   );
 
   const submitQuestion = useCallback(async (raw: string, options: { force?: boolean } = {}) => {
@@ -267,16 +280,29 @@ const AiChartsPage: React.FC = () => {
         body: JSON.stringify({ projectId, question: trimmed }),
         signal: controller.signal,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || "Failed to answer the question.");
+      const contentType = res.headers.get("content-type") || "";
+      let data: any = null;
+      if (contentType.includes("application/json")) {
+        data = await res.json().catch(() => null);
       } else {
-        setAnswer(data.answer || "No answer returned.");
-        setQaItems(Array.isArray(data.items) ? data.items : []);
-        setQaColumns(Array.isArray(data.columns) ? data.columns : []);
-        const numericValue = Number(data.value);
+        const text = await res.text().catch(() => "");
+        data = text ? { message: text } : null;
+      }
+
+      if (!res.ok) {
+        const message =
+          (typeof data?.message === "string" && data.message.trim()) ||
+          `Request failed with status ${res.status}.`;
+        setError(message);
+      } else {
+        setAnswer(data?.answer || "No answer returned.");
+        setQaItems(Array.isArray(data?.items) ? data.items : []);
+        setQaColumns(Array.isArray(data?.columns) ? data.columns : []);
+        const numericValue = Number(data?.value);
         setQaValue(Number.isFinite(numericValue) ? numericValue : null);
-        setQaIntent(typeof data.intent === "string" ? data.intent : null);
+        setQaIntent(typeof data?.intent === "string" ? data.intent : null);
+        setQaColumn(typeof data?.column === "string" ? data.column : null);
+        setQaCompareColumn(typeof data?.compareColumn === "string" ? data.compareColumn : null);
       }
     } catch (err) {
       if ((err as any)?.name === "AbortError") return;
@@ -302,6 +328,7 @@ const AiChartsPage: React.FC = () => {
   const suggestions = [
     "How many rows are in this file?",
     "Top 5 values of Service",
+    "Compare Revenue vs Cost by Country",
     "Average of Revenue",
     "Distinct values of KPI",
   ];
@@ -562,7 +589,23 @@ const AiChartsPage: React.FC = () => {
                     <XAxis dataKey="label" stroke="#6b7280" />
                     <YAxis stroke="#6b7280" />
                     <Tooltip />
-                    <Line type="monotone" dataKey="count" stroke="#b45309" strokeWidth={2} />
+                    {hasCompareSeries && <Legend />}
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      name={qaColumn || "Value"}
+                      stroke="#b45309"
+                      strokeWidth={2}
+                    />
+                    {hasCompareSeries && (
+                      <Line
+                        type="monotone"
+                        dataKey="compare"
+                        name={qaCompareColumn || "Compare"}
+                        stroke="#1d4ed8"
+                        strokeWidth={2}
+                      />
+                    )}
                   </LineChart>
                 ) : (
                   <BarChart data={chartData}>
@@ -570,7 +613,21 @@ const AiChartsPage: React.FC = () => {
                     <XAxis dataKey="label" stroke="#6b7280" />
                     <YAxis stroke="#6b7280" />
                     <Tooltip />
-                    <Bar dataKey="count" fill="#f59e0b" radius={[8, 8, 0, 0]} />
+                    {hasCompareSeries && <Legend />}
+                    <Bar
+                      dataKey="count"
+                      name={qaColumn || "Value"}
+                      fill="#f59e0b"
+                      radius={[8, 8, 0, 0]}
+                    />
+                    {hasCompareSeries && (
+                      <Bar
+                        dataKey="compare"
+                        name={qaCompareColumn || "Compare"}
+                        fill="#3b82f6"
+                        radius={[8, 8, 0, 0]}
+                      />
+                    )}
                   </BarChart>
                 )}
               </ResponsiveContainer>

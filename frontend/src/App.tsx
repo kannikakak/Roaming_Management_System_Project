@@ -24,7 +24,6 @@ import SystemSecurityPage from "./pages/SystemSecurityPage";
 import { getAuthToken } from "./utils/api";
 import GlobalSearchPage from "./pages/GlobalSearchPage";
 import DashboardAnalyticsPage from "./pages/DashboardAnalyticsPage";
-import OperationsCenterPage from "./pages/OperationsCenterPage";
 import DataQualityPage from "./pages/DataQualityPage";
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -85,13 +84,7 @@ const App: React.FC = () => (
       />
       <Route
         path="/operations"
-        element={
-          <RequireAuth>
-            <MainLayout>
-              <OperationsCenterPage />
-            </MainLayout>
-          </RequireAuth>
-        }
+        element={<Navigate to="/dashboard" replace />}
       />
       <Route
         path="/data-quality"

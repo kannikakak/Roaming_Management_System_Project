@@ -763,17 +763,80 @@ export const getFileData = (dbPool: Pool) => async (req: Request, res: Response)
       "SELECT name FROM file_columns WHERE file_id = ? ORDER BY position ASC",
       [access.fileId]
     );
-    const columns = colRows.map((c: any) => c.name);
+    let columns: string[] = Array.isArray(colRows)
+      ? colRows
+          .map((c: any) => String(c?.name || "").trim())
+          .filter(Boolean)
+      : [];
 
     const [rowRows]: any = await dbPool.query(
       `SELECT ${dataJsonExpr} as data_json FROM file_rows WHERE file_id = ? ORDER BY row_index ASC`,
       [...buildKeyParams(encryptionKey, 1), access.fileId]
     );
-    const rows = rowRows.map((r: any) => JSON.parse(r.data_json));
+    const rows = rowRows.map((r: any, index: number) => {
+      const value = r?.data_json;
+      if (value === null || value === undefined) {
+        throw new Error(
+          `Unable to decode file rows. Check encryption key configuration (row ${index}).`
+        );
+      }
+      if (typeof value === "object") {
+        return value;
+      }
+      try {
+        return JSON.parse(String(value));
+      } catch {
+        throw new Error(
+          `Unable to decode file rows. Check encryption key configuration (row ${index}).`
+        );
+      }
+    });
+
+    // Backward compatibility: for legacy files that have row JSON but missing
+    // file_columns metadata, infer columns from row keys and persist them.
+    if (columns.length === 0 && rows.length > 0) {
+      const inferred: string[] = [];
+      const seen = new Set<string>();
+
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        for (const key of Object.keys(row)) {
+          const name = String(key || "").trim();
+          const lower = name.toLowerCase();
+          if (!name || seen.has(lower)) continue;
+          seen.add(lower);
+          inferred.push(name);
+        }
+      }
+
+      if (inferred.length > 0) {
+        columns = inferred;
+        const connection = await dbPool.getConnection();
+        try {
+          await connection.beginTransaction();
+          await connection.query("DELETE FROM file_columns WHERE file_id = ?", [access.fileId]);
+          for (let i = 0; i < columns.length; i += 1) {
+            await connection.query(
+              "INSERT INTO file_columns (file_id, name, position) VALUES (?, ?, ?)",
+              [access.fileId, columns[i], i]
+            );
+          }
+          await connection.commit();
+        } catch (persistErr: any) {
+          await connection.rollback();
+          console.warn(
+            `[files] failed to persist inferred columns for file ${access.fileId}:`,
+            persistErr?.message || persistErr
+          );
+        } finally {
+          connection.release();
+        }
+      }
+    }
 
     res.json({ columns, rows, textContent, quality });
-  } catch (err) {
-    res.status(500).json({ message: "Database error", error: err });
+  } catch (err: any) {
+    res.status(500).json({ message: err?.message || "Database error", error: err?.message || err });
   }
 };
 

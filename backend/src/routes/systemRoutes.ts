@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { Pool } from "mysql2/promise";
 import { requireAuth, requireRole } from "../middleware/auth";
-import { RetentionConfig, loadRetentionConfig, saveRetentionConfig } from "../services/dataRetention";
+import { RetentionConfig, loadRetentionConfig, runDataRetention, saveRetentionConfig } from "../services/dataRetention";
+import { getSecurityComplianceSnapshot } from "../utils/securityCompliance";
 
 export function systemRoutes(dbPool: Pool) {
   const router = Router();
@@ -26,23 +27,7 @@ export function systemRoutes(dbPool: Pool) {
   router.get("/security-check", async (_req, res) => {
     try {
       const retention = await loadRetentionConfig(dbPool);
-      const hasEncryptionKey = Boolean(
-        (process.env.DATA_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY || "").trim()
-      );
-      const nodeEnv = String(process.env.NODE_ENV || "").toLowerCase();
-      const encryptionRequired =
-        String(process.env.DATA_ENCRYPTION_REQUIRED || "").toLowerCase() === "true" ||
-        nodeEnv === "production";
-      const httpsEnforced = String(process.env.FORCE_HTTPS || "").toLowerCase() === "true";
-
-      const authRateLimit = {
-        windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000),
-        max: Number(process.env.AUTH_RATE_LIMIT_MAX || 20),
-      };
-      const uploadRateLimit = {
-        windowMs: Number(process.env.FILE_UPLOAD_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000),
-        max: Number(process.env.FILE_UPLOAD_RATE_LIMIT_MAX || 30),
-      };
+      const snapshot = getSecurityComplianceSnapshot();
 
       const uploadLimits = {
         maxFileSizeMb: Number(process.env.UPLOAD_MAX_FILE_SIZE_MB || 25),
@@ -57,27 +42,45 @@ export function systemRoutes(dbPool: Pool) {
         command: process.env.MALWARE_SCAN_CMD || "clamscan",
         allowMissing:
           String(process.env.MALWARE_SCAN_ALLOW_MISSING || "").toLowerCase() === "true" ||
-          nodeEnv !== "production",
+          snapshot.nodeEnv !== "production",
       };
 
       res.json({
         ok: true,
         summary: {
-          encryptionRequired,
-          hasEncryptionKey,
-          httpsEnforced,
+          encryptionRequired: snapshot.encryption.required,
+          hasEncryptionKey: snapshot.encryption.hasKey,
+          strongEncryptionKey: snapshot.encryption.strongKey,
+          aes256Mode: snapshot.encryption.aes256Mode,
+          httpsEnforced: snapshot.https.enforced,
+          dbTlsEnabled: snapshot.dbTls.enabled,
           retentionEnabled: retention.enabled,
         },
+        checks: snapshot.checks,
         encryption: {
-          required: encryptionRequired,
-          hasKey: hasEncryptionKey,
+          required: snapshot.encryption.required,
+          hasKey: snapshot.encryption.hasKey,
+          strongKey: snapshot.encryption.strongKey,
+          keyLength: snapshot.encryption.keyLength,
+          blockMode: snapshot.encryption.blockMode,
+          aes256Mode: snapshot.encryption.aes256Mode,
         },
-        https: {
-          enforced: httpsEnforced,
-        },
+        https: snapshot.https,
+        dbTls: snapshot.dbTls,
+        secrets: snapshot.secrets,
         rateLimit: {
-          auth: authRateLimit,
-          upload: uploadRateLimit,
+          auth: {
+            windowMs: snapshot.rateLimit.authWindowMs,
+            max: snapshot.rateLimit.authMax,
+          },
+          upload: {
+            windowMs: snapshot.rateLimit.uploadWindowMs,
+            max: snapshot.rateLimit.uploadMax,
+          },
+          ingestion: {
+            windowMs: Number(process.env.INGESTION_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000),
+            max: Number(process.env.INGESTION_RATE_LIMIT_MAX || 20),
+          },
         },
         upload: {
           limits: uploadLimits,
@@ -88,6 +91,17 @@ export function systemRoutes(dbPool: Pool) {
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, message: err.message || "Failed to load security check" });
+    }
+  });
+
+  router.post("/retention/run", async (req, res) => {
+    try {
+      const dryRunRaw = req.query.dryRun ?? req.body?.dryRun;
+      const dryRun = String(dryRunRaw || "").toLowerCase() === "true";
+      const summary = await runDataRetention(dbPool, { dryRun });
+      res.json({ ok: true, summary });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message || "Failed to run retention policy" });
     }
   });
 

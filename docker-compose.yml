@@ -59,8 +59,18 @@ services:
       MALWARE_SCAN_ENABLED: ${MALWARE_SCAN_ENABLED:-true}
       MALWARE_SCAN_ALLOW_MISSING: ${MALWARE_SCAN_ALLOW_MISSING:-true}
       MALWARE_SCAN_CMD: ${MALWARE_SCAN_CMD:-clamscan}
+
+      # Ingestion runner
+      ENABLE_INGESTION_RUNNER: ${ENABLE_INGESTION_RUNNER:-true}
+      INGEST_POLL_SECONDS: ${INGEST_POLL_SECONDS:-30}
+      INGEST_STABLE_SECONDS: ${INGEST_STABLE_SECONDS:-30}
     volumes:
       - ./backend/uploads:/app/uploads
+      # Host folder for automated ingestion (edit INGEST_HOST_PATH in .env if needed)
+      - type: bind
+        source: ${INGEST_HOST_PATH:-D:/data/roaming}
+        target: /ingest/roaming
+        read_only: true
     ports:
       - "5000:5000"
     healthcheck:
