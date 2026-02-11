@@ -10,6 +10,7 @@ import {
   sendTeams,
   sendTelegram,
 } from "./delivery";
+import { writeAuditLog } from "../utils/auditLogger";
 
 export type ScheduleFrequency = "daily" | "weekly" | "monthly";
 
@@ -131,6 +132,16 @@ export async function runDueSchedules(dbPool: Pool) {
           "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
           [nextRunOnMissingAttachment, schedule.id]
         );
+        await writeAuditLog(dbPool, {
+          actor: "system",
+          action: "schedule_run_skipped",
+          details: {
+            scheduleId: schedule.id,
+            scheduleName: schedule.name,
+            reason: "missing_attachment",
+            attachmentName: schedule.attachment_name || null,
+          },
+        });
         continue;
       }
 
@@ -190,6 +201,20 @@ export async function runDueSchedules(dbPool: Pool) {
         "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
         [nextRun, schedule.id]
       );
+      await writeAuditLog(dbPool, {
+        actor: "system",
+        action: "schedule_run_executed",
+        details: {
+          scheduleId: schedule.id,
+          scheduleName: schedule.name,
+          frequency: schedule.frequency,
+          format: schedule.file_format,
+          recipientsEmailCount: recipientsEmail.length,
+          recipientsTelegramCount: recipientsTelegram.length,
+          deliveryAttempts,
+          nextRunAt: nextRun,
+        },
+      });
     } catch (err: any) {
       // Prevent alert storms: advance the schedule even if a run fails.
       try {
@@ -214,6 +239,15 @@ export async function runDueSchedules(dbPool: Pool) {
           error: err?.message || String(err),
         });
       }
+      await writeAuditLog(dbPool, {
+        actor: "system",
+        action: "schedule_run_failed",
+        details: {
+          scheduleId: schedule.id,
+          scheduleName: schedule.name,
+          error: err?.message || String(err),
+        },
+      });
     }
   }
 }

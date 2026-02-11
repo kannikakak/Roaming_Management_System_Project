@@ -9,6 +9,7 @@ import speakeasy from "speakeasy";
 import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
+import { getAuditActor, writeAuditLog } from "../utils/auditLogger";
 
 const getJwtSecret = (): jwt.Secret => {
   const secret = String(process.env.JWT_SECRET || "").trim();
@@ -99,6 +100,13 @@ async function getUserSchemaInfo(dbPool: Pool): Promise<UserSchemaInfo> {
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function buildAuthContext(req: Request) {
+  return {
+    ip: req.ip || req.socket?.remoteAddress || null,
+    userAgent: req.get("user-agent") || null,
+  };
 }
 
 async function hasAnyUsers(dbPool: Pool) {
@@ -390,6 +398,7 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
   const emailRaw = typeof email === "string" ? email : String(email || "");
   const passwordRaw = typeof password === "string" ? password : String(password || "");
   const normalizedEmail = normalizeEmail(emailRaw);
+  const authContext = buildAuthContext(req);
   if (!normalizedEmail || !passwordRaw) {
     return res.status(400).json({ message: "Email and password are required." });
   }
@@ -409,6 +418,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         [normalizedEmail]
       );
       if (results.length === 0) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "user_not_found", method: "local_password" },
+        });
         if (!(await hasAnyUsers(dbPool))) {
           return res.status(400).json({ message: "No users exist yet. Please register first." });
         }
@@ -417,21 +431,41 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
 
       const user = results[0];
       if (schema.hasIsActive && user.is_active === 0) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "account_disabled", method: "local_password" },
+        });
         return res.status(403).json({ message: "Account disabled." });
       }
       if (schema.hasAuthProvider) {
         const provider = String(user.auth_provider || "").trim().toLowerCase();
         if (provider && provider !== "local") {
           const label = provider === "microsoft" ? "Microsoft" : provider;
+          await writeAuditLog(dbPool, {
+            actor: normalizedEmail,
+            action: "user_login_failed",
+            details: { ...authContext, reason: "provider_mismatch", provider, method: "local_password" },
+          });
           return res.status(400).json({ message: `This account uses ${label} sign-in. Please use ${label} login.` });
         }
       }
       if (!user.password_hash) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "missing_password_hash", method: "local_password" },
+        });
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
       const match = await bcrypt.compare(passwordRaw, user.password_hash);
       if (!match) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "invalid_password", method: "local_password" },
+        });
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
@@ -451,6 +485,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
           user.id,
           user.email
         );
+        await writeAuditLog(dbPool, {
+          actor: user.email,
+          action: "user_login_mfa_challenge",
+          details: { ...authContext, userId: user.id, method: "local_password" },
+        });
         return res.json({
           requires2fa: true,
           mfaToken,
@@ -460,6 +499,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
       }
 
       const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
+      await writeAuditLog(dbPool, {
+        actor: user.email,
+        action: "user_login_success",
+        details: { ...authContext, userId: user.id, roles: rolesArr, method: "local_password" },
+      });
       res.json({
         message: "Login successful.",
         token,
@@ -472,6 +516,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         [normalizedEmail]
       );
       if (results.length === 0) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "user_not_found", method: "local_password" },
+        });
         if (!(await hasAnyUsers(dbPool))) {
           return res.status(400).json({ message: "No users exist yet. Please register first." });
         }
@@ -480,21 +529,41 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
 
       const user = results[0];
       if (schema.hasIsActive && user.is_active === 0) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "account_disabled", method: "local_password" },
+        });
         return res.status(403).json({ message: "Account disabled." });
       }
       if (schema.hasAuthProvider) {
         const provider = String(user.auth_provider || "").trim().toLowerCase();
         if (provider && provider !== "local") {
           const label = provider === "microsoft" ? "Microsoft" : provider;
+          await writeAuditLog(dbPool, {
+            actor: normalizedEmail,
+            action: "user_login_failed",
+            details: { ...authContext, reason: "provider_mismatch", provider, method: "local_password" },
+          });
           return res.status(400).json({ message: `This account uses ${label} sign-in. Please use ${label} login.` });
         }
       }
       if (!user.password) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "missing_password_hash", method: "local_password" },
+        });
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
       const match = await bcrypt.compare(passwordRaw, user.password);
       if (!match) {
+        await writeAuditLog(dbPool, {
+          actor: normalizedEmail,
+          action: "user_login_failed",
+          details: { ...authContext, reason: "invalid_password", method: "local_password" },
+        });
         return res.status(400).json({ message: "Invalid credentials." });
       }
 
@@ -510,6 +579,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
           user.id,
           user.email
         );
+        await writeAuditLog(dbPool, {
+          actor: user.email,
+          action: "user_login_mfa_challenge",
+          details: { ...authContext, userId: user.id, method: "local_password" },
+        });
         return res.json({
           requires2fa: true,
           mfaToken,
@@ -519,6 +593,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
       }
 
       const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
+      await writeAuditLog(dbPool, {
+        actor: user.email,
+        action: "user_login_success",
+        details: { ...authContext, userId: user.id, roles: rolesArr, method: "local_password" },
+      });
       res.json({
         message: "Login successful.",
         token,
@@ -530,6 +609,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
     }
   } catch (err: any) {
     console.error("Login error:", err);
+    await writeAuditLog(dbPool, {
+      actor: normalizedEmail || "unknown",
+      action: "user_login_error",
+      details: { ...authContext, reason: err?.message || "unknown_error", method: "local_password" },
+    });
     res.status(500).json({ message: "Database error." });
   }
 };
@@ -796,6 +880,7 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
     code?: string;
     numberChallengeAnswer?: string;
   };
+  const authContext = buildAuthContext(req);
   if (!mfaToken || !code) {
     return res.status(400).json({ message: "mfaToken and code are required." });
   }
@@ -813,6 +898,11 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
   if (payload?.numberChallenge) {
     const provided = String(numberChallengeAnswer || "").trim();
     if (provided !== String(payload.numberChallenge)) {
+      await writeAuditLog(dbPool, {
+        actor: payload?.email || `user:${payload?.id || "unknown"}`,
+        action: "user_login_failed",
+        details: { ...authContext, reason: "invalid_number_challenge", method: "mfa" },
+      });
       return res.status(400).json({ message: "Number challenge is invalid." });
     }
   }
@@ -851,7 +941,14 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
       token: String(code).trim(),
       window: 1,
     });
-    if (!isValid) return res.status(400).json({ message: "Invalid verification code." });
+    if (!isValid) {
+      await writeAuditLog(dbPool, {
+        actor: user.email,
+        action: "user_login_failed",
+        details: { ...authContext, userId: user.id, reason: "invalid_mfa_code", method: "mfa" },
+      });
+      return res.status(400).json({ message: "Invalid verification code." });
+    }
 
     const primaryRole = pickRoleFromCsv(user.roles, "viewer");
     const roles: Role[] = String(user.roles || "")
@@ -860,6 +957,11 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
       .filter((r): r is Role => Boolean(r));
     const rolesArr = roles.length ? roles : [primaryRole];
     const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
+    await writeAuditLog(dbPool, {
+      actor: user.email,
+      action: "user_login_success",
+      details: { ...authContext, userId: user.id, roles: rolesArr, method: "mfa" },
+    });
     return res.json({
       message: "Login successful.",
       token,
@@ -890,10 +992,22 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
       token: String(code).trim(),
       window: 1,
     });
-    if (!isValid) return res.status(400).json({ message: "Invalid verification code." });
+    if (!isValid) {
+      await writeAuditLog(dbPool, {
+        actor: user.email,
+        action: "user_login_failed",
+        details: { ...authContext, userId: user.id, reason: "invalid_mfa_code", method: "mfa" },
+      });
+      return res.status(400).json({ message: "Invalid verification code." });
+    }
 
     const role = ensureRole(user.role);
     const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, [role]);
+    await writeAuditLog(dbPool, {
+      actor: user.email,
+      action: "user_login_success",
+      details: { ...authContext, userId: user.id, roles: [role], method: "mfa" },
+    });
     return res.json({
       message: "Login successful.",
       token,
@@ -925,6 +1039,7 @@ export const startMicrosoftLogin = () => async (_req: Request, res: Response) =>
 
 export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, res: Response) => {
   const redirectBase = getFrontendCallbackUrl();
+  const authContext = buildAuthContext(req);
   const error = req.query.error ? String(req.query.error) : "";
   if (error) {
     const description = req.query.error_description
@@ -1085,6 +1200,11 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
           user.id,
           user.email
         );
+        await writeAuditLog(dbPool, {
+          actor: user.email,
+          action: "user_login_mfa_challenge",
+          details: { ...authContext, userId: user.id, method: "microsoft" },
+        });
         const query = `mfaToken=${encodeURIComponent(mfaToken)}${
           numberChallenge ? `&mfaChallenge=${encodeURIComponent(numberChallenge)}` : ""
         }`;
@@ -1092,6 +1212,11 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
       }
 
       const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
+      await writeAuditLog(dbPool, {
+        actor: user.email,
+        action: "user_login_success",
+        details: { ...authContext, userId: user.id, roles: rolesArr, method: "microsoft" },
+      });
       return res.redirect(
         `${redirectBase}?token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}`
       );
@@ -1172,6 +1297,11 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
           user.id,
           user.email
         );
+        await writeAuditLog(dbPool, {
+          actor: user.email,
+          action: "user_login_mfa_challenge",
+          details: { ...authContext, userId: user.id, method: "microsoft" },
+        });
         const query = `mfaToken=${encodeURIComponent(mfaToken)}${
           numberChallenge ? `&mfaChallenge=${encodeURIComponent(numberChallenge)}` : ""
         }`;
@@ -1179,6 +1309,11 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
       }
 
       const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, [role]);
+      await writeAuditLog(dbPool, {
+        actor: user.email,
+        action: "user_login_success",
+        details: { ...authContext, userId: user.id, roles: [role], method: "microsoft" },
+      });
       return res.redirect(
         `${redirectBase}?token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}`
       );
@@ -1187,6 +1322,11 @@ export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, re
     return res.redirect(`${redirectBase}?error=User%20schema%20missing`);
   } catch (err: any) {
     console.error("Microsoft login error:", err);
+    await writeAuditLog(dbPool, {
+      actor: "system",
+      action: "user_login_error",
+      details: { ...authContext, reason: err?.message || "Microsoft login failed", method: "microsoft" },
+    });
     return res.redirect(`${redirectBase}?error=Microsoft%20login%20failed`);
   }
 };
@@ -1257,5 +1397,14 @@ export const logout = (dbPool: Pool) => async (req: Request, res: Response) => {
     "UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = ? AND revoked_at IS NULL",
     [tokenHash]
   );
+  await writeAuditLog(dbPool, {
+    req,
+    action: "user_logout",
+    details: {
+      userId: req.user?.id || null,
+      ...buildAuthContext(req),
+    },
+    actor: getAuditActor(req, "unknown"),
+  });
   return res.json({ ok: true });
 };

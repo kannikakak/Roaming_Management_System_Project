@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/auth";
 import PptxGenJS from "pptxgenjs";
+import { dbPool } from "../db";
+import { writeAuditLog } from "../utils/auditLogger";
 
 const router = Router();
 router.use(requireAuth);
@@ -72,6 +74,15 @@ router.post("/pptx-multi", async (req: Request, res: Response) => {
     // ✅ Most compatible for server-side
    
     const buf = (await (pptx as any).write("nodebuffer")) as Buffer;
+    await writeAuditLog(dbPool, {
+      req,
+      action: "report_exported",
+      details: {
+        format: "pptx",
+        slidesCount: slides.length,
+        fileName: fileName || "report.pptx",
+      },
+    });
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.presentationml.presentation"

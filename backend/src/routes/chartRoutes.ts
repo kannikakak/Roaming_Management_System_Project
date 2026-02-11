@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import { Pool } from "mysql2/promise";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { writeAuditLog } from "../utils/auditLogger";
 
 type ChartPayload = {
   fileId?: number;
@@ -62,6 +63,19 @@ export function chartRoutes(dbPool: Pool) {
           imageUrl,
         ]
       );
+      await writeAuditLog(dbPool, {
+        req,
+        action: "chart_generated",
+        details: {
+          chartId: result.insertId as number,
+          fileId: payload.fileId || null,
+          fileName: payload.fileName || null,
+          chartType: payload.chartType,
+          categoryCol: payload.categoryCol || null,
+          valueCols: payload.valueCols || [],
+          selectedCols: payload.selectedCols || [],
+        },
+      });
 
       res.json({ ok: true, chartId: result.insertId, chartImageUrl: imageUrl });
     } catch (err: any) {

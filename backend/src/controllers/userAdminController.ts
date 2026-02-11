@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
 import bcrypt from "bcryptjs";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst } from "../constants/roles";
+import { writeAuditLog } from "../utils/auditLogger";
 
 type UserSchemaInfo = {
   hasFullName: boolean;
@@ -63,7 +64,17 @@ export const updateUserRole = (dbPool: Pool) => async (req: Request, res: Respon
 
   try {
     const schema = await getUserSchemaInfo(dbPool);
+    let previousRole: string | null = null;
     if (schema.hasUserRolesTable && schema.hasRolesTable) {
+      const [prevRows]: any = await dbPool.query(
+        `SELECT GROUP_CONCAT(r.name) as roles
+         FROM user_roles ur
+         LEFT JOIN roles r ON r.id = ur.role_id
+         WHERE ur.user_id = ?
+         GROUP BY ur.user_id`,
+        [userId]
+      );
+      previousRole = prevRows?.[0]?.roles || null;
       const [roles]: any = await dbPool.query("SELECT id FROM roles WHERE name = ? LIMIT 1", [
         role,
       ]);
@@ -75,11 +86,34 @@ export const updateUserRole = (dbPool: Pool) => async (req: Request, res: Respon
         userId,
         roleId,
       ]);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "user_role_changed",
+        details: {
+          targetUserId: userId,
+          previousRole,
+          nextRole: role,
+        },
+      });
       return res.json({ ok: true });
     }
 
     if (schema.hasRole) {
+      const [prevRows]: any = await dbPool.query(
+        "SELECT role FROM users WHERE id = ? LIMIT 1",
+        [userId]
+      );
+      previousRole = prevRows?.[0]?.role || null;
       await dbPool.query("UPDATE users SET role = ? WHERE id = ?", [role, userId]);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "user_role_changed",
+        details: {
+          targetUserId: userId,
+          previousRole,
+          nextRole: role,
+        },
+      });
       return res.json({ ok: true });
     }
 
@@ -214,15 +248,40 @@ export const updateUser = (dbPool: Pool) => async (req: Request, res: Response) 
       if (!normalizedRole) {
         return res.status(400).json({ message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}.` });
       }
+      let previousRole: string | null = null;
       if (schema.hasUserRolesTable && schema.hasRolesTable) {
+        const [prevRows]: any = await dbPool.query(
+          `SELECT GROUP_CONCAT(r.name) as roles
+           FROM user_roles ur
+           LEFT JOIN roles r ON r.id = ur.role_id
+           WHERE ur.user_id = ?
+           GROUP BY ur.user_id`,
+          [userId]
+        );
+        previousRole = prevRows?.[0]?.roles || null;
         const [roles]: any = await dbPool.query("SELECT id FROM roles WHERE LOWER(name) = ? LIMIT 1", [normalizedRole]);
         if (!roles.length) return res.status(400).json({ message: "Invalid role" });
         const roleId = roles[0].id as number;
         await dbPool.query("DELETE FROM user_roles WHERE user_id = ?", [userId]);
         await dbPool.query("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", [userId, roleId]);
       } else if (schema.hasRole) {
+        const [prevRows]: any = await dbPool.query(
+          "SELECT role FROM users WHERE id = ? LIMIT 1",
+          [userId]
+        );
+        previousRole = prevRows?.[0]?.role || null;
         await dbPool.query("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, userId]);
       }
+      await writeAuditLog(dbPool, {
+        req,
+        action: "user_role_changed",
+        details: {
+          targetUserId: userId,
+          previousRole,
+          nextRole: normalizedRole,
+          source: "update_user",
+        },
+      });
     }
 
     return res.json({ ok: true });

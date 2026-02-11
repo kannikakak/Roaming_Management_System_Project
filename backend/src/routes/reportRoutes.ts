@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import { Pool } from "mysql2/promise";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { writeAuditLog } from "../utils/auditLogger";
 
 type SlidePayload = {
   id?: string;
@@ -93,6 +94,15 @@ export function reportRoutes(dbPool: Pool) {
         }
 
         await conn.commit();
+        await writeAuditLog(dbPool, {
+          req,
+          action: "report_generated",
+          details: {
+            reportId,
+            reportName: name,
+            slidesCount: slides.length,
+          },
+        });
         res.json({ ok: true, reportId });
       } catch (e) {
         await conn.rollback();
@@ -134,10 +144,26 @@ export function reportRoutes(dbPool: Pool) {
     try {
       const reportId = Number(req.params.id);
       const { name, status } = req.body as { name?: string; status?: string };
+      const [prevRows]: any = await dbPool.query(
+        "SELECT id, name, status FROM reports WHERE id = ? LIMIT 1",
+        [reportId]
+      );
+      const previous = prevRows?.[0] || null;
       await dbPool.execute(
         "UPDATE reports SET name = COALESCE(?, name), status = COALESCE(?, status) WHERE id = ?",
         [name || null, status || null, reportId]
       );
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_updated",
+        details: {
+          reportId,
+          previousName: previous?.name ?? null,
+          previousStatus: previous?.status ?? null,
+          nextName: name ?? previous?.name ?? null,
+          nextStatus: status ?? previous?.status ?? null,
+        },
+      });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to update report");
@@ -200,6 +226,14 @@ export function reportRoutes(dbPool: Pool) {
 
         await conn.query("UPDATE reports SET updated_at = NOW() WHERE id = ?", [reportId]);
         await conn.commit();
+        await writeAuditLog(dbPool, {
+          req,
+          action: "report_slides_added",
+          details: {
+            reportId,
+            addedSlidesCount: slides.length,
+          },
+        });
         res.json({ ok: true });
       } catch (e) {
         await conn.rollback();
@@ -222,12 +256,31 @@ export function reportRoutes(dbPool: Pool) {
         subtitle?: string;
         summary?: string;
       };
+      const [prevRows]: any = await dbPool.query(
+        "SELECT title, subtitle, summary FROM report_slides WHERE report_id = ? AND slide_index = ? LIMIT 1",
+        [reportId, slideIndex]
+      );
+      const previous = prevRows?.[0] || null;
 
       await dbPool.execute(
         "UPDATE report_slides SET title = ?, subtitle = ?, summary = ? WHERE report_id = ? AND slide_index = ?",
         [title ?? "", subtitle ?? "", summary ?? "", reportId, slideIndex]
       );
       await dbPool.execute("UPDATE reports SET updated_at = NOW() WHERE id = ?", [reportId]);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_slide_updated",
+        details: {
+          reportId,
+          slideIndex,
+          previous,
+          next: {
+            title: title ?? "",
+            subtitle: subtitle ?? "",
+            summary: summary ?? "",
+          },
+        },
+      });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to update slide");
@@ -240,6 +293,11 @@ export function reportRoutes(dbPool: Pool) {
     const slideIndex = Number(req.params.index);
     const conn = await dbPool.getConnection();
     try {
+      const [prevRows]: any = await conn.query(
+        "SELECT title, subtitle, summary, file_name as fileName FROM report_slides WHERE report_id = ? AND slide_index = ? LIMIT 1",
+        [reportId, slideIndex]
+      );
+      const removedSlide = prevRows?.[0] || null;
       await conn.beginTransaction();
       await conn.execute(
         "DELETE FROM report_slides WHERE report_id = ? AND slide_index = ?",
@@ -251,6 +309,15 @@ export function reportRoutes(dbPool: Pool) {
       );
       await conn.execute("UPDATE reports SET updated_at = NOW() WHERE id = ?", [reportId]);
       await conn.commit();
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_slide_deleted",
+        details: {
+          reportId,
+          slideIndex,
+          removedSlide,
+        },
+      });
       res.json({ ok: true });
     } catch (err: any) {
       await conn.rollback();
@@ -264,7 +331,25 @@ export function reportRoutes(dbPool: Pool) {
   router.delete("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const reportId = Number(req.params.id);
+      const [rows]: any = await dbPool.query(
+        "SELECT id, name, status FROM reports WHERE id = ? LIMIT 1",
+        [reportId]
+      );
+      const [slideRows]: any = await dbPool.query(
+        "SELECT COUNT(*) as totalSlides FROM report_slides WHERE report_id = ?",
+        [reportId]
+      );
       await dbPool.execute("DELETE FROM reports WHERE id = ?", [reportId]);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_deleted",
+        details: {
+          reportId,
+          reportName: rows?.[0]?.name ?? null,
+          status: rows?.[0]?.status ?? null,
+          totalSlides: Number(slideRows?.[0]?.totalSlides || 0),
+        },
+      });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to delete report");

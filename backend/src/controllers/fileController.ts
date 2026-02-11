@@ -16,6 +16,7 @@ import {
 import { buildDataJsonExpr, buildEncryptedValue, buildKeyParams, getEncryptionKey } from "../utils/dbEncryption";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { buildFileProfile, ensureFileProfileTable, saveFileProfile, FileProfile } from "../services/fileProfile";
+import { writeAuditLog } from "../utils/auditLogger";
 
 type ParsedFile = {
   columns: string[];
@@ -710,6 +711,20 @@ export const uploadFiles = (dbPool: Pool) => async (req: Request, res: Response)
       return res.status(access.status).json({ message: access.message });
     }
     const result = await ingestFiles(dbPool, projectId, req.files as Express.Multer.File[], uploadSchema);
+    const uploadedFiles = Array.isArray((result as any)?.files) ? (result as any).files : [];
+    await writeAuditLog(dbPool, {
+      req,
+      action: "file_uploaded",
+      details: {
+        projectId,
+        uploadedCount: uploadedFiles.length,
+        files: uploadedFiles.map((file: any) => ({
+          id: file?.id ?? null,
+          name: file?.name ?? null,
+          fileType: file?.fileType ?? null,
+        })),
+      },
+    });
     res.json(result);
   } catch (err: any) {
     const status = err?.statusCode && Number.isFinite(err.statusCode) ? err.statusCode : 500;
@@ -874,8 +889,23 @@ export const deleteFile = (dbPool: Pool) => async (req: Request, res: Response) 
     if (!access.ok) {
       return res.status(access.status).json({ message: access.message });
     }
+    const [metaRows]: any = await dbPool.query(
+      "SELECT id, name, file_type as fileType, project_id as projectId FROM files WHERE id = ? LIMIT 1",
+      [access.fileId]
+    );
+    const metadata = metaRows?.[0] || null;
 
     await dbPool.query("DELETE FROM files WHERE id = ?", [access.fileId]);
+    await writeAuditLog(dbPool, {
+      req,
+      action: "file_deleted",
+      details: {
+        fileId: access.fileId,
+        projectId: access.projectId,
+        fileName: metadata?.name || null,
+        fileType: metadata?.fileType || null,
+      },
+    });
     res.json({ message: "File deleted" });
   } catch (err) {
     res.status(500).json({ message: "Database error", error: err });
@@ -966,6 +996,17 @@ export const updateFileColumns = (dbPool: Pool) => async (req: Request, res: Res
     }
 
     await connection.commit();
+    await writeAuditLog(dbPool, {
+      req,
+      action: "file_data_modified",
+      details: {
+        fileId: access.fileId,
+        projectId: access.projectId,
+        modificationType: "columns",
+        previousColumns: oldColumns,
+        nextColumns: normalized,
+      },
+    });
     res.json({ columns: normalized, previousColumns: oldColumns });
   } catch (err: any) {
     await connection.rollback();
@@ -1006,6 +1047,8 @@ export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Respon
   }
 
   const connection = await dbPool.getConnection();
+  let changedCount = 0;
+  const changesPreview: Array<{ rowIndex: number; previousValue: any; nextValue: any }> = [];
   try {
     await connection.beginTransaction();
 
@@ -1018,6 +1061,9 @@ export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Respon
 
       const row = rowRows[0];
       const data = JSON.parse(row.data_json || "{}");
+      const previousValue = Object.prototype.hasOwnProperty.call(data, column)
+        ? data[column]
+        : null;
       data[column] = update.value;
       const encrypted = buildEncryptedValue(JSON.stringify(data), encryptionKey);
 
@@ -1025,9 +1071,29 @@ export const updateFileRows = (dbPool: Pool) => async (req: Request, res: Respon
         `UPDATE file_rows SET data_json = ${encrypted.sql} WHERE id = ?`,
         [...encrypted.params, row.id]
       );
+      changedCount += 1;
+      if (changesPreview.length < 20) {
+        changesPreview.push({
+          rowIndex: update.rowIndex,
+          previousValue,
+          nextValue: update.value,
+        });
+      }
     }
 
     await connection.commit();
+    await writeAuditLog(dbPool, {
+      req,
+      action: "file_data_modified",
+      details: {
+        fileId: access.fileId,
+        projectId: access.projectId,
+        modificationType: "rows",
+        column,
+        changedCount,
+        changesPreview,
+      },
+    });
     res.json({ ok: true });
   } catch (err: any) {
     await connection.rollback();

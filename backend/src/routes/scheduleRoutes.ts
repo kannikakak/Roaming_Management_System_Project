@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Request, Router } from "express";
 import { Pool } from "mysql2/promise";
 import path from "path";
 import fs from "fs";
@@ -6,6 +6,7 @@ import multer from "multer";
 import { computeNextRunAt, ScheduleFrequency } from "../services/scheduler";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { getNotificationSettings } from "../services/notificationSettings";
+import { writeAuditLog } from "../utils/auditLogger";
 
 type SchedulePayload = {
   name: string;
@@ -69,7 +70,11 @@ export function scheduleRoutes(dbPool: Pool) {
     }
   });
 
-  const createSchedule = async (payload: SchedulePayload, file?: Express.Multer.File) => {
+  const createSchedule = async (
+    payload: SchedulePayload,
+    req: Request,
+    file?: Express.Multer.File
+  ) => {
     const targetId = toNumber(payload.targetId, 0);
     const dayOfWeek = payload.dayOfWeek === null || payload.dayOfWeek === undefined
       ? null
@@ -133,6 +138,23 @@ export function scheduleRoutes(dbPool: Pool) {
       );
     }
 
+    await writeAuditLog(dbPool, {
+      req,
+      action: "schedule_created",
+      details: {
+        scheduleId,
+        name: payload.name,
+        targetType: payload.targetType,
+        targetId,
+        frequency: payload.frequency,
+        timeOfDay: payload.timeOfDay,
+        dayOfWeek,
+        dayOfMonth,
+        fileFormat: payload.fileFormat,
+        hasAttachment: Boolean(file),
+      },
+    });
+
     return scheduleId;
   };
 
@@ -146,7 +168,7 @@ export function scheduleRoutes(dbPool: Pool) {
         return res.status(400).send("frequency, timeOfDay, fileFormat are required");
       }
 
-      const scheduleId = await createSchedule(payload);
+      const scheduleId = await createSchedule(payload, req);
       res.json({ ok: true, scheduleId });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to create schedule");
@@ -163,7 +185,11 @@ export function scheduleRoutes(dbPool: Pool) {
         return res.status(400).send("frequency, timeOfDay, fileFormat are required");
       }
 
-      const scheduleId = await createSchedule(payload, req.file as Express.Multer.File | undefined);
+      const scheduleId = await createSchedule(
+        payload,
+        req,
+        req.file as Express.Multer.File | undefined
+      );
       res.json({ ok: true, scheduleId });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to create schedule");
@@ -174,6 +200,11 @@ export function scheduleRoutes(dbPool: Pool) {
     try {
       const id = Number(req.params.id);
       const payload = req.body as SchedulePayload;
+      const [prevRows]: any = await dbPool.query(
+        "SELECT * FROM report_schedules WHERE id = ? LIMIT 1",
+        [id]
+      );
+      const previous = prevRows?.[0] || null;
 
       const nextRun = computeNextRunAt(
         payload.frequency,
@@ -205,6 +236,38 @@ export function scheduleRoutes(dbPool: Pool) {
         ]
       );
 
+      await writeAuditLog(dbPool, {
+        req,
+        action: "schedule_updated",
+        details: {
+          scheduleId: id,
+          previous: previous
+            ? {
+                name: previous.name,
+                targetType: previous.target_type,
+                targetId: previous.target_id,
+                frequency: previous.frequency,
+                timeOfDay: previous.time_of_day,
+                dayOfWeek: previous.day_of_week,
+                dayOfMonth: previous.day_of_month,
+                fileFormat: previous.file_format,
+                isActive: Boolean(previous.is_active),
+              }
+            : null,
+          next: {
+            name: payload.name,
+            targetType: payload.targetType,
+            targetId: payload.targetId,
+            frequency: payload.frequency,
+            timeOfDay: payload.timeOfDay,
+            dayOfWeek: payload.dayOfWeek ?? null,
+            dayOfMonth: payload.dayOfMonth ?? null,
+            fileFormat: payload.fileFormat,
+            isActive: payload.isActive !== false,
+          },
+        },
+      });
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to update schedule");
@@ -214,7 +277,20 @@ export function scheduleRoutes(dbPool: Pool) {
   router.delete("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const [rows]: any = await dbPool.query(
+        "SELECT id, name, target_type as targetType, target_id as targetId, frequency, file_format as fileFormat FROM report_schedules WHERE id = ? LIMIT 1",
+        [id]
+      );
+      const deleted = rows?.[0] || null;
       await dbPool.execute("DELETE FROM report_schedules WHERE id = ?", [id]);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "schedule_deleted",
+        details: {
+          scheduleId: id,
+          deleted,
+        },
+      });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to delete schedule");

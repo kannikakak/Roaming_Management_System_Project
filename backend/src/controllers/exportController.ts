@@ -5,6 +5,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { create } from "xmlbuilder2";
 import { resolveExportData, ExportRequestBody } from "../utils/exportData";
+import { writeAuditLog } from "../utils/auditLogger";
 
 const hasAnyRole = (req: Request, roles: string[]) => {
   const primary = req.user?.role;
@@ -296,10 +297,25 @@ export const exportData = (dbPool: Pool) => async (req: Request, res: Response) 
     }
 
     const { meta, columns, rows, chartImages } = await resolveExportData(dbPool, body);
+    const auditDetails = {
+      format,
+      scope: meta?.scope || null,
+      title: meta?.title || null,
+      rowCount: Number(meta?.rowCount || rows.length || 0),
+      columnCount: columns.length,
+      chartImagesCount: chartImages.length,
+      fileId: body.fileId ?? null,
+      projectId: body.projectId ?? null,
+    };
 
     if (format === "json") {
       const payload = buildJsonPayload(meta, columns, rows);
       const pretty = JSON.stringify(payload, null, 2);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_exported",
+        details: auditDetails,
+      });
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${fileSafeName(meta.title, "json")}"`);
       return res.status(200).send(pretty);
@@ -307,6 +323,11 @@ export const exportData = (dbPool: Pool) => async (req: Request, res: Response) 
 
     if (format === "xml") {
       const xml = buildXmlString(meta, columns, rows);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_exported",
+        details: auditDetails,
+      });
       res.setHeader("Content-Type", "application/xml; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${fileSafeName(meta.title, "xml")}"`);
       return res.status(200).send(xml);
@@ -314,6 +335,11 @@ export const exportData = (dbPool: Pool) => async (req: Request, res: Response) 
 
     if (format === "excel") {
       const buf = buildExcelBuffer(meta, columns, rows);
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_exported",
+        details: auditDetails,
+      });
       res.setHeader(
         "Content-Type",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -331,6 +357,11 @@ export const exportData = (dbPool: Pool) => async (req: Request, res: Response) 
       if (!buf) {
         return res.status(400).json({ message: "Invalid PNG dataUrl." });
       }
+      await writeAuditLog(dbPool, {
+        req,
+        action: "report_exported",
+        details: auditDetails,
+      });
       res.setHeader("Content-Type", "image/png");
       res.setHeader("Content-Disposition", `attachment; filename="${fileSafeName(meta.title, "png")}"`);
       return res.status(200).send(buf);
@@ -338,6 +369,11 @@ export const exportData = (dbPool: Pool) => async (req: Request, res: Response) 
 
     // Default to PDF
     const pdfBuf = buildPdfBuffer(meta, columns, rows, chartImages);
+    await writeAuditLog(dbPool, {
+      req,
+      action: "report_exported",
+      details: auditDetails,
+    });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileSafeName(meta.title, "pdf")}"`);
     return res.status(200).send(pdfBuf);
