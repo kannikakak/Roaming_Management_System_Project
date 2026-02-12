@@ -153,7 +153,10 @@ const NotificationsPage: React.FC = () => {
                     Channel: <span className="font-semibold">{n.channel}</span>
                   </div>
                   {!n.read_at && (
-                    <button className="text-xs text-blue-600 mt-2" onClick={() => markRead(n.id)}>
+                    <button
+                      className="text-xs text-amber-700 hover:text-amber-800 mt-2"
+                      onClick={() => markRead(n.id)}
+                    >
                       Mark read
                     </button>
                   )}

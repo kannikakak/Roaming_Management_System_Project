@@ -60,7 +60,7 @@ const severityTone = (severity: string) => {
 const statusTone = (status: string) =>
   status === "resolved"
     ? "bg-slate-100 text-slate-700 border-slate-200"
-    : "bg-blue-100 text-blue-700 border-blue-200";
+    : "bg-amber-100 text-amber-700 border-amber-200";
 
 const alertTypeLabel = (type: string) => {
   const key = String(type || "").toLowerCase();
@@ -217,7 +217,7 @@ const AlertCenterPage: React.FC = () => {
       {
         label: "Open Alerts",
         value: summary.open.total,
-        className: "border-blue-200 bg-blue-50 text-blue-900",
+        className: "border-amber-200 bg-amber-50 text-amber-900",
         icon: <BellRing className="w-4 h-4" />,
       },
       {
@@ -268,7 +268,7 @@ const AlertCenterPage: React.FC = () => {
                   type="button"
                   onClick={runDetection}
                   disabled={detecting}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900 disabled:opacity-60"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-60"
                 >
                   <CircleAlert className="w-4 h-4" />
                   {detecting ? "Detecting..." : "Run Detection"}
@@ -365,7 +365,7 @@ const AlertCenterPage: React.FC = () => {
             <button
               type="button"
               onClick={clearFilters}
-              className="text-sm px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
+              className="text-sm px-3 py-1.5 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50"
             >
               Clear filters
             </button>
@@ -434,7 +434,7 @@ const AlertCenterPage: React.FC = () => {
                           type="button"
                           disabled={busyId === alert.id}
                           onClick={() => updateAlertStatus(alert.id, "resolve")}
-                          className="text-sm px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+                          className="text-sm px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-60"
                         >
                           {busyId === alert.id ? "Saving..." : "Mark Resolved"}
                         </button>
@@ -443,7 +443,7 @@ const AlertCenterPage: React.FC = () => {
                           type="button"
                           disabled={busyId === alert.id}
                           onClick={() => updateAlertStatus(alert.id, "reopen")}
-                          className="text-sm px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                          className="text-sm px-3 py-1.5 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
                         >
                           {busyId === alert.id ? "Saving..." : "Reopen"}
                         </button>

@@ -240,7 +240,7 @@ const SlideBuilderPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(160deg,#f8fafc_0%,#fff7ed_40%,#eef2ff_100%)] p-4 sm:p-8">
+    <div className="min-h-screen bg-[linear-gradient(160deg,#fffdf7_0%,#fff7ed_45%,#fffbeb_100%)] p-4 sm:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         <section className="rounded-3xl border border-amber-200/80 bg-white/90 backdrop-blur p-5 sm:p-7 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.45)]">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -280,7 +280,7 @@ const SlideBuilderPage: React.FC = () => {
 
               <button
                 onClick={exportPPTX}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 disabled:opacity-60"
                 disabled={isExporting || slides.length === 0}
               >
                 <Download className="w-4 h-4" />
@@ -294,8 +294,8 @@ const SlideBuilderPage: React.FC = () => {
               <div className="text-[11px] uppercase tracking-wide text-amber-700">Total Slides</div>
               <div className="text-lg font-bold text-slate-900">{slides.length}</div>
             </div>
-            <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-blue-700">Active Slide</div>
+            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-amber-700">Active Slide</div>
               <div className="text-lg font-bold text-slate-900">
                 {activeSlideIndex >= 0 ? activeSlideIndex + 1 : "-"}
               </div>
@@ -322,7 +322,7 @@ const SlideBuilderPage: React.FC = () => {
             </p>
             <button
               onClick={() => navigate("/charts")}
-              className="mt-5 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+              className="mt-5 px-4 py-2.5 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600"
             >
               Open Chart Page
             </button>
@@ -337,7 +337,7 @@ const SlideBuilderPage: React.FC = () => {
                   value={slideQuery}
                   onChange={(e) => setSlideQuery(e.target.value)}
                   placeholder="Search title, subtitle, summary..."
-                  className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
                 />
               </div>
               <div className="mt-4 space-y-3 max-h-[70vh] overflow-auto pr-1">
@@ -349,7 +349,7 @@ const SlideBuilderPage: React.FC = () => {
                       onClick={() => setActiveId(slide.id)}
                       className={`w-full text-left rounded-2xl border p-3 transition-all duration-150 ${
                         isActive
-                          ? "border-blue-400 bg-blue-50/80 ring-2 ring-blue-100 shadow-sm"
+                          ? "border-amber-300 bg-amber-50/80 ring-2 ring-amber-100 shadow-sm"
                           : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
                       }`}
                     >
@@ -430,7 +430,7 @@ const SlideBuilderPage: React.FC = () => {
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Title</label>
                     <input
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
                       value={activeSlide.title}
                       onChange={(e) => updateSlide(activeSlide.id, { title: e.target.value })}
                     />
@@ -439,7 +439,7 @@ const SlideBuilderPage: React.FC = () => {
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Subtitle</label>
                     <input
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
                       value={activeSlide.subtitle}
                       onChange={(e) => updateSlide(activeSlide.id, { subtitle: e.target.value })}
                     />
@@ -448,7 +448,7 @@ const SlideBuilderPage: React.FC = () => {
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Summary</label>
                     <textarea
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 min-h-[190px] text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 min-h-[190px] text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
                       value={activeSlide.summary}
                       onChange={(e) => updateSlide(activeSlide.id, { summary: e.target.value })}
                     />
@@ -490,7 +490,7 @@ const SlideBuilderPage: React.FC = () => {
                       {activeSlide.subtitle || "-"}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold px-2 py-0.5">
+                      <span className="inline-flex rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5">
                         {activeSlide.chartMeta?.chartType || "Chart"}
                       </span>
                       {activeSlide.chartMeta?.fileName && (

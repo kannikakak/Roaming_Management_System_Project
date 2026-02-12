@@ -735,7 +735,7 @@ const ChartPage: React.FC = () => {
 
                     {/* ?? Add to report */}
                     <button
-                      className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 flex items-center justify-center gap-2"
+                      className="px-3 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 flex items-center justify-center gap-2"
                       onClick={addToReportDraft}
                       type="button"
                     >

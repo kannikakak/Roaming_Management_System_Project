@@ -849,7 +849,7 @@ const OperationsCenterPage: React.FC = () => {
                                 <button
                                   onClick={() => handleSourceAction(source.id, "scan")}
                                   disabled={activeAction === `scan-${source.id}`}
-                                  className="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                                  className="rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
                                 >
                                   <Activity className="inline w-3 h-3 mr-1" />
                                   Scan

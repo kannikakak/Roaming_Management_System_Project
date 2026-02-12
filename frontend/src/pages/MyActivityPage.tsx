@@ -131,7 +131,7 @@ const MyActivityPage: React.FC = () => {
               <button
                 type="button"
                 onClick={exportAllPdf}
-                className="px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-800"
+                className="px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
               >
                 Export All PDF
               </button>
