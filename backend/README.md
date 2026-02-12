@@ -96,6 +96,10 @@ Agent behavior:
 - Syncs deletions: if a file is removed from the shared folder, the agent notifies backend and the imported dataset is removed from the platform.
 - Retries failures with backoff (`AGENT_MAX_RETRIES`, `AGENT_RETRY_DELAY_SECONDS`).
 
+Cleanup API:
+- `DELETE /api/ingest/history?mode=deleted` clears deleted ingestion history rows.
+- `DELETE /api/ingest/history?mode=all&sourceId=<id>` clears all ingestion history rows for a source.
+
 ## Running the Application
 
 To start the backend server, run:

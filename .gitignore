@@ -1,5 +1,7 @@
 # Ignore environment variable files
 .env
+backend/.env.agent
+backend/.sync-agent-state.json
 
 # Ignore node modules
 node_modules/

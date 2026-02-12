@@ -325,11 +325,6 @@ const DataSourcesPage: React.FC = () => {
 
   const handleDeleteSource = useCallback(
     async (source: SourceRow) => {
-      if (sources.length <= 1) {
-        setError("At least one source should remain. Create another source before deleting this one.");
-        return;
-      }
-
       const confirmDelete = window.confirm(
         `Delete source '${source.name}'? Agent uploads using this source ID will stop.`
       );
@@ -366,7 +361,7 @@ const DataSourcesPage: React.FC = () => {
         setBusySourceAction(null);
       }
     },
-    [clearNotice, fetchSources, sources.length]
+    [clearNotice, fetchSources]
   );
 
   const handleUpdateSourceProject = useCallback(
@@ -710,15 +705,9 @@ npm run sync-agent`,
                               <button
                                 type="button"
                                 onClick={() => void handleDeleteSource(source)}
-                                disabled={
-                                  busySourceAction === `delete-${source.id}` || sources.length <= 1
-                                }
+                                disabled={busySourceAction === `delete-${source.id}`}
                                 className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                title={
-                                  sources.length <= 1
-                                    ? "Keep at least one source"
-                                    : "Delete source"
-                                }
+                                title="Delete source"
                               >
                                 Delete
                               </button>

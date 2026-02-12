@@ -856,3 +856,79 @@ export const listIngestionHistory = (dbPool: Pool) => async (req: Request, res: 
     return res.status(500).json({ message: "Failed to load ingestion history.", error: err?.message || err });
   }
 };
+
+export const clearIngestionHistory = (dbPool: Pool) => async (req: Request, res: Response) => {
+  try {
+    const sourceId = toSafeNumber(req.query.sourceId ?? req.body?.sourceId, 0);
+    const mode = String(req.query.mode ?? req.body?.mode ?? "deleted").trim().toLowerCase();
+    if (mode !== "deleted" && mode !== "all") {
+      return res.status(400).json({ message: "mode must be 'deleted' or 'all'." });
+    }
+
+    const whereClauses: string[] = [];
+    const params: any[] = [];
+
+    if (sourceId > 0) {
+      whereClauses.push("source_id = ?");
+      params.push(sourceId);
+    }
+    if (mode === "deleted") {
+      whereClauses.push("status = 'DELETED'");
+    }
+
+    const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
+    const [fileRows]: any = await dbPool.query(
+      `SELECT id FROM ingestion_files ${whereSql}`,
+      params
+    );
+    const fileIds = (Array.isArray(fileRows) ? fileRows : [])
+      .map((row: any) => Number(row.id || 0))
+      .filter((value: number) => Number.isFinite(value) && value > 0);
+
+    if (!fileIds.length) {
+      return res.json({
+        ok: true,
+        mode,
+        sourceId: sourceId > 0 ? sourceId : null,
+        deletedFiles: 0,
+        deletedJobs: 0,
+      });
+    }
+
+    let deletedJobs = 0;
+    let deletedFiles = 0;
+    const chunkSize = 500;
+
+    for (let index = 0; index < fileIds.length; index += chunkSize) {
+      const chunk = fileIds.slice(index, index + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+
+      const [jobDeleteResult]: any = await dbPool.query(
+        `DELETE FROM ingestion_jobs WHERE file_id IN (${placeholders})`,
+        chunk
+      );
+      if (jobDeleteResult?.affectedRows && Number.isFinite(jobDeleteResult.affectedRows)) {
+        deletedJobs += Number(jobDeleteResult.affectedRows);
+      }
+
+      const [fileDeleteResult]: any = await dbPool.query(
+        `DELETE FROM ingestion_files WHERE id IN (${placeholders})`,
+        chunk
+      );
+      deletedFiles += Number(fileDeleteResult?.affectedRows || 0);
+    }
+
+    return res.json({
+      ok: true,
+      mode,
+      sourceId: sourceId > 0 ? sourceId : null,
+      deletedFiles,
+      deletedJobs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: "Failed to clear ingestion history.",
+      error: err?.message || err,
+    });
+  }
+};

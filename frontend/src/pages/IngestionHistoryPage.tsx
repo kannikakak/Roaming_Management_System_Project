@@ -69,7 +69,9 @@ const IngestionHistoryPage: React.FC = () => {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const fetchSources = useCallback(async () => {
@@ -89,6 +91,7 @@ const IngestionHistoryPage: React.FC = () => {
       } else {
         setLoading(true);
       }
+      setMessage(null);
       setError(null);
       try {
         const params = new URLSearchParams();
@@ -112,6 +115,44 @@ const IngestionHistoryPage: React.FC = () => {
       }
     },
     [sourceFilter]
+  );
+
+  const handleClearHistory = useCallback(
+    async (mode: "deleted" | "all") => {
+      const label = mode === "deleted" ? "deleted rows" : "all ingestion rows for this filter";
+      const confirmed = window.confirm(`Delete ${label}? This cannot be undone.`);
+      if (!confirmed) return;
+
+      setClearing(true);
+      setMessage(null);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set("mode", mode);
+        if (sourceFilter !== "all") {
+          params.set("sourceId", sourceFilter);
+        }
+
+        const response = await apiFetch(`/api/ingest/history?${params.toString()}`, {
+          method: "DELETE",
+        });
+        const result = await requestJson<{ deletedFiles: number; deletedJobs: number }>(
+          response,
+          "Failed to clear ingestion history."
+        );
+        setMessage(
+          `Cleared history: ${Number(result.deletedFiles || 0)} file records and ${Number(
+            result.deletedJobs || 0
+          )} job records removed.`
+        );
+        await fetchHistory(true);
+      } catch (err: any) {
+        setError(err?.message || "Failed to clear ingestion history.");
+      } finally {
+        setClearing(false);
+      }
+    },
+    [fetchHistory, sourceFilter]
   );
 
   useEffect(() => {
@@ -179,6 +220,11 @@ const IngestionHistoryPage: React.FC = () => {
         {error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
         ) : null}
+        {message ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+            {message}
+          </div>
+        ) : null}
 
         <div className="grid gap-4 md:grid-cols-5">
           <Surface className="p-4 border border-amber-100">
@@ -232,6 +278,23 @@ const IngestionHistoryPage: React.FC = () => {
               />
               Auto-refresh every 30s
             </label>
+
+            <button
+              type="button"
+              onClick={() => void handleClearHistory("deleted")}
+              disabled={clearing}
+              className="rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              {clearing ? "Clearing..." : "Clear deleted"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleClearHistory("all")}
+              disabled={clearing}
+              className="rounded-full border border-red-300 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              {clearing ? "Clearing..." : "Clear all (filtered)"}
+            </button>
           </div>
         </Surface>
 
