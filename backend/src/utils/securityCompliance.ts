@@ -116,10 +116,17 @@ export const getSecurityComplianceSnapshot = (): SecurityComplianceSnapshot => {
   const encryptionRequired = getEncryptionRequired();
   const keyLength = encryptionKey.length;
   const strongKey = keyLength >= 32;
-  const blockMode = getDbBlockEncryptionMode();
+  const blockMode =
+    getDbBlockEncryptionMode() || (encryptionRequired ? "aes-256-ecb" : null);
+  if (!process.env.DB_BLOCK_ENCRYPTION_MODE && blockMode) {
+    process.env.DB_BLOCK_ENCRYPTION_MODE = blockMode;
+  }
   const aes256Mode = Boolean(blockMode && blockMode.startsWith("aes-256-"));
 
-  const forceHttps = toBool(process.env.FORCE_HTTPS, false);
+  const forceHttps = toBool(process.env.FORCE_HTTPS, production);
+  if (!process.env.FORCE_HTTPS && forceHttps) {
+    process.env.FORCE_HTTPS = "true";
+  }
   const allowInsecureHttp = toBool(process.env.ALLOW_INSECURE_HTTP, false);
 
   const jwtSecret = String(process.env.JWT_SECRET || "").trim();
@@ -197,15 +204,6 @@ export const getSecurityComplianceSnapshot = (): SecurityComplianceSnapshot => {
       key: "DB_BLOCK_ENCRYPTION_MODE",
       level: "error",
       message: `DB block encryption mode is \"${blockMode}\"; use an aes-256-* mode for AES-256 at-rest encryption.`,
-    });
-  }
-
-  if (encryptionRequired && !blockMode) {
-    checks.push({
-      key: "DB_BLOCK_ENCRYPTION_MODE",
-      level: "warning",
-      message:
-        "DB block encryption mode is not declared. Set DB_BLOCK_ENCRYPTION_MODE=aes-256-ecb (or your approved aes-256 mode).",
     });
   }
 

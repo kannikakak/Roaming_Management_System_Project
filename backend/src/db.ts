@@ -84,10 +84,15 @@ export const dbPool = mysql.createPool({
     ssl: buildSslConfig(),
 });
 
-const dbBlockEncryptionMode = firstNonEmpty(
-    process.env.DB_BLOCK_ENCRYPTION_MODE,
-    process.env.MYSQL_BLOCK_ENCRYPTION_MODE
-);
+const encryptionRequired =
+    String(process.env.DATA_ENCRYPTION_REQUIRED || "").trim().toLowerCase() === "true" ||
+    String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+const dbBlockEncryptionMode =
+    firstNonEmpty(process.env.DB_BLOCK_ENCRYPTION_MODE, process.env.MYSQL_BLOCK_ENCRYPTION_MODE) ||
+    (encryptionRequired ? "aes-256-ecb" : undefined);
+if (!process.env.DB_BLOCK_ENCRYPTION_MODE && dbBlockEncryptionMode) {
+    process.env.DB_BLOCK_ENCRYPTION_MODE = dbBlockEncryptionMode;
+}
 if (dbBlockEncryptionMode) {
     const rawPool: any = (dbPool as any).pool;
     if (rawPool && typeof rawPool.on === "function") {
