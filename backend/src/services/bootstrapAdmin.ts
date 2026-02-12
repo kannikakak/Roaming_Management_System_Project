@@ -122,7 +122,15 @@ export async function ensureBootstrapAdmin(dbPool: Pool) {
         await ensureUserHasAdminRole(dbPool, userId);
       }
 
-      if (resetPassword) {
+      if (schema.hasAuthProvider) {
+        await dbPool.query("UPDATE users SET auth_provider = 'local' WHERE id = ?", [userId]);
+      }
+      if (schema.hasIsActive) {
+        await dbPool.query("UPDATE users SET is_active = 1 WHERE id = ?", [userId]);
+      }
+
+      const shouldUpdatePassword = resetPassword || !String(rows[0].passwordHash || "").trim();
+      if (shouldUpdatePassword) {
         const hashedPassword = await bcrypt.hash(passwordRaw, 10);
         await dbPool.query("UPDATE users SET password_hash = ? WHERE id = ?", [
           hashedPassword,
@@ -149,14 +157,17 @@ export async function ensureBootstrapAdmin(dbPool: Pool) {
         return;
       }
 
-      if (resetPassword) {
-        const userId = Number(rows[0].id);
+      const userId = Number(rows[0].id);
+      const shouldUpdatePassword = resetPassword || !String(rows[0].passwordHash || "").trim();
+      if (shouldUpdatePassword) {
         const hashedPassword = await bcrypt.hash(passwordRaw, 10);
         await dbPool.query("UPDATE users SET password = ?, role = 'admin' WHERE id = ?", [
           hashedPassword,
           userId,
         ]);
         console.log(`✅ Bootstrapped admin password reset: ${email}`);
+      } else {
+        await dbPool.query("UPDATE users SET role = 'admin' WHERE id = ?", [userId]);
       }
 
       return;
@@ -167,4 +178,3 @@ export async function ensureBootstrapAdmin(dbPool: Pool) {
     console.warn("⚠️  Bootstrap admin failed:", err);
   }
 }
-

@@ -10,6 +10,7 @@ import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
 import { getAuditActor, writeAuditLog } from "../utils/auditLogger";
+import { ensureBootstrapAdmin } from "../services/bootstrapAdmin";
 
 const getJwtSecret = (): jwt.Secret => {
   const secret = String(process.env.JWT_SECRET || "").trim();
@@ -404,9 +405,14 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
   }
   try {
     const schema = await getUserSchemaInfo(dbPool);
+    const bootstrapEmail = normalizeEmail(String(process.env.BOOTSTRAP_ADMIN_EMAIL || ""));
+    const canBootstrapForThisLogin =
+      Boolean(String(process.env.BOOTSTRAP_ADMIN_PASSWORD || "").trim()) &&
+      bootstrapEmail === normalizedEmail;
 
     if (schema.hasFullName && schema.hasPasswordHash && schema.hasUserRolesTable && schema.hasRolesTable) {
-      const [results]: any = await dbPool.query(
+      const queryUserByEmail = () =>
+        dbPool.query(
         `SELECT u.id, u.full_name, u.email, u.password_hash${schema.hasProfileImageUrl ? ", u.profile_image_url" : ""}${schema.hasIsActive ? ", u.is_active" : ""}${schema.hasTwoFactorEnabled ? ", u.two_factor_enabled" : ""},
                 ${schema.hasAuthProvider ? "u.auth_provider," : ""}
                 GROUP_CONCAT(r.name) as roles
@@ -417,6 +423,11 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
          GROUP BY u.id`,
         [normalizedEmail]
       );
+      let [results]: any = await queryUserByEmail();
+      if (results.length === 0 && canBootstrapForThisLogin) {
+        await ensureBootstrapAdmin(dbPool);
+        [results] = await queryUserByEmail();
+      }
       if (results.length === 0) {
         await writeAuditLog(dbPool, {
           actor: normalizedEmail,
@@ -511,10 +522,16 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         user: buildUserPayload(user, primaryRole, schema, rolesArr),
       });
     } else if (schema.hasName && schema.hasPassword && schema.hasRole) {
-      const [results]: any = await dbPool.query(
+      const queryUserByEmail = () =>
+        dbPool.query(
         `SELECT id, name, email${schema.hasAuthProvider ? ", auth_provider" : ""}, password, role${schema.hasIsActive ? ", is_active" : ""}${schema.hasTwoFactorEnabled ? ", two_factor_enabled" : ""} FROM users WHERE LOWER(TRIM(email)) = ?`,
         [normalizedEmail]
       );
+      let [results]: any = await queryUserByEmail();
+      if (results.length === 0 && canBootstrapForThisLogin) {
+        await ensureBootstrapAdmin(dbPool);
+        [results] = await queryUserByEmail();
+      }
       if (results.length === 0) {
         await writeAuditLog(dbPool, {
           actor: normalizedEmail,
