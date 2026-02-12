@@ -207,16 +207,10 @@ export async function runDueSchedules(dbPool: Pool) {
       let deliveryAttempts = 0;
       const channelWarnings: string[] = [];
 
-      if (!settings.email_enabled && recipientsEmail.length > 0) {
-        channelWarnings.push("Email delivery is disabled in notification settings.");
-      }
-      if (settings.email_enabled && !isEmailReady && recipientsEmail.length > 0) {
+      if (!isEmailReady && recipientsEmail.length > 0) {
         channelWarnings.push("Email delivery is enabled but SMTP is not configured.");
       }
-      if (!settings.telegram_enabled && recipientsTelegram.length > 0) {
-        channelWarnings.push("Telegram delivery is disabled in notification settings.");
-      }
-      if (settings.telegram_enabled && !isTelegramReady && recipientsTelegram.length > 0) {
+      if (!isTelegramReady && recipientsTelegram.length > 0) {
         channelWarnings.push("Telegram delivery is enabled but bot token is not configured.");
       }
       if (channelWarnings.length > 0 && settings.in_app_enabled) {
@@ -234,7 +228,9 @@ export async function runDueSchedules(dbPool: Pool) {
         );
       }
 
-      if (settings.email_enabled && isEmailReady && recipientsEmail.length > 0) {
+      // Schedule channel recipients are explicit; do not block delivery using
+      // notification preference toggles meant for in-app alerts.
+      if (isEmailReady && recipientsEmail.length > 0) {
         deliveryAttempts += 1;
         const result = await sendEmail(recipientsEmail, subject, message, attachment || undefined);
         if (!result.ok) {
@@ -260,7 +256,7 @@ export async function runDueSchedules(dbPool: Pool) {
         });
       }
 
-      if (settings.telegram_enabled && isTelegramReady && recipientsTelegram.length > 0) {
+      if (isTelegramReady && recipientsTelegram.length > 0) {
         deliveryAttempts += 1;
         const result = await sendTelegram(recipientsTelegram, message, attachment || undefined);
         if (!result.ok) {
