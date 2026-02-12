@@ -323,6 +323,52 @@ const DataSourcesPage: React.FC = () => {
     [clearNotice, fetchSources]
   );
 
+  const handleDeleteSource = useCallback(
+    async (source: SourceRow) => {
+      if (sources.length <= 1) {
+        setError("At least one source should remain. Create another source before deleting this one.");
+        return;
+      }
+
+      const confirmDelete = window.confirm(
+        `Delete source '${source.name}'? Agent uploads using this source ID will stop.`
+      );
+      if (!confirmDelete) return;
+
+      const purgeImportedData = window.confirm(
+        "Also delete all data imported by this source from the system?\n\nOK = delete imported data\nCancel = keep imported data"
+      );
+
+      const actionKey = `delete-${source.id}`;
+      setBusySourceAction(actionKey);
+      clearNotice();
+      try {
+        const response = await apiFetch(
+          `/api/sources/${source.id}?purgeImportedData=${purgeImportedData ? "true" : "false"}`,
+          {
+            method: "DELETE",
+          }
+        );
+        const payload = await requestJson<{ purgedFileCount?: number }>(
+          response,
+          "Failed to delete source."
+        );
+
+        setMessage(
+          purgeImportedData
+            ? `Source deleted. Purged ${Number(payload?.purgedFileCount || 0)} imported dataset(s).`
+            : "Source deleted."
+        );
+        await fetchSources();
+      } catch (err: any) {
+        setError(err?.message || "Failed to delete source.");
+      } finally {
+        setBusySourceAction(null);
+      }
+    },
+    [clearNotice, fetchSources, sources.length]
+  );
+
   const handleUpdateSourceProject = useCallback(
     async (source: SourceRow) => {
       const selected = sourceProjectDrafts[source.id] || String(source.projectId);
@@ -660,6 +706,22 @@ npm run sync-agent`,
                                   </button>
                                 </>
                               )}
+
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteSource(source)}
+                                disabled={
+                                  busySourceAction === `delete-${source.id}` || sources.length <= 1
+                                }
+                                className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                title={
+                                  sources.length <= 1
+                                    ? "Keep at least one source"
+                                    : "Delete source"
+                                }
+                              >
+                                Delete
+                              </button>
                             </div>
                           </td>
                         </tr>
