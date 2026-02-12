@@ -181,8 +181,14 @@ export async function runDueSchedules(dbPool: Pool) {
       let deliveryAttempts = 0;
       const channelWarnings: string[] = [];
 
+      if (!settings.email_enabled && recipientsEmail.length > 0) {
+        channelWarnings.push("Email delivery is disabled in notification settings.");
+      }
       if (settings.email_enabled && !isEmailReady && recipientsEmail.length > 0) {
         channelWarnings.push("Email delivery is enabled but SMTP is not configured.");
+      }
+      if (!settings.telegram_enabled && recipientsTelegram.length > 0) {
+        channelWarnings.push("Telegram delivery is disabled in notification settings.");
       }
       if (settings.telegram_enabled && !isTelegramReady && recipientsTelegram.length > 0) {
         channelWarnings.push("Telegram delivery is enabled but bot token is not configured.");
@@ -369,7 +375,7 @@ export function startScheduler(dbPool: Pool) {
   const alertDetectionIntervalMs =
     Math.max(1, Number(process.env.ALERT_DETECTION_INTERVAL_MINUTES || 15)) * 60 * 1000;
 
-  setInterval(() => {
+  const tick = () => {
     runDueSchedules(dbPool).catch((err) => {
       console.error("Scheduler error:", err);
     });
@@ -403,5 +409,8 @@ export function startScheduler(dbPool: Pool) {
           alertDetectionRunning = false;
         });
     }
-  }, intervalMs);
+  };
+
+  tick();
+  setInterval(tick, intervalMs);
 }

@@ -3,7 +3,7 @@ import { Pool } from "mysql2/promise";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { computeNextRunAt, ScheduleFrequency } from "../services/scheduler";
+import { computeNextRunAt, runDueSchedules, ScheduleFrequency } from "../services/scheduler";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { writeAuditLog } from "../utils/auditLogger";
@@ -211,6 +211,25 @@ export function scheduleRoutes(dbPool: Pool) {
       }
 
       await dbPool.execute("UPDATE report_schedules SET next_run_at = NOW() WHERE id = ?", [id]);
+      await runDueSchedules(dbPool);
+
+      const [recentRows]: any = await dbPool.query(
+        "SELECT id, type, channel, message, metadata, created_at FROM notifications ORDER BY id DESC LIMIT 200"
+      );
+      const notifications = (Array.isArray(recentRows) ? recentRows : [])
+        .map((row: any) => {
+          let metadata = row.metadata;
+          if (typeof metadata === "string") {
+            try {
+              metadata = JSON.parse(metadata);
+            } catch {
+              metadata = null;
+            }
+          }
+          return { ...row, metadata };
+        })
+        .filter((row: any) => Number(row?.metadata?.scheduleId) === id)
+        .slice(0, 10);
 
       await writeAuditLog(dbPool, {
         req,
@@ -221,7 +240,7 @@ export function scheduleRoutes(dbPool: Pool) {
         },
       });
 
-      res.json({ ok: true });
+      res.json({ ok: true, notifications });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to trigger schedule");
     }

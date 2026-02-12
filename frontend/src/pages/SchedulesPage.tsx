@@ -113,9 +113,33 @@ const SchedulesPage: React.FC = () => {
     try {
       setRunningNowId(id);
       const res = await apiFetch(`/api/schedules/${id}/run-now`, { method: "POST" });
-      if (!res.ok) throw new Error(await res.text());
+      const raw = await res.text();
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
+      if (!res.ok) throw new Error((data && data.message) || raw || "Failed to trigger schedule");
+
+      const recent = Array.isArray(data?.notifications) ? data.notifications : [];
+      const failures = recent.filter((n: any) => {
+        const type = String(n?.type || "");
+        const sent = n?.metadata?.sent;
+        return type === "schedule_error" || type === "schedule_warning" || sent === false;
+      });
+      if (failures.length > 0) {
+        const reason = failures
+          .map((n: any) => n?.metadata?.reason || n?.message || `${n?.channel || "channel"} failed`)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(" | ");
+        alert(`Run finished with issues: ${reason}`);
+      } else {
+        alert("Schedule executed. Check your email/Telegram and Notifications page.");
+      }
+
       await loadSchedules();
-      alert("Schedule queued. Delivery will run in about 1 minute.");
     } catch (err: any) {
       alert(err?.message || "Failed to trigger schedule");
     } finally {
@@ -284,7 +308,7 @@ const SchedulesPage: React.FC = () => {
                 />
                 {attachment && (
                   <div className="text-xs text-gray-500 mt-1">
-                    {attachment.name} • {Math.round(attachment.size / 1024)} KB
+                    {attachment.name} | {Math.round(attachment.size / 1024)} KB
                   </div>
                 )}
               </div>
@@ -346,7 +370,7 @@ const SchedulesPage: React.FC = () => {
                   <div>
                     <div className="font-semibold text-gray-900">{s.name}</div>
                     <div className="text-xs text-gray-500">
-                      {s.frequency} • {s.file_format.toUpperCase()} • Target {s.target_type} #{s.target_id}
+                      {s.frequency} | {s.file_format.toUpperCase()} | Target {s.target_type} #{s.target_id}
                     </div>
                     {s.attachment_name && (
                       <div className="text-xs text-amber-700">
@@ -370,7 +394,7 @@ const SchedulesPage: React.FC = () => {
                       onClick={() => runNow(s.id)}
                       disabled={!s.is_active || runningNowId === s.id}
                     >
-                      {runningNowId === s.id ? "Queuing..." : "Run now"}
+                      {runningNowId === s.id ? "Running..." : "Run now"}
                     </button>
                     <button
                       className="text-xs text-red-600 hover:text-red-700"
