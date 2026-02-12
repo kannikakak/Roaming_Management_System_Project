@@ -1,0 +1,124 @@
+{
+  "files": {
+    "C:\\RoamingDropZone\\Reports\\01_roaming_cdr_events.xlsx": {
+      "fingerprint": "185545:1770785727661",
+      "lastHash": "7a9c17222220c5332cbca42e8c1c88a5b3958f27e46e2ddc52b39aa5b8c64d2a",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:12:41.111Z",
+      "lastSeenAt": "2026-02-12T08:12:41.111Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 1,
+        "ingestionFileId": 1,
+        "importedFileId": 5,
+        "rowsImported": 1600,
+        "fileHash": "7a9c17222220c5332cbca42e8c1c88a5b3958f27e46e2ddc52b39aa5b8c64d2a"
+      },
+      "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\agent-test-20260212-151232.csv": {
+      "fingerprint": "142:1770883952662",
+      "lastHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:13:17.137Z",
+      "lastSeenAt": "2026-02-12T08:13:17.137Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 2,
+        "ingestionFileId": 2,
+        "importedFileId": 6,
+        "rowsImported": 3,
+        "fileHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66"
+      },
+      "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\partner_summary_csv.xlsx": {
+      "fingerprint": "24353:1770796697829",
+      "lastHash": "d6b6590860c1d2875d610d4d8e17d78b743072103e788e1b7365fd62e3d0f124",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:13:47.817Z",
+      "lastSeenAt": "2026-02-12T08:13:47.817Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 3,
+        "ingestionFileId": 3,
+        "importedFileId": 7,
+        "rowsImported": 28,
+        "fileHash": "d6b6590860c1d2875d610d4d8e17d78b743072103e788e1b7365fd62e3d0f124"
+      },
+      "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\04_partner_reference_rates.xlsx": {
+      "fingerprint": "73539:1770785749276",
+      "lastHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:17:27.265Z",
+      "lastSeenAt": "2026-02-12T08:17:27.265Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 4,
+        "ingestionFileId": 4,
+        "importedFileId": 8,
+        "rowsImported": 1200,
+        "fileHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928"
+      },
+      "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\05_alerts_and_job_logs.xlsx": {
+      "fingerprint": "102882:1770785752529",
+      "lastHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:26:27.599Z",
+      "lastSeenAt": "2026-02-12T08:26:27.599Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 5,
+        "ingestionFileId": 5,
+        "importedFileId": 9,
+        "rowsImported": 1300,
+        "fileHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86"
+      },
+      "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\03_settlement_summary.xlsx": {
+      "fingerprint": "88221:1770785745884",
+      "lastHash": "26df9aa60bfc6e16254e2137197246a55cfb28da9fcd0267bac8f68df85ce409",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:28:26.536Z",
+      "lastSeenAt": "2026-02-12T08:28:26.536Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 6,
+        "ingestionFileId": 6,
+        "importedFileId": 10,
+        "rowsImported": 1200,
+        "fileHash": "26df9aa60bfc6e16254e2137197246a55cfb28da9fcd0267bac8f68df85ce409"
+      },
+      "lastError": null
+    }
+  }
+}

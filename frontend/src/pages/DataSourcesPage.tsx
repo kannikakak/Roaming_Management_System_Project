@@ -80,6 +80,7 @@ const getStatusLabel = (source: SourceRow) => {
 const DataSourcesPage: React.FC = () => {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [sourceProjectDrafts, setSourceProjectDrafts] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [busySourceAction, setBusySourceAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -132,7 +133,13 @@ const DataSourcesPage: React.FC = () => {
     try {
       const response = await apiFetch("/api/sources");
       const data = await requestJson<SourceRow[]>(response, "Failed to load data sources.");
-      setSources(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      setSources(rows);
+      const drafts: Record<number, string> = {};
+      for (const row of rows) {
+        drafts[row.id] = String(row.projectId);
+      }
+      setSourceProjectDrafts(drafts);
     } catch (err: any) {
       setSources([]);
       setError(err?.message || "Failed to load data sources.");
@@ -316,6 +323,37 @@ const DataSourcesPage: React.FC = () => {
     [clearNotice, fetchSources]
   );
 
+  const handleUpdateSourceProject = useCallback(
+    async (source: SourceRow) => {
+      const selected = sourceProjectDrafts[source.id] || String(source.projectId);
+      const projectId = Number(selected);
+      if (!Number.isFinite(projectId) || projectId <= 0) {
+        setError("Invalid project selected.");
+        return;
+      }
+
+      const actionKey = `project-${source.id}`;
+      setBusySourceAction(actionKey);
+      clearNotice();
+      try {
+        const response = await apiFetch(`/api/sources/${source.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ projectId }),
+        });
+        await requestJson(response, "Failed to update source project.");
+        setMessage(
+          `Source '${source.name}' now targets ${projectMap.get(projectId) || `project #${projectId}`}.`
+        );
+        await fetchSources();
+      } catch (err: any) {
+        setError(err?.message || "Failed to update source project.");
+      } finally {
+        setBusySourceAction(null);
+      }
+    },
+    [clearNotice, fetchSources, projectMap, sourceProjectDrafts]
+  );
+
   const quickSetupCommands = useMemo(
     () => `cd backend
 npm run sync-agent:setup
@@ -332,6 +370,9 @@ npm run sync-agent`,
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Data Sources</h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">
               Configure manual or folder-sync ingestion sources and manage agent API keys.
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Agent uploads always follow the selected source's project mapping.
             </p>
           </div>
           <button
@@ -505,6 +546,11 @@ npm run sync-agent`,
                   <tbody>
                     {sources.map((source) => {
                       const status = getStatusLabel(source);
+                      const selectedProjectValue =
+                        sourceProjectDrafts[source.id] || String(source.projectId);
+                      const selectedProjectId = Number(selectedProjectValue);
+                      const projectChanged =
+                        Number.isFinite(selectedProjectId) && selectedProjectId !== source.projectId;
                       const statusColor =
                         status === "Connected" || status === "Active"
                           ? "text-emerald-600"
@@ -524,7 +570,39 @@ npm run sync-agent`,
                             </div>
                           </td>
                           <td className="py-3 text-gray-600 dark:text-gray-300">
-                            {projectMap.get(source.projectId) || `Project #${source.projectId}`}
+                            <div className="space-y-2">
+                              <select
+                                value={selectedProjectValue}
+                                onChange={(event) =>
+                                  setSourceProjectDrafts((prev) => ({
+                                    ...prev,
+                                    [source.id]: event.target.value,
+                                  }))
+                                }
+                                className="rounded-xl border border-gray-200 bg-white px-2 py-1 text-xs focus:border-amber-400 focus:outline-none"
+                              >
+                                {projects.map((project) => (
+                                  <option key={project.id} value={project.id}>
+                                    {project.name}
+                                  </option>
+                                ))}
+                                {projects.length === 0 ? <option value="">(No projects)</option> : null}
+                              </select>
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleUpdateSourceProject(source)}
+                                  disabled={
+                                    busySourceAction === `project-${source.id}` ||
+                                    !projectChanged ||
+                                    projects.length === 0
+                                  }
+                                  className="rounded-full border border-amber-200 px-3 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                                >
+                                  Save project
+                                </button>
+                              </div>
+                            </div>
                           </td>
                           <td className="py-3">
                             <div className={`font-semibold ${statusColor}`}>{status}</div>
