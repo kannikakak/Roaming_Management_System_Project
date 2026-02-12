@@ -129,8 +129,20 @@ const SchedulesPage: React.FC = () => {
         return type === "schedule_error" || type === "schedule_warning" || sent === false;
       });
       if (failures.length > 0) {
-        const reason = failures
-          .map((n: any) => n?.metadata?.reason || n?.message || `${n?.channel || "channel"} failed`)
+        const reasons = Array.from(
+          new Set(
+            failures
+              .map(
+                (n: any) =>
+                  n?.metadata?.error ||
+                  n?.metadata?.reason ||
+                  n?.message ||
+                  `${n?.channel || "channel"} failed`
+              )
+              .filter(Boolean)
+          )
+        );
+        const reason = reasons
           .filter(Boolean)
           .slice(0, 3)
           .join(" | ");

@@ -210,11 +210,17 @@ export function scheduleRoutes(dbPool: Pool) {
         return res.status(400).json({ message: "Schedule is paused. Enable it first." });
       }
 
+      const [markerRows]: any = await dbPool.query(
+        "SELECT COALESCE(MAX(id), 0) AS maxId FROM notifications"
+      );
+      const beforeNotificationId = Number(markerRows?.[0]?.maxId || 0);
+
       await dbPool.execute("UPDATE report_schedules SET next_run_at = NOW() WHERE id = ?", [id]);
       await runDueSchedules(dbPool);
 
       const [recentRows]: any = await dbPool.query(
-        "SELECT id, type, channel, message, metadata, created_at FROM notifications ORDER BY id DESC LIMIT 200"
+        "SELECT id, type, channel, message, metadata, created_at FROM notifications WHERE id > ? ORDER BY id DESC LIMIT 200",
+        [beforeNotificationId]
       );
       const notifications = (Array.isArray(recentRows) ? recentRows : [])
         .map((row: any) => {

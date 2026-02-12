@@ -43,6 +43,36 @@ function clampDayToMonth(date: Date, day: number) {
   return Math.min(day, lastDay);
 }
 
+function parseRecipients(raw: unknown): string[] {
+  if (raw === null || raw === undefined) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => String(v || "").trim()).filter(Boolean);
+      }
+      if (typeof parsed === "string") {
+        return parsed
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+      }
+    } catch {
+      // Fall back to comma-separated parsing for legacy rows.
+    }
+    return text
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 export function computeNextRunAt(
   frequency: ScheduleFrequency,
   timeOfDay: string,
@@ -126,12 +156,8 @@ export async function runDueSchedules(dbPool: Pool) {
   const schedules: ScheduleRow[] = Array.isArray(rows) ? rows : [];
   for (const schedule of schedules) {
     try {
-      const recipientsEmail = schedule.recipients_email
-        ? JSON.parse(schedule.recipients_email)
-        : [];
-      const recipientsTelegram = schedule.recipients_telegram
-        ? JSON.parse(schedule.recipients_telegram)
-        : [];
+      const recipientsEmail = parseRecipients(schedule.recipients_email);
+      const recipientsTelegram = parseRecipients(schedule.recipients_telegram);
 
       const message = `Scheduled delivery: ${schedule.name} (${schedule.frequency})`;
       const subject = `Schedule: ${schedule.name}`;

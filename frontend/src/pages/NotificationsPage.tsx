@@ -25,7 +25,20 @@ const NotificationsPage: React.FC = () => {
   const loadNotifications = async () => {
     const res = await apiFetch("/api/notifications");
     const data = await res.json();
-    setNotifications(Array.isArray(data) ? data : []);
+    const parsed = Array.isArray(data)
+      ? data.map((row: any) => {
+          let metadata = row?.metadata;
+          if (typeof metadata === "string") {
+            try {
+              metadata = JSON.parse(metadata);
+            } catch {
+              metadata = null;
+            }
+          }
+          return { ...row, metadata };
+        })
+      : [];
+    setNotifications(parsed);
   };
 
   const loadSettings = async () => {
@@ -176,6 +189,11 @@ const NotificationsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-gray-700 mt-1">{n.message}</div>
+                  {(n?.metadata?.error || n?.metadata?.reason) && (
+                    <div className="text-xs text-red-700 mt-1">
+                      Detail: {n?.metadata?.error || n?.metadata?.reason}
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 mt-2">
                     Channel: <span className="font-semibold">{n.channel}</span>
                   </div>
