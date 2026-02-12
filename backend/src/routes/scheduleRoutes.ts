@@ -17,7 +17,6 @@ type SchedulePayload = {
   dayOfWeek?: number | null;
   dayOfMonth?: number | null;
   recipientsEmail?: string[] | string;
-  recipientsTelegram?: string[] | string;
   fileFormat: string;
   isActive?: boolean;
 };
@@ -92,7 +91,6 @@ export function scheduleRoutes(dbPool: Pool) {
     );
 
     const recipientsEmail = toList(payload.recipientsEmail);
-    const recipientsTelegram = toList(payload.recipientsTelegram);
 
     const attachmentPath = file ? file.path : null;
     const attachmentName = file ? file.originalname : null;
@@ -113,7 +111,7 @@ export function scheduleRoutes(dbPool: Pool) {
         dayOfWeek,
         dayOfMonth,
         JSON.stringify(recipientsEmail),
-        JSON.stringify(recipientsTelegram),
+        JSON.stringify([]),
         payload.fileFormat,
         attachmentPath,
         attachmentName,
@@ -284,7 +282,7 @@ export function scheduleRoutes(dbPool: Pool) {
           payload.dayOfWeek ?? null,
           payload.dayOfMonth ?? null,
           JSON.stringify(toList(payload.recipientsEmail)),
-          JSON.stringify(toList(payload.recipientsTelegram)),
+          JSON.stringify([]),
           payload.fileFormat,
           payload.isActive === false ? 0 : 1,
           nextRun,

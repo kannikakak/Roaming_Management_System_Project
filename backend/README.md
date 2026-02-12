@@ -52,7 +52,7 @@ Admin compliance endpoints:
 - `PUT /api/system/retention`: update retention settings.
 - `POST /api/system/retention/run?dryRun=true`: run retention on demand (dry-run or execute).
 
-## Notifications (In-App / Email / Telegram)
+## Notifications (In-App / Email)
 
 Scheduler deliveries use `report_schedules` and `notification_settings`.
 
@@ -60,13 +60,10 @@ Environment variables:
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`: SMTP channel config.
 - `SMTP_SECURE`: set `true` for implicit TLS (usually port `465`), otherwise `false` for STARTTLS (usually `587`).
 - `SMTP_TLS_REJECT_UNAUTHORIZED`: keep `true` in production unless your SMTP provider requires otherwise.
-- `TELEGRAM_BOT_TOKEN`: Telegram bot token from BotFather.
-- `NOTIFY_EMAIL_ENABLED`, `NOTIFY_TELEGRAM_ENABLED`, `NOTIFY_IN_APP_ENABLED`: defaults used when global notification settings row is missing.
+- `NOTIFY_EMAIL_ENABLED`, `NOTIFY_IN_APP_ENABLED`: defaults used when global notification settings row is missing.
 
 Operational notes:
 - Scheduler checks due jobs every minute.
-- Telegram recipients should be chat IDs (e.g. `-1001234567890`) or channel usernames (`@channel_name`).
-- For direct user chats, users must start the bot first and you must use the numeric chat ID.
 
 ## Running the Application
 

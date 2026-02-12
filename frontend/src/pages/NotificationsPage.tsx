@@ -13,7 +13,6 @@ type Notification = {
 
 type Settings = {
   email_enabled: number;
-  telegram_enabled: number;
   in_app_enabled: number;
 };
 
@@ -47,7 +46,7 @@ const NotificationsPage: React.FC = () => {
     if (data) {
       setSettings(data);
     } else {
-      setSettings({ email_enabled: 1, telegram_enabled: 0, in_app_enabled: 1 });
+      setSettings({ email_enabled: 1, in_app_enabled: 1 });
     }
   };
 
@@ -64,7 +63,6 @@ const NotificationsPage: React.FC = () => {
   const saveSettings = async (patch: Partial<Settings>) => {
     const next = {
       email_enabled: settings?.email_enabled ?? 1,
-      telegram_enabled: settings?.telegram_enabled ?? 0,
       in_app_enabled: settings?.in_app_enabled ?? 1,
       ...patch,
     };
@@ -72,7 +70,7 @@ const NotificationsPage: React.FC = () => {
       method: "PUT",
       body: JSON.stringify({
         emailEnabled: !!next.email_enabled,
-        telegramEnabled: !!next.telegram_enabled,
+        telegramEnabled: false,
         inAppEnabled: !!next.in_app_enabled,
       }),
     });
@@ -139,21 +137,6 @@ const NotificationsPage: React.FC = () => {
                 }}
               />
               Email
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!settings?.telegram_enabled}
-                onChange={async (e) => {
-                  try {
-                    await saveSettings({ telegram_enabled: e.target.checked ? 1 : 0 });
-                    setSettingsMessage("Settings saved");
-                  } catch (err: any) {
-                    setSettingsMessage(err?.message || "Failed to save settings");
-                  }
-                }}
-              />
-              Telegram
             </label>
           </div>
           {settingsMessage && <div className="text-xs text-gray-500 mt-3">{settingsMessage}</div>}

@@ -11,7 +11,6 @@ type Schedule = {
   day_of_week: number | null;
   day_of_month: number | null;
   recipients_email: string | null;
-  recipients_telegram: string | null;
   file_format: string;
   attachment_name?: string | null;
   is_active: number;
@@ -39,7 +38,6 @@ const SchedulesPage: React.FC = () => {
   const [dayOfMonth, setDayOfMonth] = useState<number>(1);
   const [fileFormat, setFileFormat] = useState("pptx");
   const [recipientsEmail, setRecipientsEmail] = useState("");
-  const [recipientsTelegram, setRecipientsTelegram] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
 
@@ -72,7 +70,6 @@ const SchedulesPage: React.FC = () => {
         dayOfWeek: frequency === "weekly" ? dayOfWeek : null,
         dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
         recipientsEmail: toList(recipientsEmail),
-        recipientsTelegram: toList(recipientsTelegram),
         fileFormat,
         isActive,
       };
@@ -95,7 +92,6 @@ const SchedulesPage: React.FC = () => {
       if (!res.ok) throw new Error(await res.text());
       setName("");
       setRecipientsEmail("");
-      setRecipientsTelegram("");
       setAttachment(null);
       await loadSchedules();
     } catch (err: any) {
@@ -148,7 +144,7 @@ const SchedulesPage: React.FC = () => {
           .join(" | ");
         alert(`Run finished with issues: ${reason}`);
       } else {
-        alert("Schedule executed. Check your email/Telegram and Notifications page.");
+        alert("Schedule executed. Check your email and Notifications page.");
       }
 
       await loadSchedules();
@@ -166,7 +162,7 @@ const SchedulesPage: React.FC = () => {
           <div>
             <h2 className="text-3xl font-bold text-amber-800">Scheduling</h2>
             <p className="text-sm text-amber-700/80">
-              Automate report delivery to email or Telegram on a fixed cadence.
+              Automate report delivery to email on a fixed cadence.
             </p>
           </div>
           <button
@@ -298,20 +294,6 @@ const SchedulesPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  Telegram Recipients (chat ID / @channel)
-                </label>
-                <input
-                  className="w-full border rounded-lg px-3 py-2"
-                  placeholder="-1001234567890, @my_channel"
-                  value={recipientsTelegram}
-                  onChange={(e) => setRecipientsTelegram(e.target.value)}
-                />
-                <div className="text-[11px] text-gray-400 mt-1">
-                  For personal chats, use numeric chat IDs after users start your bot.
-                </div>
-              </div>
-              <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
                 <input
                   type="file"
@@ -337,7 +319,7 @@ const SchedulesPage: React.FC = () => {
                   Create Schedule
                 </button>
                 <div className="text-[11px] text-gray-500 mt-2">
-                  Attachments are sent with email/Telegram (and noted in Teams) when delivery
+                  Attachments are sent with email (and noted in Teams) when delivery
                   credentials are configured on the server.
                 </div>
               </div>

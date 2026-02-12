@@ -29,9 +29,10 @@ export function notificationSettingsRoutes(dbPool: Pool) {
       const { userId, emailEnabled, telegramEnabled, inAppEnabled } = req.body as {
         userId?: number | null;
         emailEnabled: boolean;
-        telegramEnabled: boolean;
+        telegramEnabled?: boolean;
         inAppEnabled: boolean;
       };
+      const telegramEnabledSafe = telegramEnabled === true;
 
       const [rows] = await dbPool.query<any[]>(
         "SELECT id FROM notification_settings WHERE user_id <=> ? LIMIT 1",
@@ -41,12 +42,22 @@ export function notificationSettingsRoutes(dbPool: Pool) {
       if (rows.length === 0) {
         await dbPool.execute(
           "INSERT INTO notification_settings (user_id, email_enabled, telegram_enabled, in_app_enabled) VALUES (?, ?, ?, ?)",
-          [userId ?? null, emailEnabled ? 1 : 0, telegramEnabled ? 1 : 0, inAppEnabled ? 1 : 0]
+          [
+            userId ?? null,
+            emailEnabled ? 1 : 0,
+            telegramEnabledSafe ? 1 : 0,
+            inAppEnabled ? 1 : 0,
+          ]
         );
       } else {
         await dbPool.execute(
           "UPDATE notification_settings SET email_enabled=?, telegram_enabled=?, in_app_enabled=? WHERE id=?",
-          [emailEnabled ? 1 : 0, telegramEnabled ? 1 : 0, inAppEnabled ? 1 : 0, rows[0].id]
+          [
+            emailEnabled ? 1 : 0,
+            telegramEnabledSafe ? 1 : 0,
+            inAppEnabled ? 1 : 0,
+            rows[0].id,
+          ]
         );
       }
 

@@ -4,11 +4,9 @@ import { loadRetentionConfig, runDataRetention } from "./dataRetention";
 import {
   isEmailReady,
   isTeamsReady,
-  isTelegramReady,
   loadAttachmentFromSchedule,
   sendEmail,
   sendTeams,
-  sendTelegram,
 } from "./delivery";
 import { writeAuditLog } from "../utils/auditLogger";
 import { runAlertDetections, upsertAlert } from "./alerts";
@@ -157,7 +155,6 @@ export async function runDueSchedules(dbPool: Pool) {
   for (const schedule of schedules) {
     try {
       const recipientsEmail = parseRecipients(schedule.recipients_email);
-      const recipientsTelegram = parseRecipients(schedule.recipients_telegram);
 
       const message = `Scheduled delivery: ${schedule.name} (${schedule.frequency})`;
       const subject = `Schedule: ${schedule.name}`;
@@ -208,10 +205,9 @@ export async function runDueSchedules(dbPool: Pool) {
       const channelWarnings: string[] = [];
 
       if (!isEmailReady && recipientsEmail.length > 0) {
-        channelWarnings.push("Email delivery is enabled but SMTP is not configured.");
-      }
-      if (!isTelegramReady && recipientsTelegram.length > 0) {
-        channelWarnings.push("Telegram delivery is enabled but bot token is not configured.");
+        channelWarnings.push(
+          "Email delivery is enabled but SMTP is not configured. Set SMTP_HOST and SMTP_FROM (plus SMTP_USER/SMTP_PASS if your provider requires auth)."
+        );
       }
       if (channelWarnings.length > 0 && settings.in_app_enabled) {
         await createNotification(
@@ -223,7 +219,6 @@ export async function runDueSchedules(dbPool: Pool) {
             scheduleId: schedule.id,
             scheduleName: schedule.name,
             recipientsEmailCount: recipientsEmail.length,
-            recipientsTelegramCount: recipientsTelegram.length,
           }
         );
       }
@@ -250,32 +245,6 @@ export async function runDueSchedules(dbPool: Pool) {
         await createNotification(dbPool, "schedule_delivery", "email", message, {
           scheduleId: schedule.id,
           recipients: recipientsEmail,
-          format: schedule.file_format,
-          sent: result.ok,
-          reason: result.ok ? null : result.reason,
-        });
-      }
-
-      if (isTelegramReady && recipientsTelegram.length > 0) {
-        deliveryAttempts += 1;
-        const result = await sendTelegram(recipientsTelegram, message, attachment || undefined);
-        if (!result.ok) {
-          await createFailedScheduleAlert(
-            dbPool,
-            schedule,
-            "telegram_delivery_failed",
-            "medium",
-            `Telegram delivery failed: ${result.reason || "unknown error"}`,
-            {
-              channel: "telegram",
-              recipientsCount: recipientsTelegram.length,
-              reason: result.reason || null,
-            }
-          );
-        }
-        await createNotification(dbPool, "schedule_delivery", "telegram", message, {
-          scheduleId: schedule.id,
-          recipients: recipientsTelegram,
           format: schedule.file_format,
           sent: result.ok,
           reason: result.ok ? null : result.reason,
@@ -312,7 +281,6 @@ export async function runDueSchedules(dbPool: Pool) {
           format: schedule.file_format,
           deliveryAttempts,
           recipientsEmailCount: recipientsEmail.length,
-          recipientsTelegramCount: recipientsTelegram.length,
         });
       }
 
@@ -337,7 +305,6 @@ export async function runDueSchedules(dbPool: Pool) {
           frequency: schedule.frequency,
           format: schedule.file_format,
           recipientsEmailCount: recipientsEmail.length,
-          recipientsTelegramCount: recipientsTelegram.length,
           deliveryAttempts,
           nextRunAt: nextRun,
         },
