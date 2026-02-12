@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { Pool } from "mysql2/promise";
 import { ingestFilesFromDisk } from "../controllers/fileController";
 import { getNotificationSettings } from "./notificationSettings";
+import { upsertAlert } from "./alerts";
 
 type IngestionSourceRow = {
   id: number;
@@ -11,6 +12,7 @@ type IngestionSourceRow = {
   type: string;
   connectionConfig: any;
   filePattern: string | null;
+  templateRule: string | null;
   pollIntervalMinutes: number;
   enabled: number;
   projectId: number;
@@ -154,6 +156,7 @@ const collectFiles = async (
 const getEnabledSources = async (dbPool: Pool) => {
   const [rows]: any = await dbPool.query(
     `SELECT id, name, type, connection_config as connectionConfig, file_pattern as filePattern,
+            template_rule as templateRule,
             poll_interval_minutes as pollIntervalMinutes, enabled, project_id as projectId,
             last_scan_at as lastScanAt
      FROM ingestion_sources
@@ -232,13 +235,20 @@ const ensureFileRecord = async (
     status: "NEW",
     created: true,
     updated: Boolean(latest),
+    checksum,
   };
 };
 
-const enqueueJob = async (dbPool: Pool, sourceId: number, fileId: number) => {
+const enqueueJob = async (
+  dbPool: Pool,
+  sourceId: number,
+  fileId: number,
+  fileName: string,
+  fileHash: string
+) => {
   await dbPool.query(
-    "INSERT INTO ingestion_jobs (source_id, file_id, attempt) VALUES (?, ?, 1)",
-    [sourceId, fileId]
+    "INSERT INTO ingestion_jobs (source_id, file_id, file_name, file_hash, status, attempt) VALUES (?, ?, ?, ?, 'PENDING', 1)",
+    [sourceId, fileId, fileName, fileHash]
   );
   await dbPool.query("UPDATE ingestion_files SET status = 'QUEUED' WHERE id = ?", [fileId]);
 };
@@ -315,7 +325,7 @@ const scanLocalSource = async (dbPool: Pool, source: IngestionSourceRow) => {
 
         if (record.updated) updated += 1;
         discovered += 1;
-        await enqueueJob(dbPool, source.id, record.id);
+        await enqueueJob(dbPool, source.id, record.id, entry, checksum);
         queued += 1;
       }
     }
@@ -333,6 +343,7 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
   const [rows]: any = await dbPool.query(
     `SELECT j.id as jobId, j.source_id as sourceId, j.file_id as fileId,
             f.remote_path as remotePath, f.file_name as fileName,
+            f.checksum_sha256 as fileHash,
             s.project_id as projectId
      FROM ingestion_jobs j
      JOIN ingestion_files f ON f.id = j.file_id
@@ -347,7 +358,7 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
 
   for (const job of rows) {
     const claimed = await dbPool.query(
-      "UPDATE ingestion_jobs SET started_at = NOW() WHERE id = ? AND started_at IS NULL",
+      "UPDATE ingestion_jobs SET started_at = NOW(), status = 'PROCESSING' WHERE id = ? AND started_at IS NULL",
       [job.jobId]
     );
     const affected = (claimed as any)?.[0]?.affectedRows ?? 0;
@@ -362,17 +373,19 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
         job.fileId,
       ]);
 
-      await ingestFilesFromDisk(dbPool, job.projectId, [
+      const ingestResult = await ingestFilesFromDisk(dbPool, job.projectId, [
         { path: stagingPath, originalname: job.fileName },
       ]);
+      const rowsImported = Number(ingestResult?.metrics?.files?.[0]?.rows || 0);
+      const importedFileId = Number(ingestResult?.files?.[0]?.id || 0) || null;
 
       await dbPool.query(
-        "UPDATE ingestion_files SET status = 'SUCCESS', processed_at = NOW(), error_message = NULL WHERE id = ?",
-        [job.fileId]
+        "UPDATE ingestion_files SET status = 'SUCCESS', processed_at = NOW(), rows_imported = ?, error_message = NULL WHERE id = ?",
+        [rowsImported, job.fileId]
       );
       await dbPool.query(
-        "UPDATE ingestion_jobs SET finished_at = NOW(), result = 'SUCCESS' WHERE id = ?",
-        [job.jobId]
+        "UPDATE ingestion_jobs SET finished_at = NOW(), result = 'SUCCESS', status = 'SUCCESS', rows_imported = ?, imported_file_id = ?, error_message = NULL WHERE id = ?",
+        [rowsImported, importedFileId, job.jobId]
       );
 
       await notify(dbPool, "ingestion_success", `Ingested ${job.fileName}`, {
@@ -383,6 +396,8 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
         sourceId: job.sourceId,
         fileId: job.fileId,
         fileName: job.fileName,
+        importedFileId,
+        rowsImported,
       });
     } catch (err: any) {
       const message = err?.message || String(err);
@@ -391,13 +406,28 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
         [message, job.fileId]
       );
       await dbPool.query(
-        "UPDATE ingestion_jobs SET finished_at = NOW(), result = 'FAILED' WHERE id = ?",
-        [job.jobId]
+        "UPDATE ingestion_jobs SET finished_at = NOW(), result = 'FAILED', status = 'FAILED', error_message = ? WHERE id = ?",
+        [message, job.jobId]
       );
       await notify(dbPool, "ingestion_failed", `Failed to ingest ${job.fileName}`, {
         sourceId: job.sourceId,
         fileId: job.fileId,
         error: message,
+      });
+      await upsertAlert(dbPool, {
+        fingerprint: `ingestion_failed|source:${job.sourceId}|hash:${job.fileHash || job.fileId}`,
+        alertType: "ingestion_failed",
+        severity: "medium",
+        title: `Ingestion failed: ${job.fileName}`,
+        message,
+        source: "ingestion_runner",
+        projectId: Number(job.projectId || 0) || null,
+        payload: {
+          sourceId: job.sourceId,
+          fileId: job.fileId,
+          fileName: job.fileName,
+          error: message,
+        },
       });
       await recordAudit(dbPool, "ingestion_failed", {
         sourceId: job.sourceId,
@@ -415,6 +445,10 @@ export const runIngestionCycle = async (dbPool: Pool) => {
     if (!shouldScanSource(source)) continue;
     if (source.type === "local") {
       await scanLocalSource(dbPool, source);
+    } else if (source.type === "folder_sync") {
+      // Folder sync sources are pushed by local agents and do not require
+      // server-side path scans.
+      await updateSourceScanStatus(dbPool, source.id, null);
     } else {
       await updateSourceScanStatus(dbPool, source.id, "Unsupported source type");
     }
@@ -425,6 +459,7 @@ export const runIngestionCycle = async (dbPool: Pool) => {
 export const runIngestionScanOnce = async (dbPool: Pool, sourceId: number) => {
   const [[source]]: any = await dbPool.query(
     `SELECT id, name, type, connection_config as connectionConfig, file_pattern as filePattern,
+            template_rule as templateRule,
             poll_interval_minutes as pollIntervalMinutes, enabled, project_id as projectId,
             last_scan_at as lastScanAt
      FROM ingestion_sources WHERE id = ?`,
@@ -434,7 +469,7 @@ export const runIngestionScanOnce = async (dbPool: Pool, sourceId: number) => {
     throw new Error("Source not found");
   }
   if (source.type !== "local") {
-    throw new Error("Only local sources are supported right now.");
+    throw new Error("Only local sources support manual server-side scan.");
   }
   return scanLocalSource(dbPool, source as IngestionSourceRow);
 };

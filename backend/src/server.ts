@@ -10,6 +10,7 @@ import { startIngestionRunner } from "./services/ingestionRunner";
 import { startBackupScheduler } from "./services/backupScheduler";
 import { ensureBootstrapAdmin } from "./services/bootstrapAdmin";
 import { validateSecurityCompliance } from "./utils/securityCompliance";
+import { ensureIngestionAgentSchema } from "./services/ingestionSchema";
 
 import projectRoutes from "./routes/projectRoutes";
 import exportPptxRoute from "./routes/exportPptx";
@@ -109,6 +110,7 @@ const startServer = async () => {
     process.exit(1);
   }
 
+  await ensureIngestionAgentSchema(dbPool);
   await ensureBootstrapAdmin(dbPool);
 
   setRoutes(app, dbPool);

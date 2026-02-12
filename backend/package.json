@@ -6,6 +6,10 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "sync-agent:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-sync-agent.ps1",
+    "sync-agent:setup-run": "powershell -ExecutionPolicy Bypass -File scripts/setup-sync-agent.ps1 -RunAfterSetup",
+    "sync-agent:test-file": "powershell -ExecutionPolicy Bypass -File scripts/drop-test-file.ps1",
+    "sync-agent": "node scripts/folder-sync-agent.js",
     "encrypt-rows": "ts-node scripts/encrypt-existing-rows.ts",
     "ingest-watch": "ts-node src/workers/ingestionWatcher.ts",
     "test:schema-changes": "ts-node scripts/test-schema-changes.ts"

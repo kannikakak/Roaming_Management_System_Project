@@ -19,6 +19,7 @@ import {
   ClipboardList,
   BellRing,
   DatabaseBackup,
+  Database,
 } from 'lucide-react';
 import SidebarItem from './SidebarItem';
 
@@ -31,6 +32,8 @@ const navItems = [
   { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
   { label: 'Reports Library', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
   { label: 'Data Explorer', icon: <LayoutList size={20} />, path: '/data-explorer' },
+  { label: 'Data Sources', icon: <Database size={20} />, path: '/data-sources', roles: ['admin', 'analyst'] },
+  { label: 'Ingestion History', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
   { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
   { label: 'Alert Center', icon: <BellRing size={20} />, path: '/alert-center' },
   { label: 'Delivery History', icon: <History size={20} />, path: '/delivery-history' },

@@ -20,6 +20,7 @@ import { dataQaRoutes } from "./dataQaRoutes";
 import { searchRoutes } from "./searchRoutes";
 import { exportRoutes } from "./exportRoutes";
 import { ingestionSourceRoutes } from "./ingestionSourceRoutes";
+import { agentIngestionRoutes } from "./agentIngestionRoutes";
 import { impactRoutes } from "./impactRoutes";
 import { dataQualityRoutes } from "./dataQualityRoutes";
 import { operationsRoutes } from "./operationsRoutes";
@@ -90,6 +91,9 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Ingestion sources
   app.use("/api/sources", ingestionSourceRoutes(dbPool));
+
+  // Agent ingestion and history
+  app.use("/api/ingest", agentIngestionRoutes(dbPool));
 
   // Impact summaries
   app.use("/api/impact", impactRoutes(dbPool));

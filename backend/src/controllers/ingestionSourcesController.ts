@@ -2,12 +2,14 @@ import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
 import fs from "fs/promises";
 import { normalizeLocalSourceConfig, runIngestionScanOnce } from "../services/ingestionService";
+import { buildAgentKeyHint, generateAgentKey, hashAgentKey } from "../utils/agentKey";
 
 type SourceInput = {
   name?: string;
   type?: string;
   connectionConfig?: Record<string, any>;
   filePattern?: string;
+  templateRule?: string;
   pollIntervalMinutes?: number;
   enabled?: boolean;
   projectId?: number;
@@ -20,13 +22,21 @@ export const listSources = (dbPool: Pool) => async (_req: Request, res: Response
   try {
     const [rows]: any = await dbPool.query(
       `SELECT id, name, type, connection_config as connectionConfig, file_pattern as filePattern,
-              poll_interval_minutes as pollIntervalMinutes, enabled, project_id as projectId,
+              template_rule as templateRule, poll_interval_minutes as pollIntervalMinutes, enabled, project_id as projectId,
+              agent_key_hint as agentKeyHint, agent_key_hash as agentKeyHash, last_agent_seen_at as lastAgentSeenAt,
               last_scan_at as lastScanAt, last_error as lastError, created_by as createdBy,
               created_at as createdAt, updated_at as updatedAt
        FROM ingestion_sources
        ORDER BY created_at DESC`
     );
-    res.json(rows);
+    const normalized = Array.isArray(rows)
+      ? rows.map((row: any) => ({
+          ...row,
+          hasAgentKey: Boolean(row.agentKeyHash),
+          agentKeyHash: undefined,
+        }))
+      : [];
+    res.json(normalized);
   } catch (err) {
     res.status(500).json({ message: "Failed to load ingestion sources.", error: err });
   }
@@ -35,9 +45,10 @@ export const listSources = (dbPool: Pool) => async (_req: Request, res: Response
 export const createSource = (dbPool: Pool) => async (req: Request, res: Response) => {
   const body = (req.body || {}) as SourceInput;
   const name = String(body.name || "").trim();
-  const type = String(body.type || "local").toLowerCase();
+  const type = String(body.type || "folder_sync").toLowerCase();
   const connectionConfig = body.connectionConfig || {};
   const filePattern = body.filePattern ? String(body.filePattern).trim() : "*";
+  const templateRule = body.templateRule ? String(body.templateRule).trim() : null;
   const pollIntervalMinutes = Number(body.pollIntervalMinutes || 5);
   const enabled = normalizeBool(body.enabled, true);
   const projectId = Number(body.projectId);
@@ -48,40 +59,63 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
   if (!projectId || !Number.isFinite(projectId)) {
     return res.status(400).json({ message: "projectId is required" });
   }
-  if (type !== "local") {
-    return res.status(400).json({ message: "Only local sources are supported right now." });
+
+  if (type !== "local" && type !== "folder_sync") {
+    return res.status(400).json({ message: "type must be 'local' or 'folder_sync'" });
   }
 
-  const normalizedConfig = normalizeLocalSourceConfig(connectionConfig);
-  if (!normalizedConfig.directories.length) {
-    return res.status(400).json({ message: "connectionConfig.path (or paths) is required for local sources" });
+  let normalizedConfig: any = {};
+  if (type === "local") {
+    normalizedConfig = normalizeLocalSourceConfig(connectionConfig);
+    if (!normalizedConfig.directories.length) {
+      return res.status(400).json({ message: "connectionConfig.path (or paths) is required for local sources" });
+    }
   }
 
   try {
+    let generatedKey: string | null = null;
+    let keyHash: string | null = null;
+    let keyHint: string | null = null;
+    if (type === "folder_sync") {
+      generatedKey = generateAgentKey();
+      keyHash = hashAgentKey(generatedKey);
+      keyHint = buildAgentKeyHint(generatedKey);
+    }
+
     const [result]: any = await dbPool.query(
       `INSERT INTO ingestion_sources
-        (name, type, connection_config, file_pattern, poll_interval_minutes, enabled, project_id, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (name, type, connection_config, file_pattern, template_rule, poll_interval_minutes, enabled, agent_key_hash, agent_key_hint, project_id, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         type,
         JSON.stringify({
-          ...connectionConfig,
-          path: normalizedConfig.directories[0],
-          paths: normalizedConfig.directories,
-          recursive: normalizedConfig.recursive,
-          maxDepth: normalizedConfig.maxDepth,
-          maxFiles: normalizedConfig.maxFiles,
-          extensions: normalizedConfig.allowedExtensions,
+          ...(type === "local" ? connectionConfig : {}),
+          ...(type === "local"
+            ? {
+                path: normalizedConfig.directories[0],
+                paths: normalizedConfig.directories,
+                recursive: normalizedConfig.recursive,
+                maxDepth: normalizedConfig.maxDepth,
+                maxFiles: normalizedConfig.maxFiles,
+                extensions: normalizedConfig.allowedExtensions,
+              }
+            : {}),
         }),
         filePattern || "*",
+        templateRule,
         Number.isFinite(pollIntervalMinutes) ? pollIntervalMinutes : 5,
         enabled ? 1 : 0,
+        keyHash,
+        keyHint,
         projectId,
         req.user?.id || null,
       ]
     );
-    res.status(201).json({ id: result.insertId });
+    res.status(201).json({
+      id: result.insertId,
+      ...(generatedKey ? { agentApiKey: generatedKey, agentApiKeyHint: keyHint } : {}),
+    });
   } catch (err) {
     res.status(500).json({ message: "Failed to create ingestion source.", error: err });
   }
@@ -102,34 +136,51 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
     values.push(String(body.name).trim());
   }
   if (body.type !== undefined) {
-    const type = String(body.type || "local").toLowerCase();
-    if (type !== "local") {
-      return res.status(400).json({ message: "Only local sources are supported right now." });
+    const type = String(body.type || "folder_sync").toLowerCase();
+    if (type !== "local" && type !== "folder_sync") {
+      return res.status(400).json({ message: "type must be 'local' or 'folder_sync'" });
     }
     fields.push("type = ?");
     values.push(type);
   }
   if (body.connectionConfig !== undefined) {
-    const normalizedConfig = normalizeLocalSourceConfig(body.connectionConfig || {});
-    if (!normalizedConfig.directories.length) {
-      return res.status(400).json({ message: "connectionConfig.path (or paths) is required" });
-    }
-    fields.push("connection_config = ?");
-    values.push(
-      JSON.stringify({
-        ...(body.connectionConfig || {}),
-        path: normalizedConfig.directories[0],
-        paths: normalizedConfig.directories,
-        recursive: normalizedConfig.recursive,
-        maxDepth: normalizedConfig.maxDepth,
-        maxFiles: normalizedConfig.maxFiles,
-        extensions: normalizedConfig.allowedExtensions,
-      })
+    const [sourceRows]: any = await dbPool.query(
+      "SELECT type FROM ingestion_sources WHERE id = ? LIMIT 1",
+      [id]
     );
+    const currentType = String(
+      body.type || sourceRows?.[0]?.type || "folder_sync"
+    ).toLowerCase();
+
+    if (currentType === "local") {
+      const normalizedConfig = normalizeLocalSourceConfig(body.connectionConfig || {});
+      if (!normalizedConfig.directories.length) {
+        return res.status(400).json({ message: "connectionConfig.path (or paths) is required" });
+      }
+      fields.push("connection_config = ?");
+      values.push(
+        JSON.stringify({
+          ...(body.connectionConfig || {}),
+          path: normalizedConfig.directories[0],
+          paths: normalizedConfig.directories,
+          recursive: normalizedConfig.recursive,
+          maxDepth: normalizedConfig.maxDepth,
+          maxFiles: normalizedConfig.maxFiles,
+          extensions: normalizedConfig.allowedExtensions,
+        })
+      );
+    } else {
+      fields.push("connection_config = ?");
+      values.push(JSON.stringify(body.connectionConfig || {}));
+    }
   }
   if (body.filePattern !== undefined) {
     fields.push("file_pattern = ?");
     values.push(String(body.filePattern || "*").trim() || "*");
+  }
+  if (body.templateRule !== undefined) {
+    fields.push("template_rule = ?");
+    values.push(String(body.templateRule || "").trim() || null);
   }
   if (body.pollIntervalMinutes !== undefined) {
     fields.push("poll_interval_minutes = ?");
@@ -175,7 +226,10 @@ export const testSource = (dbPool: Pool) => async (req: Request, res: Response) 
       return res.status(404).json({ message: "Source not found" });
     }
     if (source.type !== "local") {
-      return res.status(400).json({ message: "Only local sources are supported right now." });
+      return res.json({
+        ok: true,
+        message: "Folder sync sources use Sync Agent connectivity and do not support server path tests.",
+      });
     }
     const config = typeof source.connectionConfig === "string"
       ? JSON.parse(source.connectionConfig)
@@ -210,5 +264,42 @@ export const scanSource = (dbPool: Pool) => async (req: Request, res: Response) 
     res.json(result);
   } catch (err) {
     res.status(500).json({ message: "Scan failed.", error: err });
+  }
+};
+
+export const rotateAgentKey = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!id || !Number.isFinite(id)) {
+    return res.status(400).json({ message: "Invalid source id" });
+  }
+  try {
+    const [[source]]: any = await dbPool.query(
+      "SELECT id, type FROM ingestion_sources WHERE id = ? LIMIT 1",
+      [id]
+    );
+    if (!source) {
+      return res.status(404).json({ message: "Source not found" });
+    }
+    if (String(source.type || "").toLowerCase() !== "folder_sync") {
+      return res.status(400).json({ message: "Agent key rotation is only available for folder_sync sources." });
+    }
+
+    const generatedKey = generateAgentKey();
+    const keyHash = hashAgentKey(generatedKey);
+    const keyHint = buildAgentKeyHint(generatedKey);
+
+    await dbPool.query(
+      "UPDATE ingestion_sources SET agent_key_hash = ?, agent_key_hint = ? WHERE id = ?",
+      [keyHash, keyHint, id]
+    );
+
+    return res.json({
+      ok: true,
+      sourceId: id,
+      agentApiKey: generatedKey,
+      agentApiKeyHint: keyHint,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ message: "Failed to rotate agent API key.", error: err?.message || err });
   }
 };

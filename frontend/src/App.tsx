@@ -18,6 +18,8 @@ import DataExplorerPage from "./pages/DataExplorerPage";
 import DeliveryHistoryPage from "./pages/DeliveryHistoryPage";
 import MyActivityPage from "./pages/MyActivityPage";
 import TemplateManagerPage from "./pages/TemplateManagerPage";
+import DataSourcesPage from "./pages/DataSourcesPage";
+import IngestionHistoryPage from "./pages/IngestionHistoryPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import SystemHealthPage from "./pages/SystemHealthPage";
 import SystemSecurityPage from "./pages/SystemSecurityPage";
@@ -195,6 +197,30 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <DataExplorerPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/data-sources"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <RequireRole roles={["admin", "analyst"]}>
+                <DataSourcesPage />
+              </RequireRole>
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/ingestion-history"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <RequireRole roles={["admin", "analyst"]}>
+                <IngestionHistoryPage />
+              </RequireRole>
             </MainLayout>
           </RequireAuth>
         }

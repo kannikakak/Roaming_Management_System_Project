@@ -65,6 +65,36 @@ Environment variables:
 Operational notes:
 - Scheduler checks due jobs every minute.
 
+## Folder Sync Agent (Drop Zone to Render)
+
+Use this when your backend is deployed to Render and cannot access local/shared drives directly.
+
+1. In the web UI, create a `folder_sync` source and copy the generated agent API key.
+2. On your local machine, create your drop folder (example `C:\\RoamingDropZone\\Reports`).
+3. Set these environment variables on the local machine:
+   - `AGENT_API_BASE_URL` (example `https://your-backend.onrender.com`)
+   - `AGENT_SOURCE_ID` (from Data Sources page)
+   - `AGENT_API_KEY` (the generated/rotated key)
+   - `AGENT_WATCH_DIR` (local folder path)
+   - Optional: copy `scripts/.env.agent.example` to `.env.agent` and edit values.
+4. Start the agent:
+   ```bash
+   npm run sync-agent
+   ```
+
+Windows shortcut commands:
+```powershell
+npm run sync-agent:setup
+npm run sync-agent:test-file
+npm run sync-agent
+```
+
+Agent behavior:
+- Scans the folder every `AGENT_SCAN_SECONDS`.
+- Uploads only CSV/XLS/XLSX files.
+- Prevents duplicate re-uploads by hash and local state (`AGENT_STATE_FILE`).
+- Retries failures with backoff (`AGENT_MAX_RETRIES`, `AGENT_RETRY_DELAY_SECONDS`).
+
 ## Running the Application
 
 To start the backend server, run:
