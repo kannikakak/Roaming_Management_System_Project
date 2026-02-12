@@ -20,6 +20,7 @@ type Settings = {
 const NotificationsPage: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsMessage, setSettingsMessage] = useState("");
 
   const loadNotifications = async () => {
     const res = await apiFetch("/api/notifications");
@@ -54,7 +55,7 @@ const NotificationsPage: React.FC = () => {
       in_app_enabled: settings?.in_app_enabled ?? 1,
       ...patch,
     };
-    await apiFetch("/api/notification-settings", {
+    const res = await apiFetch("/api/notification-settings", {
       method: "PUT",
       body: JSON.stringify({
         emailEnabled: !!next.email_enabled,
@@ -62,6 +63,10 @@ const NotificationsPage: React.FC = () => {
         inAppEnabled: !!next.in_app_enabled,
       }),
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || "Failed to save notification settings");
+    }
     setSettings(next);
   };
 
@@ -96,7 +101,14 @@ const NotificationsPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={!!settings?.in_app_enabled}
-                onChange={(e) => saveSettings({ in_app_enabled: e.target.checked ? 1 : 0 })}
+                onChange={async (e) => {
+                  try {
+                    await saveSettings({ in_app_enabled: e.target.checked ? 1 : 0 });
+                    setSettingsMessage("Settings saved");
+                  } catch (err: any) {
+                    setSettingsMessage(err?.message || "Failed to save settings");
+                  }
+                }}
               />
               In-app
             </label>
@@ -104,7 +116,14 @@ const NotificationsPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={!!settings?.email_enabled}
-                onChange={(e) => saveSettings({ email_enabled: e.target.checked ? 1 : 0 })}
+                onChange={async (e) => {
+                  try {
+                    await saveSettings({ email_enabled: e.target.checked ? 1 : 0 });
+                    setSettingsMessage("Settings saved");
+                  } catch (err: any) {
+                    setSettingsMessage(err?.message || "Failed to save settings");
+                  }
+                }}
               />
               Email
             </label>
@@ -112,11 +131,19 @@ const NotificationsPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={!!settings?.telegram_enabled}
-                onChange={(e) => saveSettings({ telegram_enabled: e.target.checked ? 1 : 0 })}
+                onChange={async (e) => {
+                  try {
+                    await saveSettings({ telegram_enabled: e.target.checked ? 1 : 0 });
+                    setSettingsMessage("Settings saved");
+                  } catch (err: any) {
+                    setSettingsMessage(err?.message || "Failed to save settings");
+                  }
+                }}
               />
               Telegram
             </label>
           </div>
+          {settingsMessage && <div className="text-xs text-gray-500 mt-3">{settingsMessage}</div>}
         </div>
 
         <div className="bg-white border rounded-2xl p-5">

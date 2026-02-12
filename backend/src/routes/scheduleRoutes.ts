@@ -196,6 +196,37 @@ export function scheduleRoutes(dbPool: Pool) {
     }
   });
 
+  router.post("/:id/run-now", requireRole(["admin", "analyst"]), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [rows]: any = await dbPool.query(
+        "SELECT id, name, is_active FROM report_schedules WHERE id = ? LIMIT 1",
+        [id]
+      );
+      if (!rows?.length) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
+      if (!rows[0].is_active) {
+        return res.status(400).json({ message: "Schedule is paused. Enable it first." });
+      }
+
+      await dbPool.execute("UPDATE report_schedules SET next_run_at = NOW() WHERE id = ?", [id]);
+
+      await writeAuditLog(dbPool, {
+        req,
+        action: "schedule_run_requested",
+        details: {
+          scheduleId: id,
+          scheduleName: rows[0].name,
+        },
+      });
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message || "Failed to trigger schedule");
+    }
+  });
+
   router.put("/:id", requireRole(["admin", "analyst"]), async (req, res) => {
     try {
       const id = Number(req.params.id);

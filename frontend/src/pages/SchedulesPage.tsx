@@ -28,6 +28,7 @@ const toList = (value: string) =>
 const SchedulesPage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(false);
+  const [runningNowId, setRunningNowId] = useState<number | null>(null);
 
   const [name, setName] = useState("");
   const [targetType, setTargetType] = useState("report");
@@ -106,6 +107,20 @@ const SchedulesPage: React.FC = () => {
     if (!window.confirm("Delete this schedule?")) return;
     await apiFetch(`/api/schedules/${id}`, { method: "DELETE" });
     loadSchedules();
+  };
+
+  const runNow = async (id: number) => {
+    try {
+      setRunningNowId(id);
+      const res = await apiFetch(`/api/schedules/${id}/run-now`, { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      await loadSchedules();
+      alert("Schedule queued. Delivery will run in about 1 minute.");
+    } catch (err: any) {
+      alert(err?.message || "Failed to trigger schedule");
+    } finally {
+      setRunningNowId(null);
+    }
   };
 
   return (
@@ -248,14 +263,17 @@ const SchedulesPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  Telegram Recipients
+                  Telegram Recipients (chat ID / @channel)
                 </label>
                 <input
                   className="w-full border rounded-lg px-3 py-2"
-                  placeholder="@user1, @user2"
+                  placeholder="-1001234567890, @my_channel"
                   value={recipientsTelegram}
                   onChange={(e) => setRecipientsTelegram(e.target.value)}
                 />
+                <div className="text-[11px] text-gray-400 mt-1">
+                  For personal chats, use numeric chat IDs after users start your bot.
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
@@ -347,6 +365,13 @@ const SchedulesPage: React.FC = () => {
                     >
                       {s.is_active ? "Active" : "Paused"}
                     </span>
+                    <button
+                      className="text-xs px-2.5 py-1 rounded border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+                      onClick={() => runNow(s.id)}
+                      disabled={!s.is_active || runningNowId === s.id}
+                    >
+                      {runningNowId === s.id ? "Queuing..." : "Run now"}
+                    </button>
                     <button
                       className="text-xs text-red-600 hover:text-red-700"
                       onClick={() => deleteSchedule(s.id)}

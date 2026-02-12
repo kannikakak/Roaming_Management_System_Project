@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { Pool } from "mysql2/promise";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { getNotificationSettings } from "../services/notificationSettings";
 
 export function notificationSettingsRoutes(dbPool: Pool) {
   const router = Router();
@@ -9,6 +10,10 @@ export function notificationSettingsRoutes(dbPool: Pool) {
   router.get("/", async (req, res) => {
     try {
       const userId = req.query.userId ? Number(req.query.userId) : null;
+      if (userId === null) {
+        const settings = await getNotificationSettings(dbPool);
+        return res.json(settings);
+      }
       const [rows] = await dbPool.query<any[]>(
         "SELECT * FROM notification_settings WHERE user_id <=> ? LIMIT 1",
         [userId]

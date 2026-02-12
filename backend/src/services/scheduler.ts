@@ -179,6 +179,28 @@ export async function runDueSchedules(dbPool: Pool) {
       }
 
       let deliveryAttempts = 0;
+      const channelWarnings: string[] = [];
+
+      if (settings.email_enabled && !isEmailReady && recipientsEmail.length > 0) {
+        channelWarnings.push("Email delivery is enabled but SMTP is not configured.");
+      }
+      if (settings.telegram_enabled && !isTelegramReady && recipientsTelegram.length > 0) {
+        channelWarnings.push("Telegram delivery is enabled but bot token is not configured.");
+      }
+      if (channelWarnings.length > 0 && settings.in_app_enabled) {
+        await createNotification(
+          dbPool,
+          "schedule_warning",
+          "system",
+          channelWarnings.join(" "),
+          {
+            scheduleId: schedule.id,
+            scheduleName: schedule.name,
+            recipientsEmailCount: recipientsEmail.length,
+            recipientsTelegramCount: recipientsTelegram.length,
+          }
+        );
+      }
 
       if (settings.email_enabled && isEmailReady && recipientsEmail.length > 0) {
         deliveryAttempts += 1;
@@ -256,10 +278,13 @@ export async function runDueSchedules(dbPool: Pool) {
         });
       }
 
-      if (settings.in_app_enabled && deliveryAttempts > 0) {
+      if (settings.in_app_enabled) {
         await createNotification(dbPool, "schedule_delivery", "system", message, {
           scheduleId: schedule.id,
           format: schedule.file_format,
+          deliveryAttempts,
+          recipientsEmailCount: recipientsEmail.length,
+          recipientsTelegramCount: recipientsTelegram.length,
         });
       }
 
