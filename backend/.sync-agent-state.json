@@ -119,6 +119,26 @@
         "fileHash": "26df9aa60bfc6e16254e2137197246a55cfb28da9fcd0267bac8f68df85ce409"
       },
       "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\02_tap_inbound_records.xlsx": {
+      "fingerprint": "128744:1770785742574",
+      "lastHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T08:54:18.179Z",
+      "lastSeenAt": "2026-02-12T08:54:18.179Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 1,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 7,
+        "ingestionFileId": 7,
+        "importedFileId": 11,
+        "rowsImported": 1500,
+        "fileHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4"
+      },
+      "lastError": null
     }
   }
 }

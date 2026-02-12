@@ -6,7 +6,7 @@ import { Pool } from "mysql2/promise";
 import { createRateLimiter } from "../middleware/rateLimit";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { getUploadConfig } from "../utils/uploadValidation";
-import { agentUpload, listIngestionHistory } from "../controllers/agentIngestionController";
+import { agentDelete, agentUpload, listIngestionHistory } from "../controllers/agentIngestionController";
 
 const uploadConfig = getUploadConfig();
 const uploadDir = path.join(process.cwd(), "uploads", "agent-ingest");
@@ -54,6 +54,8 @@ export const agentIngestionRoutes = (dbPool: Pool) => {
     },
     agentUpload(dbPool)
   );
+
+  router.post("/agent-delete", agentUploadLimiter, agentDelete(dbPool));
 
   router.get(
     "/history",

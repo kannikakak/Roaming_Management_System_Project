@@ -93,6 +93,7 @@ Agent behavior:
 - Scans the folder every `AGENT_SCAN_SECONDS`.
 - Uploads only CSV/XLS/XLSX files.
 - Prevents duplicate re-uploads by hash and local state (`AGENT_STATE_FILE`).
+- Syncs deletions: if a file is removed from the shared folder, the agent notifies backend and the imported dataset is removed from the platform.
 - Retries failures with backoff (`AGENT_MAX_RETRIES`, `AGENT_RETRY_DELAY_SECONDS`).
 
 ## Running the Application

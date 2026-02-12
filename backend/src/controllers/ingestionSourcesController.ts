@@ -3,6 +3,7 @@ import { Pool } from "mysql2/promise";
 import fs from "fs/promises";
 import { normalizeLocalSourceConfig, runIngestionScanOnce } from "../services/ingestionService";
 import { buildAgentKeyHint, generateAgentKey, hashAgentKey } from "../utils/agentKey";
+import { writeAuditLog } from "../utils/auditLogger";
 
 type SourceInput = {
   name?: string;
@@ -301,5 +302,75 @@ export const rotateAgentKey = (dbPool: Pool) => async (req: Request, res: Respon
     });
   } catch (err: any) {
     return res.status(500).json({ message: "Failed to rotate agent API key.", error: err?.message || err });
+  }
+};
+
+export const deleteSource = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!id || !Number.isFinite(id)) {
+    return res.status(400).json({ message: "Invalid source id" });
+  }
+
+  const purgeImportedData =
+    String(req.query.purgeImportedData || req.body?.purgeImportedData || "false").toLowerCase() === "true";
+
+  try {
+    const [[source]]: any = await dbPool.query(
+      "SELECT id, name, type, project_id as projectId FROM ingestion_sources WHERE id = ? LIMIT 1",
+      [id]
+    );
+
+    if (!source) {
+      return res.status(404).json({ message: "Source not found" });
+    }
+
+    let purgedFileCount = 0;
+    if (purgeImportedData) {
+      const [importRows]: any = await dbPool.query(
+        `SELECT DISTINCT imported_file_id as importedFileId
+         FROM ingestion_jobs
+         WHERE source_id = ? AND imported_file_id IS NOT NULL`,
+        [id]
+      );
+
+      const importedFileIds = (Array.isArray(importRows) ? importRows : [])
+        .map((row: any) => Number(row.importedFileId || 0))
+        .filter((value: number) => Number.isFinite(value) && value > 0);
+
+      if (importedFileIds.length > 0) {
+        const uniqueIds = Array.from(new Set(importedFileIds));
+        purgedFileCount = uniqueIds.length;
+        const chunkSize = 100;
+        for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+          const chunk = uniqueIds.slice(index, index + chunkSize);
+          const placeholders = chunk.map(() => "?").join(", ");
+          await dbPool.query(`DELETE FROM files WHERE id IN (${placeholders})`, chunk);
+        }
+      }
+    }
+
+    await dbPool.query("DELETE FROM ingestion_sources WHERE id = ?", [id]);
+
+    await writeAuditLog(dbPool, {
+      req,
+      action: "ingestion_source_deleted",
+      details: {
+        sourceId: id,
+        sourceName: source.name,
+        sourceType: source.type,
+        projectId: Number(source.projectId || 0) || null,
+        purgeImportedData,
+        purgedFileCount,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      sourceId: id,
+      purgeImportedData,
+      purgedFileCount,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ message: "Failed to delete ingestion source.", error: err?.message || err });
   }
 };

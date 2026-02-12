@@ -48,6 +48,23 @@ const toIsoString = (value: unknown) => {
   }
 };
 
+const normalizeRemotePath = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "")
+    .replace(/\/{2,}/g, "/");
+
+const loadFolderSyncSource = async (dbPool: Pool, sourceId: number) => {
+  const [sourceRows]: any = await dbPool.query(
+    `SELECT id, name, type, enabled, project_id as projectId, template_rule as templateRule,
+            agent_key_hash as agentKeyHash
+     FROM ingestion_sources WHERE id = ? LIMIT 1`,
+    [sourceId]
+  );
+  return sourceRows?.[0] || null;
+};
+
 const toRegex = (pattern: string) => {
   const escaped = pattern.replace(/[-/\\^$+?.()|[\]{}]/g, "\\$&");
   const regex = escaped.replace(/\*/g, ".*").replace(/\?/g, ".");
@@ -267,13 +284,7 @@ export const agentUpload = (dbPool: Pool) => async (req: Request, res: Response)
     });
   }
 
-  const [sourceRows]: any = await dbPool.query(
-    `SELECT id, name, type, enabled, project_id as projectId, template_rule as templateRule,
-            agent_key_hash as agentKeyHash
-     FROM ingestion_sources WHERE id = ? LIMIT 1`,
-    [sourceId]
-  );
-  const source = sourceRows?.[0];
+  const source = await loadFolderSyncSource(dbPool, sourceId);
   if (!source) {
     return res.status(404).json({ message: "Source not found." });
   }
@@ -294,7 +305,7 @@ export const agentUpload = (dbPool: Pool) => async (req: Request, res: Response)
   }
 
   const fileHash = await computeFileHash(uploaded.path);
-  const originalPath = String(req.body?.originalPath || uploaded.originalname).trim();
+  const originalPath = normalizeRemotePath(req.body?.originalPath || uploaded.originalname);
 
   if (!isAllowedUploadExt(uploaded.originalname)) {
     const typeError = "Only CSV/XLSX/XLS files are allowed.";
@@ -595,6 +606,150 @@ export const agentUpload = (dbPool: Pool) => async (req: Request, res: Response)
       ingestionJobId,
       ingestionFileId,
       fileHash,
+    });
+  }
+};
+
+export const agentDelete = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const sourceId = toSafeNumber(req.body?.sourceId, 0);
+  const remotePath = normalizeRemotePath(
+    req.body?.originalPath || req.body?.remotePath || req.body?.filePath
+  );
+  if (!sourceId || !remotePath) {
+    return res.status(400).json({ message: "sourceId and originalPath are required." });
+  }
+
+  const source = await loadFolderSyncSource(dbPool, sourceId);
+  if (!source) {
+    return res.status(404).json({ message: "Source not found." });
+  }
+  if (!source.enabled) {
+    return res.status(400).json({ message: "Source is inactive." });
+  }
+  if (String(source.type || "").toLowerCase() !== "folder_sync") {
+    return res.status(400).json({ message: "Source type is not folder_sync." });
+  }
+
+  const providedKey = readAgentKeyFromRequest(req);
+  if (!providedKey) {
+    return res.status(401).json({ message: "Missing agent API key." });
+  }
+  const providedHash = hashAgentKey(providedKey);
+  if (!source.agentKeyHash || source.agentKeyHash !== providedHash) {
+    return res.status(401).json({ message: "Invalid agent API key." });
+  }
+
+  try {
+    const [latestRows]: any = await dbPool.query(
+      `SELECT id, file_name as fileName
+       FROM ingestion_files
+       WHERE source_id = ? AND remote_path = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [sourceId, remotePath]
+    );
+
+    const latestFile = latestRows?.[0];
+    const fileName = latestFile?.fileName || path.basename(remotePath) || "deleted_file";
+
+    let ingestionFileId = Number(latestFile?.id || 0);
+    if (!ingestionFileId) {
+      const [fileInsert]: any = await dbPool.query(
+        `INSERT INTO ingestion_files
+          (source_id, remote_path, original_path, file_name, file_size, last_modified, checksum_sha256, staging_path, uploaded_url, rows_imported, status, error_message, first_seen_at, processed_at)
+         VALUES (?, ?, ?, ?, 0, NOW(), NULL, NULL, NULL, 0, 'DELETED', ?, NOW(), NOW())`,
+        [sourceId, remotePath, remotePath, fileName, "Deleted from source drive"]
+      );
+      ingestionFileId = Number(fileInsert?.insertId || 0);
+    } else {
+      await dbPool.query(
+        `UPDATE ingestion_files
+         SET status = 'DELETED', processed_at = NOW(), error_message = ?, rows_imported = 0
+         WHERE source_id = ? AND remote_path = ?`,
+        ["Deleted from source drive", sourceId, remotePath]
+      );
+    }
+
+    const [importRows]: any = await dbPool.query(
+      `SELECT DISTINCT j.imported_file_id as importedFileId
+       FROM ingestion_jobs j
+       INNER JOIN ingestion_files f ON f.id = j.file_id
+       WHERE j.source_id = ? AND f.remote_path = ? AND j.imported_file_id IS NOT NULL`,
+      [sourceId, remotePath]
+    );
+    const importedFileIds = (Array.isArray(importRows) ? importRows : [])
+      .map((row: any) => Number(row.importedFileId || 0))
+      .filter((value: number) => Number.isFinite(value) && value > 0);
+    const uniqueImportedFileIds = Array.from(new Set(importedFileIds));
+
+    if (uniqueImportedFileIds.length > 0) {
+      const chunkSize = 100;
+      for (let index = 0; index < uniqueImportedFileIds.length; index += chunkSize) {
+        const chunk = uniqueImportedFileIds.slice(index, index + chunkSize);
+        const placeholders = chunk.map(() => "?").join(", ");
+        await dbPool.query(`DELETE FROM files WHERE id IN (${placeholders})`, chunk);
+      }
+    }
+
+    const [jobInsert]: any = await dbPool.query(
+      `INSERT INTO ingestion_jobs
+        (source_id, file_id, file_name, file_hash, status, rows_imported, error_message, attempt, started_at, finished_at, result)
+       VALUES (?, ?, ?, NULL, 'DELETED', 0, ?, 1, NOW(), NOW(), 'DELETED')`,
+      [sourceId, ingestionFileId, fileName, `Deleted from source drive: ${remotePath}`]
+    );
+    const ingestionJobId = Number(jobInsert?.insertId || 0);
+
+    await dbPool.query(
+      "UPDATE ingestion_sources SET last_agent_seen_at = NOW(), last_scan_at = NOW(), last_error = NULL WHERE id = ?",
+      [sourceId]
+    );
+
+    await safeAuditLog(dbPool, {
+      actor: `agent:${sourceId}`,
+      action: "agent_ingestion_source_file_deleted",
+      details: {
+        sourceId,
+        sourceName: source.name,
+        remotePath,
+        ingestionFileId,
+        ingestionJobId,
+        deletedImportedCount: uniqueImportedFileIds.length,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      sourceId,
+      sourceName: source.name,
+      remotePath,
+      ingestionFileId,
+      ingestionJobId,
+      deletedImportedCount: uniqueImportedFileIds.length,
+    });
+  } catch (err: any) {
+    const message = err?.message || "Failed to sync deleted source file.";
+
+    await dbPool.query(
+      "UPDATE ingestion_sources SET last_agent_seen_at = NOW(), last_scan_at = NOW(), last_error = ? WHERE id = ?",
+      [message, sourceId]
+    );
+
+    await safeAuditLog(dbPool, {
+      actor: `agent:${sourceId}`,
+      action: "agent_ingestion_source_file_delete_failed",
+      details: {
+        sourceId,
+        sourceName: source.name,
+        remotePath,
+        error: message,
+      },
+    });
+
+    return res.status(400).json({
+      ok: false,
+      message,
+      sourceId,
+      remotePath,
     });
   }
 };

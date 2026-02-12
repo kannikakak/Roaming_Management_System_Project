@@ -185,6 +185,34 @@ const uploadFile = async ({ filePath, originalPath }) => {
   throw new Error(String(message));
 };
 
+const deleteRemoteFile = async ({ originalPath }) => {
+  const response = await axios.post(
+    `${config.apiBaseUrl}/api/ingest/agent-delete`,
+    {
+      sourceId: config.sourceId,
+      originalPath,
+    },
+    {
+      headers: {
+        "x-agent-key": config.apiKey,
+        "Content-Type": "application/json",
+      },
+      timeout: config.requestTimeoutMs,
+      validateStatus: () => true,
+    }
+  );
+
+  if (response.status >= 200 && response.status < 300) {
+    return response.data || {};
+  }
+
+  const message =
+    response?.data?.message ||
+    response?.data?.error ||
+    `HTTP ${response.status}`;
+  throw new Error(String(message));
+};
+
 const updateFileState = (filePath, patch) => {
   const previous = state.files[filePath] || {};
   state.files[filePath] = {
@@ -202,6 +230,7 @@ const processFile = async (filePath) => {
   if (!config.allowedExtensions.includes(ext)) return;
 
   const relPath = path.relative(config.watchDir, filePath) || path.basename(filePath);
+  const originalPath = relPath.replace(/\\/g, "/");
   const fingerprint = `${stat.size}:${Math.floor(stat.mtimeMs)}`;
   const existing = state.files[filePath] || {};
 
@@ -221,9 +250,10 @@ const processFile = async (filePath) => {
   try {
     const result = await uploadFile({
       filePath,
-      originalPath: relPath.replace(/\\/g, "/"),
+      originalPath,
     });
     updateFileState(filePath, {
+      originalPath,
       fingerprint,
       lastHash: hash,
       lastStatus: "SUCCESS",
@@ -247,6 +277,7 @@ const processFile = async (filePath) => {
     const failCount = Number(existing.failCount || 0) + 1;
     const retrySeconds = config.retryDelaySeconds * Math.min(failCount, config.maxRetries);
     updateFileState(filePath, {
+      originalPath,
       fingerprint,
       lastHash: hash,
       lastStatus: "FAILED",
@@ -259,6 +290,52 @@ const processFile = async (filePath) => {
   }
 };
 
+const processDeletedFiles = async (currentFilesSet) => {
+  for (const trackedFilePath of Object.keys(state.files)) {
+    if (currentFilesSet.has(trackedFilePath)) continue;
+
+    const entry = state.files[trackedFilePath] || {};
+    if (entry.lastStatus === "DELETED") continue;
+    if (shouldSkipByRetryWindow(entry)) continue;
+
+    const relPath = path.relative(config.watchDir, trackedFilePath) || path.basename(trackedFilePath);
+    const originalPath = String(entry.originalPath || relPath).replace(/\\/g, "/");
+    const failCount = Number(entry.failCount || 0);
+
+    log(`Syncing deletion ${originalPath}`);
+    try {
+      const result = await deleteRemoteFile({ originalPath });
+      updateFileState(trackedFilePath, {
+        originalPath,
+        lastStatus: "DELETED",
+        lastSeenAt: nowIso(),
+        lastDeletedAt: nowIso(),
+        failCount: 0,
+        nextAttemptAt: null,
+        lastResult: result,
+        lastError: null,
+      });
+      log(`Deletion synced ${originalPath}`, {
+        deletedImportedCount: Number(result?.deletedImportedCount || 0),
+        ingestionJobId: result?.ingestionJobId || null,
+      });
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      const nextFailCount = failCount + 1;
+      const retrySeconds = config.retryDelaySeconds * Math.min(nextFailCount, config.maxRetries);
+      updateFileState(trackedFilePath, {
+        originalPath,
+        lastStatus: "DELETE_FAILED",
+        lastSeenAt: nowIso(),
+        failCount: nextFailCount,
+        nextAttemptAt: Date.now() + retrySeconds * 1000,
+        lastError: message,
+      });
+      log(`Deletion sync failed for ${originalPath}: ${message}`);
+    }
+  }
+};
+
 const runCycle = async () => {
   if (running) return;
   running = true;
@@ -266,6 +343,7 @@ const runCycle = async () => {
     await ensureDirExists(config.watchDir);
     const files = await collectFiles(config.watchDir);
     const candidateFiles = files.filter(shouldIncludeFile);
+    const currentFilesSet = new Set(candidateFiles);
     for (const filePath of candidateFiles) {
       try {
         await processFile(filePath);
@@ -274,6 +352,7 @@ const runCycle = async () => {
         log(`File processing error: ${message}`);
       }
     }
+    await processDeletedFiles(currentFilesSet);
     await saveState();
   } catch (error) {
     const message = error && error.message ? error.message : String(error);

@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { createRateLimiter } from "../middleware/rateLimit";
 import {
   createSource,
+  deleteSource,
   listSources,
   rotateAgentKey,
   scanSource,
@@ -27,5 +28,6 @@ export const ingestionSourceRoutes = (dbPool: Pool) => {
   router.post("/:id/test", ingestionLimiter, requireRole(["admin", "analyst"]), testSource(dbPool));
   router.post("/:id/scan", ingestionLimiter, requireRole(["admin", "analyst"]), scanSource(dbPool));
   router.post("/:id/rotate-agent-key", ingestionLimiter, requireRole(["admin"]), rotateAgentKey(dbPool));
+  router.delete("/:id", ingestionLimiter, requireRole(["admin", "analyst"]), deleteSource(dbPool));
   return router;
 };
