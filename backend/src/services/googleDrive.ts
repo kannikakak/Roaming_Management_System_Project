@@ -85,6 +85,32 @@ const normalizePrivateKey = (input: string) =>
     .replace(/\\n/g, "\n")
     .trim();
 
+const normalizeDriveId = (input: unknown) => {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+
+  const extractFromText = (value: string) => {
+    const folderMatch = value.match(/\/folders\/([A-Za-z0-9_-]+)/i);
+    if (folderMatch?.[1]) return folderMatch[1];
+
+    const idQueryMatch = value.match(/[?&]id=([A-Za-z0-9_-]+)/i);
+    if (idQueryMatch?.[1]) return idQueryMatch[1];
+    return "";
+  };
+
+  const fromUrl = extractFromText(raw);
+  if (fromUrl) return fromUrl;
+
+  const stripped = raw
+    .replace(/[?#].*$/, "")
+    .replace(/\/+$/, "")
+    .trim();
+  const fromStripped = extractFromText(stripped);
+  if (fromStripped) return fromStripped;
+
+  return stripped;
+};
+
 const parseJson = (input: string) => {
   try {
     return JSON.parse(input);
@@ -121,12 +147,24 @@ const resolveServiceAccount = async (config: GoogleDriveSourceConfig) => {
 
   const rawFile = String(process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE || "").trim();
   if (rawFile) {
-    const filePath = path.isAbsolute(rawFile)
-      ? rawFile
-      : path.resolve(process.cwd(), rawFile);
-    const fileContent = await fsPromises.readFile(filePath, "utf8");
-    const parsed = normalizeServiceAccountFromRaw(parseJson(fileContent));
-    if (parsed) return parsed;
+    const candidates = path.isAbsolute(rawFile)
+      ? [rawFile]
+      : [
+          path.resolve(process.cwd(), rawFile),
+          path.resolve(process.cwd(), "..", rawFile),
+          path.resolve(__dirname, "..", "..", rawFile),
+          path.resolve(__dirname, "..", "..", "..", rawFile),
+        ];
+    const uniqueCandidates = Array.from(new Set(candidates));
+    for (const filePath of uniqueCandidates) {
+      try {
+        const fileContent = await fsPromises.readFile(filePath, "utf8");
+        const parsed = normalizeServiceAccountFromRaw(parseJson(fileContent));
+        if (parsed) return parsed;
+      } catch {
+        // try next candidate path
+      }
+    }
   }
 
   const clientEmail = String(process.env.GOOGLE_CLIENT_EMAIL || "").trim();
@@ -214,10 +252,10 @@ export const normalizeGoogleDriveSourceConfig = (rawConfig: unknown): GoogleDriv
       : rawConfig && typeof rawConfig === "object"
         ? rawConfig
         : {};
-  const folderId = String((config as any).folderId || (config as any).googleFolderId || "").trim();
-  const sharedDriveId = String(
+  const folderId = normalizeDriveId((config as any).folderId || (config as any).googleFolderId || "");
+  const sharedDriveId = normalizeDriveId(
     (config as any).sharedDriveId || process.env.GOOGLE_DRIVE_DEFAULT_SHARED_DRIVE_ID || ""
-  ).trim();
+  );
   const includeSharedDrives = toBoolean((config as any).includeSharedDrives, true);
 
   return {

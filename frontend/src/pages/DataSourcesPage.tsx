@@ -35,6 +35,7 @@ type CreateForm = {
   localPath: string;
   googleFolderId: string;
   googleSharedDriveId: string;
+  googleServiceAccountJson: string;
   enabled: boolean;
 };
 
@@ -79,6 +80,16 @@ const getStatusLabel = (source: SourceRow) => {
   return "Active";
 };
 
+const normalizeDriveIdInput = (value: string) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const folderMatch = raw.match(/\/folders\/([A-Za-z0-9_-]+)/i);
+  if (folderMatch?.[1]) return folderMatch[1];
+  const idQueryMatch = raw.match(/[?&]id=([A-Za-z0-9_-]+)/i);
+  if (idQueryMatch?.[1]) return idQueryMatch[1];
+  return raw.replace(/[?#].*$/, "").replace(/\/+$/, "").trim();
+};
+
 const DataSourcesPage: React.FC = () => {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
@@ -104,6 +115,7 @@ const DataSourcesPage: React.FC = () => {
     localPath: "C:\\RoamingDropZone\\Reports",
     googleFolderId: "",
     googleSharedDriveId: "",
+    googleServiceAccountJson: "",
     enabled: true,
   });
 
@@ -217,9 +229,20 @@ const DataSourcesPage: React.FC = () => {
       return;
     }
 
-    if (form.type === "google_drive" && !form.googleFolderId.trim()) {
+    const normalizedGoogleFolderId = normalizeDriveIdInput(form.googleFolderId);
+    const normalizedGoogleSharedDriveId = normalizeDriveIdInput(form.googleSharedDriveId);
+
+    if (form.type === "google_drive" && !normalizedGoogleFolderId) {
       setError("Google Drive Folder ID is required.");
       return;
+    }
+    if (form.type === "google_drive" && form.googleServiceAccountJson.trim()) {
+      try {
+        JSON.parse(form.googleServiceAccountJson);
+      } catch {
+        setError("Service Account JSON is invalid.");
+        return;
+      }
     }
     if (form.type === "local" && !form.localPath.trim()) {
       setError("Local path is required.");
@@ -239,11 +262,12 @@ const DataSourcesPage: React.FC = () => {
           }
         : form.type === "google_drive"
           ? {
-              folderId: form.googleFolderId.trim(),
-              sharedDriveId: form.googleSharedDriveId.trim() || null,
+              folderId: normalizedGoogleFolderId,
+              sharedDriveId: normalizedGoogleSharedDriveId || null,
               includeSharedDrives: true,
               maxFiles: 5000,
               extensions: [".csv", ".xlsx", ".xls"],
+              serviceAccountJson: form.googleServiceAccountJson.trim() || null,
             }
           : {
               mode: "push-agent",
@@ -580,6 +604,22 @@ npm run sync-agent`,
                     className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
                     placeholder="0ABcDefgHijKLMNOPQR"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                    Service Account JSON (optional override)
+                  </label>
+                  <textarea
+                    value={form.googleServiceAccountJson}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, googleServiceAccountJson: event.target.value }))
+                    }
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none min-h-24"
+                    placeholder='{"type":"service_account","client_email":"...","private_key":"-----BEGIN PRIVATE KEY-----\\n..."}'
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Leave empty to use server environment credentials.
+                  </p>
                 </div>
               </div>
             )}
