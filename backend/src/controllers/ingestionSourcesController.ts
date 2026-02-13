@@ -20,6 +20,14 @@ type SourceInput = {
 const normalizeBool = (value: any, fallback = true) =>
   typeof value === "boolean" ? value : value === "0" || value === 0 ? false : fallback;
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (typeof error === "string" && error.trim()) return error.trim();
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  const message = (error as any)?.message;
+  if (typeof message === "string" && message.trim()) return message.trim();
+  return fallback;
+};
+
 export const listSources = (dbPool: Pool) => async (_req: Request, res: Response) => {
   try {
     const [rows]: any = await dbPool.query(
@@ -305,7 +313,11 @@ export const testSource = (dbPool: Pool) => async (req: Request, res: Response) 
       recursive: normalizedConfig.recursive,
     });
   } catch (err) {
-    res.status(500).json({ message: "Connection test failed.", error: err });
+    const reason = getErrorMessage(err, "Unknown error");
+    res.status(500).json({
+      message: `Connection test failed: ${reason}`,
+      error: reason,
+    });
   }
 };
 
@@ -318,7 +330,11 @@ export const scanSource = (dbPool: Pool) => async (req: Request, res: Response) 
     const result = await runIngestionScanOnce(dbPool, id);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: "Scan failed.", error: err });
+    const reason = getErrorMessage(err, "Unknown error");
+    res.status(500).json({
+      message: `Scan failed: ${reason}`,
+      error: reason,
+    });
   }
 };
 
