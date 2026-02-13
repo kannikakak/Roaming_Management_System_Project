@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
 import fs from "fs/promises";
 import { normalizeLocalSourceConfig, runIngestionScanOnce } from "../services/ingestionService";
+import { normalizeGoogleDriveSourceConfig, testGoogleDriveConnection } from "../services/googleDrive";
 import { buildAgentKeyHint, generateAgentKey, hashAgentKey } from "../utils/agentKey";
 import { writeAuditLog } from "../utils/auditLogger";
 
@@ -61,15 +62,21 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
     return res.status(400).json({ message: "projectId is required" });
   }
 
-  if (type !== "local" && type !== "folder_sync") {
-    return res.status(400).json({ message: "type must be 'local' or 'folder_sync'" });
+  if (type !== "local" && type !== "folder_sync" && type !== "google_drive") {
+    return res.status(400).json({ message: "type must be 'local', 'folder_sync', or 'google_drive'" });
   }
 
   let normalizedConfig: any = {};
+  let normalizedGoogleConfig: any = {};
   if (type === "local") {
     normalizedConfig = normalizeLocalSourceConfig(connectionConfig);
     if (!normalizedConfig.directories.length) {
       return res.status(400).json({ message: "connectionConfig.path (or paths) is required for local sources" });
+    }
+  } else if (type === "google_drive") {
+    normalizedGoogleConfig = normalizeGoogleDriveSourceConfig(connectionConfig || {});
+    if (!normalizedGoogleConfig.folderId) {
+      return res.status(400).json({ message: "connectionConfig.folderId is required for google_drive sources" });
     }
   }
 
@@ -83,6 +90,21 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
       keyHint = buildAgentKeyHint(generatedKey);
     }
 
+    const persistedConfig =
+      type === "local"
+        ? {
+            ...(connectionConfig || {}),
+            path: normalizedConfig.directories[0],
+            paths: normalizedConfig.directories,
+            recursive: normalizedConfig.recursive,
+            maxDepth: normalizedConfig.maxDepth,
+            maxFiles: normalizedConfig.maxFiles,
+            extensions: normalizedConfig.allowedExtensions,
+          }
+        : type === "google_drive"
+          ? normalizedGoogleConfig
+          : (connectionConfig || {});
+
     const [result]: any = await dbPool.query(
       `INSERT INTO ingestion_sources
         (name, type, connection_config, file_pattern, template_rule, poll_interval_minutes, enabled, agent_key_hash, agent_key_hint, project_id, created_by)
@@ -90,19 +112,7 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
       [
         name,
         type,
-        JSON.stringify({
-          ...(type === "local" ? connectionConfig : {}),
-          ...(type === "local"
-            ? {
-                path: normalizedConfig.directories[0],
-                paths: normalizedConfig.directories,
-                recursive: normalizedConfig.recursive,
-                maxDepth: normalizedConfig.maxDepth,
-                maxFiles: normalizedConfig.maxFiles,
-                extensions: normalizedConfig.allowedExtensions,
-              }
-            : {}),
-        }),
+        JSON.stringify(persistedConfig),
         filePattern || "*",
         templateRule,
         Number.isFinite(pollIntervalMinutes) ? pollIntervalMinutes : 5,
@@ -129,6 +139,18 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
     return res.status(400).json({ message: "Invalid source id" });
   }
 
+  let existingSource: any = null;
+  if (body.type !== undefined || body.connectionConfig !== undefined) {
+    const [sourceRows]: any = await dbPool.query(
+      "SELECT type, connection_config as connectionConfig FROM ingestion_sources WHERE id = ? LIMIT 1",
+      [id]
+    );
+    existingSource = sourceRows?.[0];
+    if (!existingSource) {
+      return res.status(404).json({ message: "Source not found" });
+    }
+  }
+
   const fields: string[] = [];
   const values: any[] = [];
 
@@ -138,19 +160,26 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
   }
   if (body.type !== undefined) {
     const type = String(body.type || "folder_sync").toLowerCase();
-    if (type !== "local" && type !== "folder_sync") {
-      return res.status(400).json({ message: "type must be 'local' or 'folder_sync'" });
+    if (type !== "local" && type !== "folder_sync" && type !== "google_drive") {
+      return res.status(400).json({ message: "type must be 'local', 'folder_sync', or 'google_drive'" });
+    }
+    const existingType = String(existingSource?.type || "").toLowerCase();
+    if (
+      body.connectionConfig === undefined &&
+      existingType &&
+      existingType !== type &&
+      (type === "local" || type === "google_drive")
+    ) {
+      return res.status(400).json({
+        message: "connectionConfig is required when changing type to 'local' or 'google_drive'",
+      });
     }
     fields.push("type = ?");
     values.push(type);
   }
   if (body.connectionConfig !== undefined) {
-    const [sourceRows]: any = await dbPool.query(
-      "SELECT type FROM ingestion_sources WHERE id = ? LIMIT 1",
-      [id]
-    );
     const currentType = String(
-      body.type || sourceRows?.[0]?.type || "folder_sync"
+      body.type || existingSource?.type || "folder_sync"
     ).toLowerCase();
 
     if (currentType === "local") {
@@ -166,10 +195,17 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
           paths: normalizedConfig.directories,
           recursive: normalizedConfig.recursive,
           maxDepth: normalizedConfig.maxDepth,
-          maxFiles: normalizedConfig.maxFiles,
-          extensions: normalizedConfig.allowedExtensions,
-        })
+            maxFiles: normalizedConfig.maxFiles,
+            extensions: normalizedConfig.allowedExtensions,
+          })
       );
+    } else if (currentType === "google_drive") {
+      const normalizedGoogleConfig = normalizeGoogleDriveSourceConfig(body.connectionConfig || {});
+      if (!normalizedGoogleConfig.folderId) {
+        return res.status(400).json({ message: "connectionConfig.folderId is required for google_drive" });
+      }
+      fields.push("connection_config = ?");
+      values.push(JSON.stringify(normalizedGoogleConfig));
     } else {
       fields.push("connection_config = ?");
       values.push(JSON.stringify(body.connectionConfig || {}));
@@ -226,11 +262,29 @@ export const testSource = (dbPool: Pool) => async (req: Request, res: Response) 
     if (!source) {
       return res.status(404).json({ message: "Source not found" });
     }
-    if (source.type !== "local") {
+    if (source.type === "folder_sync") {
       return res.json({
         ok: true,
         message: "Folder sync sources use Sync Agent connectivity and do not support server path tests.",
       });
+    }
+
+    if (source.type === "google_drive") {
+      const config = normalizeGoogleDriveSourceConfig(source.connectionConfig);
+      if (!config.folderId) {
+        return res.status(400).json({ message: "connection_config.folderId is required" });
+      }
+      await testGoogleDriveConnection(config);
+      return res.json({
+        ok: true,
+        message: "Google Drive connection test succeeded.",
+        folderId: config.folderId,
+        sharedDriveId: config.sharedDriveId,
+      });
+    }
+
+    if (source.type !== "local") {
+      return res.status(400).json({ message: `Unsupported source type: ${source.type}` });
     }
     const config = typeof source.connectionConfig === "string"
       ? JSON.parse(source.connectionConfig)

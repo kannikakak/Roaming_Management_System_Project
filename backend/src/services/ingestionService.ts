@@ -5,6 +5,12 @@ import { Pool } from "mysql2/promise";
 import { ingestFilesFromDisk } from "../controllers/fileController";
 import { getNotificationSettings } from "./notificationSettings";
 import { upsertAlert } from "./alerts";
+import {
+  downloadGoogleDriveFile,
+  GoogleDriveFile,
+  listGoogleDriveFiles,
+  normalizeGoogleDriveSourceConfig,
+} from "./googleDrive";
 
 type IngestionSourceRow = {
   id: number;
@@ -98,6 +104,23 @@ export const normalizeLocalSourceConfig = (rawConfig: any) => {
     maxFiles,
     allowedExtensions,
   };
+};
+
+const normalizeGoogleRemotePath = (fileId: string) => `google-drive:${String(fileId || "").trim()}`;
+
+const sanitizeForStaging = (fileName: string) =>
+  String(fileName || "file")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120) || "file";
+
+const computeDriveChecksum = (file: GoogleDriveFile) => {
+  if (file.md5Checksum) return String(file.md5Checksum).toLowerCase();
+  return crypto
+    .createHash("sha256")
+    .update(`${file.id}|${file.modifiedTime || ""}|${file.size || 0}`)
+    .digest("hex");
 };
 
 const computeChecksum = async (filePath: string) => {
@@ -253,6 +276,78 @@ const enqueueJob = async (
   await dbPool.query("UPDATE ingestion_files SET status = 'QUEUED' WHERE id = ?", [fileId]);
 };
 
+const deleteImportedFilesForRemotePath = async (
+  dbPool: Pool,
+  sourceId: number,
+  remotePath: string
+) => {
+  const [rows]: any = await dbPool.query(
+    `SELECT DISTINCT j.imported_file_id as importedFileId
+     FROM ingestion_jobs j
+     INNER JOIN ingestion_files f ON f.id = j.file_id
+     WHERE j.source_id = ? AND f.remote_path = ? AND j.imported_file_id IS NOT NULL`,
+    [sourceId, remotePath]
+  );
+  const importedIds = (Array.isArray(rows) ? rows : [])
+    .map((row: any) => Number(row.importedFileId || 0))
+    .filter((id: number) => Number.isFinite(id) && id > 0);
+  const uniqueIds = Array.from(new Set(importedIds));
+  if (!uniqueIds.length) return 0;
+
+  const chunkSize = 100;
+  for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+    const chunk = uniqueIds.slice(index, index + chunkSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    await dbPool.query(`DELETE FROM files WHERE id IN (${placeholders})`, chunk);
+  }
+
+  return uniqueIds.length;
+};
+
+const markRemoteFileDeleted = async (
+  dbPool: Pool,
+  source: IngestionSourceRow,
+  remotePath: string,
+  fileName: string
+) => {
+  const [latestRows]: any = await dbPool.query(
+    `SELECT id, status
+     FROM ingestion_files
+     WHERE source_id = ? AND remote_path = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+    [source.id, remotePath]
+  );
+  const latest = latestRows?.[0];
+  if (!latest?.id) return false;
+  if (String(latest.status || "").toUpperCase() === "DELETED") return false;
+
+  await dbPool.query(
+    `UPDATE ingestion_files
+     SET status = 'DELETED', processed_at = NOW(), error_message = ?, rows_imported = 0
+     WHERE source_id = ? AND remote_path = ?`,
+    [`Deleted from source drive: ${fileName}`, source.id, remotePath]
+  );
+
+  const deletedImportedCount = await deleteImportedFilesForRemotePath(dbPool, source.id, remotePath);
+  await dbPool.query(
+    `INSERT INTO ingestion_jobs
+      (source_id, file_id, file_name, file_hash, status, rows_imported, error_message, attempt, started_at, finished_at, result)
+     VALUES (?, ?, ?, NULL, 'DELETED', 0, ?, 1, NOW(), NOW(), 'DELETED')`,
+    [source.id, latest.id, fileName, `Deleted from source drive: ${remotePath}`]
+  );
+
+  await recordAudit(dbPool, "ingestion_remote_deleted", {
+    sourceId: source.id,
+    sourceName: source.name,
+    remotePath,
+    fileName,
+    deletedImportedCount,
+  });
+
+  return true;
+};
+
 const scanLocalSource = async (dbPool: Pool, source: IngestionSourceRow) => {
   const config = normalizeLocalSourceConfig(source.connectionConfig);
   if (!config.directories.length) {
@@ -339,12 +434,148 @@ const scanLocalSource = async (dbPool: Pool, source: IngestionSourceRow) => {
   }
 };
 
+const scanGoogleDriveSource = async (dbPool: Pool, source: IngestionSourceRow) => {
+  const config = normalizeGoogleDriveSourceConfig(source.connectionConfig);
+  if (!config.folderId) {
+    await updateSourceScanStatus(dbPool, source.id, "Missing connection_config.folderId");
+    return { discovered: 0, queued: 0, skipped: 0, updated: 0, failed: 0, deleted: 0 };
+  }
+
+  try {
+    await ensureStagingDir();
+    const driveFiles = await listGoogleDriveFiles(config);
+    const activeRemotePaths = new Set<string>();
+
+    let discovered = 0;
+    let queued = 0;
+    let skipped = 0;
+    let updated = 0;
+    let failed = 0;
+
+    for (const file of driveFiles) {
+      if (!file?.id) {
+        skipped += 1;
+        continue;
+      }
+      if (!isAllowedExtension(file.name, config.allowedExtensions)) {
+        skipped += 1;
+        continue;
+      }
+      if (!matchesPattern(file.name, source.filePattern || "*")) {
+        skipped += 1;
+        continue;
+      }
+
+      const remotePath = normalizeGoogleRemotePath(file.id);
+      activeRemotePaths.add(remotePath);
+      const checksum = computeDriveChecksum(file);
+      const record = await ensureFileRecord(
+        dbPool,
+        source.id,
+        remotePath,
+        file.name,
+        Number(file.size || 0),
+        file.modifiedTime ? new Date(file.modifiedTime) : null,
+        checksum
+      );
+
+      if (!record.created) {
+        skipped += 1;
+        continue;
+      }
+
+      if (record.updated) updated += 1;
+      discovered += 1;
+
+      const stagingPath = path.join(
+        STAGING_DIR,
+        `gdrive-${source.id}-${file.id}-${Date.now()}-${sanitizeForStaging(file.name)}`
+      );
+
+      try {
+        await downloadGoogleDriveFile(config, file.id, stagingPath);
+        await dbPool.query(
+          "UPDATE ingestion_files SET staging_path = ?, uploaded_url = ?, status = 'NEW', error_message = NULL WHERE id = ?",
+          [stagingPath, `drive://${file.id}`, record.id]
+        );
+        await enqueueJob(dbPool, source.id, record.id, file.name, checksum);
+        queued += 1;
+      } catch (downloadErr: any) {
+        failed += 1;
+        const message = downloadErr?.message || "Failed to download Google Drive file.";
+        await dbPool.query(
+          "UPDATE ingestion_files SET status = 'FAILED', processed_at = NOW(), error_message = ? WHERE id = ?",
+          [message, record.id]
+        );
+        await dbPool.query(
+          `INSERT INTO ingestion_jobs
+            (source_id, file_id, file_name, file_hash, status, rows_imported, error_message, attempt, started_at, finished_at, result)
+           VALUES (?, ?, ?, ?, 'FAILED', 0, ?, 1, NOW(), NOW(), 'FAILED')`,
+          [source.id, record.id, file.name, checksum, message]
+        );
+        await upsertAlert(dbPool, {
+          fingerprint: `ingestion_gdrive_download_failed|source:${source.id}|file:${file.id}`,
+          alertType: "ingestion_failed",
+          severity: "medium",
+          title: `Google Drive download failed: ${file.name}`,
+          message,
+          source: "google_drive_ingestion",
+          projectId: Number(source.projectId || 0) || null,
+          payload: {
+            sourceId: source.id,
+            sourceName: source.name,
+            fileId: file.id,
+            fileName: file.name,
+          },
+        });
+      }
+    }
+
+    let deleted = 0;
+    const [latestRows]: any = await dbPool.query(
+      `SELECT f.id, f.remote_path as remotePath, f.file_name as fileName, f.status as status
+       FROM ingestion_files f
+       INNER JOIN (
+         SELECT remote_path, MAX(id) as latestId
+         FROM ingestion_files
+         WHERE source_id = ?
+         GROUP BY remote_path
+       ) latest ON latest.latestId = f.id
+       WHERE f.source_id = ? AND f.remote_path LIKE 'google-drive:%'`,
+      [source.id, source.id]
+    );
+
+    const latestFiles = Array.isArray(latestRows) ? latestRows : [];
+    for (const row of latestFiles) {
+      const remotePath = String(row.remotePath || "");
+      if (!remotePath || activeRemotePaths.has(remotePath)) continue;
+      if (String(row.status || "").toUpperCase() === "DELETED") continue;
+
+      const deletedNow = await markRemoteFileDeleted(
+        dbPool,
+        source,
+        remotePath,
+        String(row.fileName || remotePath)
+      );
+      if (deletedNow) deleted += 1;
+    }
+
+    await updateSourceScanStatus(dbPool, source.id, null);
+    return { discovered, queued, skipped, updated, failed, deleted };
+  } catch (err: any) {
+    await updateSourceScanStatus(dbPool, source.id, err?.message || String(err));
+    return { discovered: 0, queued: 0, skipped: 0, updated: 0, failed: 0, deleted: 0 };
+  }
+};
+
 const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
   const [rows]: any = await dbPool.query(
     `SELECT j.id as jobId, j.source_id as sourceId, j.file_id as fileId,
             f.remote_path as remotePath, f.file_name as fileName,
+            f.staging_path as stagingPath,
             f.checksum_sha256 as fileHash,
-            s.project_id as projectId
+            s.project_id as projectId,
+            s.type as sourceType
      FROM ingestion_jobs j
      JOIN ingestion_files f ON f.id = j.file_id
      JOIN ingestion_sources s ON s.id = j.source_id
@@ -364,14 +595,28 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
     const affected = (claimed as any)?.[0]?.affectedRows ?? 0;
     if (!affected) continue;
 
+    let stagingPath = String(job.stagingPath || "").trim();
     try {
       await dbPool.query("UPDATE ingestion_files SET status = 'PROCESSING' WHERE id = ?", [job.fileId]);
-      const stagingPath = path.join(STAGING_DIR, `${job.fileId}-${job.fileName}`);
-      await fs.copyFile(job.remotePath, stagingPath);
-      await dbPool.query("UPDATE ingestion_files SET staging_path = ? WHERE id = ?", [
-        stagingPath,
-        job.fileId,
-      ]);
+      const sourceType = String(job.sourceType || "").toLowerCase();
+
+      if (!stagingPath) {
+        stagingPath = path.join(STAGING_DIR, `${job.fileId}-${job.fileName}`);
+      }
+
+      if (sourceType === "local") {
+        await fs.copyFile(job.remotePath, stagingPath);
+        await dbPool.query("UPDATE ingestion_files SET staging_path = ? WHERE id = ?", [
+          stagingPath,
+          job.fileId,
+        ]);
+      } else {
+        try {
+          await fs.access(stagingPath);
+        } catch {
+          throw new Error(`Staging file not found for source type '${sourceType}'`);
+        }
+      }
 
       const ingestResult = await ingestFilesFromDisk(dbPool, job.projectId, [
         { path: stagingPath, originalname: job.fileName },
@@ -435,6 +680,11 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
         fileName: job.fileName,
         error: message,
       });
+    } finally {
+      const sourceType = String(job.sourceType || "").toLowerCase();
+      if (sourceType === "google_drive" && stagingPath) {
+        await fs.unlink(stagingPath).catch(() => undefined);
+      }
     }
   }
 };
@@ -445,6 +695,8 @@ export const runIngestionCycle = async (dbPool: Pool) => {
     if (!shouldScanSource(source)) continue;
     if (source.type === "local") {
       await scanLocalSource(dbPool, source);
+    } else if (source.type === "google_drive") {
+      await scanGoogleDriveSource(dbPool, source);
     } else if (source.type === "folder_sync") {
       // Folder sync sources are pushed by local agents and do not require
       // server-side path scans.
@@ -468,8 +720,11 @@ export const runIngestionScanOnce = async (dbPool: Pool, sourceId: number) => {
   if (!source) {
     throw new Error("Source not found");
   }
-  if (source.type !== "local") {
-    throw new Error("Only local sources support manual server-side scan.");
+  if (source.type === "local") {
+    return scanLocalSource(dbPool, source as IngestionSourceRow);
   }
-  return scanLocalSource(dbPool, source as IngestionSourceRow);
+  if (source.type === "google_drive") {
+    return scanGoogleDriveSource(dbPool, source as IngestionSourceRow);
+  }
+  throw new Error("Only local and google_drive sources support manual server-side scan.");
 };

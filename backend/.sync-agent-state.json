@@ -130,19 +130,20 @@
     "C:\\RoamingDropZone\\Reports\\02_tap_inbound_records.xlsx": {
       "fingerprint": "128744:1770785742574",
       "lastHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4",
-      "lastStatus": "DELETED",
-      "lastUploadedAt": "2026-02-12T08:54:18.179Z",
-      "lastSeenAt": "2026-02-12T09:20:01.640Z",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-12T09:48:01.792Z",
+      "lastSeenAt": "2026-02-12T09:48:01.792Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
         "sourceName": "Roaming Drop Zone",
-        "remotePath": "02_tap_inbound_records.xlsx",
-        "ingestionFileId": 7,
-        "ingestionJobId": 14,
-        "deletedImportedCount": 1
+        "ingestionJobId": 16,
+        "ingestionFileId": 9,
+        "importedFileId": 13,
+        "rowsImported": 1500,
+        "fileHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4"
       },
       "lastError": null,
       "originalPath": "02_tap_inbound_records.xlsx",

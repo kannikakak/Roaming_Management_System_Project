@@ -27,12 +27,14 @@ type SourceRow = {
 
 type CreateForm = {
   name: string;
-  type: "folder_sync" | "local";
+  type: "folder_sync" | "local" | "google_drive";
   projectId: string;
   filePattern: string;
   templateRule: string;
   pollIntervalMinutes: string;
   localPath: string;
+  googleFolderId: string;
+  googleSharedDriveId: string;
   enabled: boolean;
 };
 
@@ -100,6 +102,8 @@ const DataSourcesPage: React.FC = () => {
     templateRule: "",
     pollIntervalMinutes: "1",
     localPath: "C:\\RoamingDropZone\\Reports",
+    googleFolderId: "",
+    googleSharedDriveId: "",
     enabled: true,
   });
 
@@ -133,7 +137,23 @@ const DataSourcesPage: React.FC = () => {
     try {
       const response = await apiFetch("/api/sources");
       const data = await requestJson<SourceRow[]>(response, "Failed to load data sources.");
-      const rows = Array.isArray(data) ? data : [];
+      const rows = (Array.isArray(data) ? data : []).map((row) => {
+        const rawConfig = row?.connectionConfig;
+        if (rawConfig && typeof rawConfig === "string") {
+          try {
+            return {
+              ...row,
+              connectionConfig: JSON.parse(rawConfig),
+            };
+          } catch {
+            return {
+              ...row,
+              connectionConfig: {},
+            };
+          }
+        }
+        return row;
+      });
       setSources(rows);
       const drafts: Record<number, string> = {};
       for (const row of rows) {
@@ -197,6 +217,15 @@ const DataSourcesPage: React.FC = () => {
       return;
     }
 
+    if (form.type === "google_drive" && !form.googleFolderId.trim()) {
+      setError("Google Drive Folder ID is required.");
+      return;
+    }
+    if (form.type === "local" && !form.localPath.trim()) {
+      setError("Local path is required.");
+      return;
+    }
+
     const connectionConfig =
       form.type === "local"
         ? {
@@ -208,10 +237,18 @@ const DataSourcesPage: React.FC = () => {
             recursive: true,
             extensions: [".csv", ".xlsx", ".xls"],
           }
-        : {
-            mode: "push-agent",
-            dropZoneHint: form.localPath.trim() || "C:\\RoamingDropZone\\Reports",
-          };
+        : form.type === "google_drive"
+          ? {
+              folderId: form.googleFolderId.trim(),
+              sharedDriveId: form.googleSharedDriveId.trim() || null,
+              includeSharedDrives: true,
+              maxFiles: 5000,
+              extensions: [".csv", ".xlsx", ".xls"],
+            }
+          : {
+              mode: "push-agent",
+              dropZoneHint: form.localPath.trim() || "C:\\RoamingDropZone\\Reports",
+            };
 
     setCreating(true);
     try {
@@ -240,7 +277,12 @@ const DataSourcesPage: React.FC = () => {
       }
       setForm((prev) => ({
         ...prev,
-        name: prev.type === "folder_sync" ? "Roaming Drop Zone" : "",
+        name:
+          prev.type === "folder_sync"
+            ? "Roaming Drop Zone"
+            : prev.type === "google_drive"
+              ? "Google Drive Source"
+              : "",
       }));
       await fetchSources();
     } catch (err: any) {
@@ -460,13 +502,19 @@ npm run sync-agent`,
                 onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    type: event.target.value === "local" ? "local" : "folder_sync",
+                    type:
+                      event.target.value === "local"
+                        ? "local"
+                        : event.target.value === "google_drive"
+                          ? "google_drive"
+                          : "folder_sync",
                   }))
                 }
                 className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:border-amber-400 focus:outline-none"
               >
                 <option value="folder_sync">Folder Sync (Agent)</option>
                 <option value="local">Local Path (Server Scan)</option>
+                <option value="google_drive">Google Shared Drive</option>
               </select>
             </div>
 
@@ -488,20 +536,53 @@ npm run sync-agent`,
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                Folder path (hint)
-              </label>
-              <input
-                value={form.localPath}
-                onChange={(event) => setForm((prev) => ({ ...prev, localPath: event.target.value }))}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-                placeholder="C:\\RoamingDropZone\\Reports"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                For `folder_sync` this is only a hint shown in UI and agent setup docs.
-              </p>
-            </div>
+            {form.type !== "google_drive" ? (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                  Folder path {form.type === "folder_sync" ? "(hint)" : ""}
+                </label>
+                <input
+                  value={form.localPath}
+                  onChange={(event) => setForm((prev) => ({ ...prev, localPath: event.target.value }))}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                  placeholder="C:\\RoamingDropZone\\Reports"
+                />
+                {form.type === "folder_sync" ? (
+                  <p className="mt-1 text-xs text-gray-500">
+                    For `folder_sync` this is only a hint shown in UI and agent setup docs.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                    Google Folder ID
+                  </label>
+                  <input
+                    value={form.googleFolderId}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, googleFolderId: event.target.value }))
+                    }
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                    placeholder="1AbCdEfGhIjKlMn..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                    Shared Drive ID (optional)
+                  </label>
+                  <input
+                    value={form.googleSharedDriveId}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, googleSharedDriveId: event.target.value }))
+                    }
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                    placeholder="0ABcDefgHijKLMNOPQR"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -604,11 +685,20 @@ npm run sync-agent`,
                             <div className="font-semibold text-gray-900 dark:text-white">{source.name}</div>
                             <div className="text-xs text-gray-500">ID: {source.id}</div>
                             <div className="text-xs text-gray-500">
-                              {source.type === "folder_sync" ? "Folder Sync (Agent)" : "Local Path"}
+                              {source.type === "folder_sync"
+                                ? "Folder Sync (Agent)"
+                                : source.type === "google_drive"
+                                  ? "Google Shared Drive"
+                                  : "Local Path"}
                             </div>
                             <div className="text-xs text-gray-500">
                               pattern: {source.filePattern || "*"}
                             </div>
+                            {source.type === "google_drive" ? (
+                              <div className="text-xs text-gray-500 break-all">
+                                folder: {String(source.connectionConfig?.folderId || "not set")}
+                              </div>
+                            ) : null}
                           </td>
                           <td className="py-3 text-gray-600 dark:text-gray-300">
                             <div className="space-y-2">
