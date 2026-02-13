@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 
 import { dbPool } from "./db";
 import { setRoutes } from "./routes";
@@ -15,7 +16,18 @@ import { ensureIngestionAgentSchema } from "./services/ingestionSchema";
 import projectRoutes from "./routes/projectRoutes";
 import exportPptxRoute from "./routes/exportPptx";
 
-dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
+const envCandidates = Array.from(
+  new Set([
+    path.resolve(process.cwd(), ".env"),
+    path.resolve(__dirname, "..", ".env"),
+    path.resolve(__dirname, "..", "..", ".env"),
+  ])
+);
+for (const envPath of envCandidates) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+  }
+}
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
