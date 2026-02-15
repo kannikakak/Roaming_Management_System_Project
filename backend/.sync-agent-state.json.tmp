@@ -5,9 +5,9 @@
       "lastHash": "7a9c17222220c5332cbca42e8c1c88a5b3958f27e46e2ddc52b39aa5b8c64d2a",
       "lastStatus": "DELETE_FAILED",
       "lastUploadedAt": "2026-02-12T09:20:52.283Z",
-      "lastSeenAt": "2026-02-15T11:09:42.008Z",
-      "failCount": 240,
-      "nextAttemptAt": 1771153857008,
+      "lastSeenAt": "2026-02-15T11:32:12.093Z",
+      "failCount": 255,
+      "nextAttemptAt": 1771155207093,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
@@ -69,9 +69,9 @@
       "lastHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928",
       "lastStatus": "DELETE_FAILED",
       "lastUploadedAt": "2026-02-12T08:17:27.265Z",
-      "lastSeenAt": "2026-02-15T11:09:42.016Z",
-      "failCount": 249,
-      "nextAttemptAt": 1771153857016,
+      "lastSeenAt": "2026-02-15T11:32:12.094Z",
+      "failCount": 264,
+      "nextAttemptAt": 1771155207094,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
@@ -90,9 +90,9 @@
       "lastHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86",
       "lastStatus": "DELETE_FAILED",
       "lastUploadedAt": "2026-02-13T07:56:44.382Z",
-      "lastSeenAt": "2026-02-15T11:09:42.025Z",
-      "failCount": 240,
-      "nextAttemptAt": 1771153857025,
+      "lastSeenAt": "2026-02-15T11:32:12.094Z",
+      "failCount": 255,
+      "nextAttemptAt": 1771155207094,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
@@ -112,9 +112,9 @@
       "lastHash": "26df9aa60bfc6e16254e2137197246a55cfb28da9fcd0267bac8f68df85ce409",
       "lastStatus": "FAILED",
       "lastUploadedAt": "2026-02-12T08:28:26.536Z",
-      "lastSeenAt": "2026-02-15T11:09:41.930Z",
-      "failCount": 225,
-      "nextAttemptAt": 1771153856930,
+      "lastSeenAt": "2026-02-15T11:32:12.084Z",
+      "failCount": 240,
+      "nextAttemptAt": 1771155207084,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
@@ -133,9 +133,9 @@
       "lastHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4",
       "lastStatus": "FAILED",
       "lastUploadedAt": "2026-02-12T09:48:01.792Z",
-      "lastSeenAt": "2026-02-15T11:09:41.793Z",
-      "failCount": 240,
-      "nextAttemptAt": 1771153856793,
+      "lastSeenAt": "2026-02-15T11:32:12.081Z",
+      "failCount": 255,
+      "nextAttemptAt": 1771155207081,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
@@ -155,40 +155,40 @@
       "fingerprint": "105030:1770786260368",
       "lastHash": "6f4a8875c47cc7c27acb21e47599f46a78c2fa4045848f9f9fd05bcecf067532",
       "lastStatus": "DELETE_FAILED",
-      "lastSeenAt": "2026-02-15T11:09:42.040Z",
+      "lastSeenAt": "2026-02-15T11:32:12.095Z",
       "lastError": "connect ECONNREFUSED 127.0.0.1:9",
-      "failCount": 242,
-      "nextAttemptAt": 1771153857040
+      "failCount": 257,
+      "nextAttemptAt": 1771155207095
     },
     "C:\\RoamingDropZone\\Reports\\agent-test-20260215-100249.csv": {
       "originalPath": "agent-test-20260215-100249.csv",
       "fingerprint": "142:1771124569462",
       "lastHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66",
       "lastStatus": "FAILED",
-      "lastSeenAt": "2026-02-15T11:09:41.943Z",
+      "lastSeenAt": "2026-02-15T11:32:12.087Z",
       "lastError": "connect ECONNREFUSED 127.0.0.1:9",
-      "failCount": 240,
-      "nextAttemptAt": 1771153856943
+      "failCount": 255,
+      "nextAttemptAt": 1771155207087
     },
     "C:\\RoamingDropZone\\Reports\\agent-test-20260215-103315.csv": {
       "originalPath": "agent-test-20260215-103315.csv",
       "fingerprint": "142:1771126395262",
       "lastHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66",
       "lastStatus": "FAILED",
-      "lastSeenAt": "2026-02-15T11:09:41.966Z",
+      "lastSeenAt": "2026-02-15T11:32:12.090Z",
       "lastError": "connect ECONNREFUSED 127.0.0.1:9",
-      "failCount": 220,
-      "nextAttemptAt": 1771153856966
+      "failCount": 235,
+      "nextAttemptAt": 1771155207090
     },
     "C:\\RoamingDropZone\\Reports\\cdr_sample.xlsx": {
       "originalPath": "cdr_sample.xlsx",
       "fingerprint": "126371:1767336360943",
       "lastHash": "f5638c6300f3dc85515cb6d9adddb0ca9724cd49bf3a43300ea5888f3c4362d0",
       "lastStatus": "FAILED",
-      "lastSeenAt": "2026-02-15T11:09:41.998Z",
+      "lastSeenAt": "2026-02-15T11:32:12.092Z",
       "lastError": "connect ECONNREFUSED 127.0.0.1:9",
-      "failCount": 150,
-      "nextAttemptAt": 1771153856998
+      "failCount": 165,
+      "nextAttemptAt": 1771155207092
     }
   }
 }

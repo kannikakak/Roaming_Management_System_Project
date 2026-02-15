@@ -10,7 +10,7 @@ import {
   scanSource,
   testSource,
   updateSource,
-} from "../controllers/ingestionSourcesController";
+} from "../modules/ingestion";
 
 export const ingestionSourceRoutes = (dbPool: Pool) => {
   const router = Router();
