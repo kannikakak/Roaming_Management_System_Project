@@ -64,17 +64,8 @@ services:
       ENABLE_INGESTION_RUNNER: ${ENABLE_INGESTION_RUNNER:-true}
       INGEST_POLL_SECONDS: ${INGEST_POLL_SECONDS:-30}
       INGEST_STABLE_SECONDS: ${INGEST_STABLE_SECONDS:-30}
-
-      # Google Drive ingestion
-      GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: ${GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON:-}
-      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: ${GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:-}
-      GOOGLE_CLIENT_EMAIL: ${GOOGLE_CLIENT_EMAIL:-}
-      GOOGLE_PRIVATE_KEY: ${GOOGLE_PRIVATE_KEY:-}
-      GOOGLE_DRIVE_DEFAULT_SHARED_DRIVE_ID: ${GOOGLE_DRIVE_DEFAULT_SHARED_DRIVE_ID:-}
     volumes:
       - ./backend/uploads:/app/uploads
-      # Optional: mount service-account key files when using GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE
-      - ./backend/keys:/app/keys:ro
       # Host folder for automated ingestion (edit INGEST_HOST_PATH in .env if needed)
       - type: bind
         source: ${INGEST_HOST_PATH:-D:/data/roaming}
