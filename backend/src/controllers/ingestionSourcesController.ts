@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
 import fs from "fs/promises";
 import { normalizeLocalSourceConfig, runIngestionScanOnce } from "../services/ingestionService";
-import { normalizeGoogleDriveSourceConfig, testGoogleDriveConnection } from "../services/googleDrive";
 import { buildAgentKeyHint, generateAgentKey, hashAgentKey } from "../utils/agentKey";
 import { writeAuditLog } from "../utils/auditLogger";
 
@@ -70,21 +69,15 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
     return res.status(400).json({ message: "projectId is required" });
   }
 
-  if (type !== "local" && type !== "folder_sync" && type !== "google_drive") {
-    return res.status(400).json({ message: "type must be 'local', 'folder_sync', or 'google_drive'" });
+  if (type !== "local" && type !== "folder_sync") {
+    return res.status(400).json({ message: "type must be 'local' or 'folder_sync'" });
   }
 
   let normalizedConfig: any = {};
-  let normalizedGoogleConfig: any = {};
   if (type === "local") {
     normalizedConfig = normalizeLocalSourceConfig(connectionConfig);
     if (!normalizedConfig.directories.length) {
       return res.status(400).json({ message: "connectionConfig.path (or paths) is required for local sources" });
-    }
-  } else if (type === "google_drive") {
-    normalizedGoogleConfig = normalizeGoogleDriveSourceConfig(connectionConfig || {});
-    if (!normalizedGoogleConfig.folderId) {
-      return res.status(400).json({ message: "connectionConfig.folderId is required for google_drive sources" });
     }
   }
 
@@ -109,9 +102,7 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
             maxFiles: normalizedConfig.maxFiles,
             extensions: normalizedConfig.allowedExtensions,
           }
-        : type === "google_drive"
-          ? normalizedGoogleConfig
-          : (connectionConfig || {});
+        : (connectionConfig || {});
 
     const [result]: any = await dbPool.query(
       `INSERT INTO ingestion_sources
@@ -168,18 +159,18 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
   }
   if (body.type !== undefined) {
     const type = String(body.type || "folder_sync").toLowerCase();
-    if (type !== "local" && type !== "folder_sync" && type !== "google_drive") {
-      return res.status(400).json({ message: "type must be 'local', 'folder_sync', or 'google_drive'" });
+    if (type !== "local" && type !== "folder_sync") {
+      return res.status(400).json({ message: "type must be 'local' or 'folder_sync'" });
     }
     const existingType = String(existingSource?.type || "").toLowerCase();
     if (
       body.connectionConfig === undefined &&
       existingType &&
       existingType !== type &&
-      (type === "local" || type === "google_drive")
+      type === "local"
     ) {
       return res.status(400).json({
-        message: "connectionConfig is required when changing type to 'local' or 'google_drive'",
+        message: "connectionConfig is required when changing type to 'local'",
       });
     }
     fields.push("type = ?");
@@ -207,13 +198,6 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
             extensions: normalizedConfig.allowedExtensions,
           })
       );
-    } else if (currentType === "google_drive") {
-      const normalizedGoogleConfig = normalizeGoogleDriveSourceConfig(body.connectionConfig || {});
-      if (!normalizedGoogleConfig.folderId) {
-        return res.status(400).json({ message: "connectionConfig.folderId is required for google_drive" });
-      }
-      fields.push("connection_config = ?");
-      values.push(JSON.stringify(normalizedGoogleConfig));
     } else {
       fields.push("connection_config = ?");
       values.push(JSON.stringify(body.connectionConfig || {}));
@@ -274,20 +258,6 @@ export const testSource = (dbPool: Pool) => async (req: Request, res: Response) 
       return res.json({
         ok: true,
         message: "Folder sync sources use Sync Agent connectivity and do not support server path tests.",
-      });
-    }
-
-    if (source.type === "google_drive") {
-      const config = normalizeGoogleDriveSourceConfig(source.connectionConfig);
-      if (!config.folderId) {
-        return res.status(400).json({ message: "connection_config.folderId is required" });
-      }
-      await testGoogleDriveConnection(config);
-      return res.json({
-        ok: true,
-        message: "Google Drive connection test succeeded.",
-        folderId: config.folderId,
-        sharedDriveId: config.sharedDriveId,
       });
     }
 

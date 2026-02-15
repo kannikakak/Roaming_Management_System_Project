@@ -100,25 +100,6 @@ Cleanup API:
 - `DELETE /api/ingest/history?mode=deleted` clears deleted ingestion history rows.
 - `DELETE /api/ingest/history?mode=all&sourceId=<id>` clears all ingestion history rows for a source.
 
-## Google Shared Drive Ingestion
-
-Use source type `google_drive` to ingest team files directly from a Google Shared Drive folder.
-
-Required server environment:
-- `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON` (full service account JSON as one line), or
-- `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE`, or
-- `GOOGLE_CLIENT_EMAIL` + `GOOGLE_PRIVATE_KEY`.
-
-Source connection config:
-- `folderId` (required)
-- `sharedDriveId` (optional but recommended for Shared Drive)
-- `extensions` (optional list, defaults to `.csv,.xlsx,.xls`)
-
-Flow:
-- Ingestion runner scans the Drive folder at source poll interval.
-- New/updated files are downloaded and ingested.
-- If file is removed from Drive, the corresponding imported dataset is removed and a `DELETED` history record is added.
-
 ## Running the Application
 
 To start the backend server, run:
