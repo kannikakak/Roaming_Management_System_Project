@@ -31,6 +31,34 @@ const readInt = (key, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 };
 
+const normalizeApiBaseUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error("AGENT_API_BASE_URL is required.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      "AGENT_API_BASE_URL must be a valid absolute URL (example: https://your-backend.onrender.com)."
+    );
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("AGENT_API_BASE_URL must start with http:// or https://.");
+  }
+
+  if (parsed.pathname && parsed.pathname !== "/") {
+    throw new Error(
+      `AGENT_API_BASE_URL must not include a path (received: ${parsed.pathname}). Use only the app origin, for example: ${parsed.origin}`
+    );
+  }
+
+  return parsed.origin;
+};
+
 const toBool = (value, fallback = false) => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return fallback;
@@ -49,7 +77,7 @@ const log = (message, details) => {
 };
 
 const config = {
-  apiBaseUrl: readRequired("AGENT_API_BASE_URL").replace(/\/$/, ""),
+  apiBaseUrl: normalizeApiBaseUrl(readRequired("AGENT_API_BASE_URL")),
   sourceId: Number(readRequired("AGENT_SOURCE_ID")),
   apiKey: readRequired("AGENT_API_KEY"),
   watchDir: readRequired("AGENT_WATCH_DIR"),
@@ -153,6 +181,27 @@ const isStable = (stat) => {
   return Number.isFinite(ageMs) && ageMs >= config.stableSeconds * 1000;
 };
 
+const readResponseErrorMessage = (response) => {
+  const payload = response?.data;
+  if (payload && typeof payload === "object") {
+    if (payload.message) return String(payload.message);
+    if (payload.error) return String(payload.error);
+  }
+  if (typeof payload === "string" && payload.trim()) {
+    return payload.trim();
+  }
+  return `HTTP ${response?.status}`;
+};
+
+const ensureJsonObjectPayload = (payload, operation) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(
+      `${operation} returned a non-JSON response. Check AGENT_API_BASE_URL and set it to your backend/app origin only.`
+    );
+  }
+  return payload;
+};
+
 const uploadFile = async ({ filePath, originalPath }) => {
   const form = new FormData();
   form.append("sourceId", String(config.sourceId));
@@ -174,15 +223,26 @@ const uploadFile = async ({ filePath, originalPath }) => {
     }
   );
 
-  if (response.status >= 200 && response.status < 300) {
-    return response.data || {};
+  if (!(response.status >= 200 && response.status < 300)) {
+    throw new Error(String(readResponseErrorMessage(response)));
   }
 
-  const message =
-    response?.data?.message ||
-    response?.data?.error ||
-    `HTTP ${response.status}`;
-  throw new Error(String(message));
+  const data = ensureJsonObjectPayload(response.data, "Upload request");
+  if (data.ok === false) {
+    throw new Error(String(data.message || data.error || "Upload failed."));
+  }
+  if (
+    data.ok !== true &&
+    data.duplicate !== true &&
+    data.ingestionJobId === undefined &&
+    data.rowsImported === undefined
+  ) {
+    throw new Error(
+      "Upload endpoint returned an unexpected JSON response. Verify AGENT_API_BASE_URL points to your backend service."
+    );
+  }
+
+  return data;
 };
 
 const deleteRemoteFile = async ({ originalPath }) => {
@@ -202,15 +262,25 @@ const deleteRemoteFile = async ({ originalPath }) => {
     }
   );
 
-  if (response.status >= 200 && response.status < 300) {
-    return response.data || {};
+  if (!(response.status >= 200 && response.status < 300)) {
+    throw new Error(String(readResponseErrorMessage(response)));
   }
 
-  const message =
-    response?.data?.message ||
-    response?.data?.error ||
-    `HTTP ${response.status}`;
-  throw new Error(String(message));
+  const data = ensureJsonObjectPayload(response.data, "Deletion request");
+  if (data.ok === false) {
+    throw new Error(String(data.message || data.error || "Deletion sync failed."));
+  }
+  if (
+    data.ok !== true &&
+    data.deletedImportedCount === undefined &&
+    data.ingestionJobId === undefined
+  ) {
+    throw new Error(
+      "Deletion endpoint returned an unexpected JSON response. Verify AGENT_API_BASE_URL points to your backend service."
+    );
+  }
+
+  return data;
 };
 
 const updateFileState = (filePath, patch) => {
