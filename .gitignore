@@ -19,3 +19,7 @@ backend/uploads/*
 !backend/uploads/reports/.gitkeep
 !backend/uploads/schedules/.gitkeep
 !backend/uploads/profile/.gitkeep
+
+# Local service account keys
+backend/keys/*
+!backend/keys/.gitkeep

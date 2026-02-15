@@ -88,19 +88,20 @@
     "C:\\RoamingDropZone\\Reports\\05_alerts_and_job_logs.xlsx": {
       "fingerprint": "102882:1770785752529",
       "lastHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86",
-      "lastStatus": "DELETED",
-      "lastUploadedAt": "2026-02-12T08:26:27.599Z",
-      "lastSeenAt": "2026-02-12T09:19:57.148Z",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-02-13T07:56:44.382Z",
+      "lastSeenAt": "2026-02-13T07:56:44.383Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
         "sourceId": 1,
         "sourceName": "Roaming Drop Zone",
-        "remotePath": "05_alerts_and_job_logs.xlsx",
-        "ingestionFileId": 5,
-        "ingestionJobId": 12,
-        "deletedImportedCount": 1
+        "ingestionJobId": 17,
+        "ingestionFileId": 10,
+        "importedFileId": 14,
+        "rowsImported": 1300,
+        "fileHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86"
       },
       "lastError": null,
       "originalPath": "05_alerts_and_job_logs.xlsx",
