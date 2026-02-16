@@ -17,7 +17,6 @@ import {
   ShieldCheck,
   Shield,
   ClipboardList,
-  BellRing,
   DatabaseBackup,
   Database,
 } from 'lucide-react';
@@ -35,7 +34,6 @@ const navItems = [
   { label: 'Data Sources', icon: <Database size={20} />, path: '/data-sources', roles: ['admin', 'analyst'] },
   { label: 'Ingestion History', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
   { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
-  { label: 'Alert Center', icon: <BellRing size={20} />, path: '/alert-center' },
   { label: 'Delivery History', icon: <History size={20} />, path: '/delivery-history' },
   { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
   { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
