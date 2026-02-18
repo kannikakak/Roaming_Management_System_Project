@@ -30,6 +30,7 @@ import { getAuthToken } from "./utils/api";
 import GlobalSearchPage from "./pages/GlobalSearchPage";
 import DashboardAnalyticsPage from "./pages/DashboardAnalyticsPage";
 import DataQualityPage from "./pages/DataQualityPage";
+import ComplaintInvestigationPage from "./pages/ComplaintInvestigationPage";
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = getAuthToken();
@@ -242,6 +243,16 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <GlobalSearchPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/complaint-desk"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <ComplaintInvestigationPage />
             </MainLayout>
           </RequireAuth>
         }
