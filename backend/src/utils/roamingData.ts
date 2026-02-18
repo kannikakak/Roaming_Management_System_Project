@@ -39,6 +39,11 @@ type RoamingSummary = {
   date: string | null;
 };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MIN_REASONABLE_EPOCH_MS = Date.UTC(1990, 0, 1, 0, 0, 0, 0);
+const MAX_REASONABLE_EPOCH_MS = Date.UTC(2100, 11, 31, 23, 59, 59, 999);
+const EXCEL_EPOCH_OFFSET_DAYS = 25569; // 1970-01-01 relative to 1899-12-30
+
 const normalizeKey = (key: string) =>
   String(key || "")
     .toLowerCase()
@@ -68,6 +73,52 @@ const pickByKeys = (map: Map<string, any>, keys: string[]) => {
   return "";
 };
 
+const isReasonableEpochDate = (date: Date) => {
+  const time = date.getTime();
+  return Number.isFinite(time) && time >= MIN_REASONABLE_EPOCH_MS && time <= MAX_REASONABLE_EPOCH_MS;
+};
+
+const createDateFromParts = (year: number, month: number, day: number) => {
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return null;
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+};
+
+const parseNumericDateCandidate = (value: number) => {
+  if (!Number.isFinite(value)) return null;
+  const candidates: number[] = [];
+  const absolute = Math.abs(value);
+
+  // Epoch milliseconds.
+  if (absolute >= 1e12 && absolute < 1e14) {
+    candidates.push(Math.round(value));
+  }
+  // Epoch seconds.
+  if (absolute >= 1e9 && absolute < 1e12) {
+    candidates.push(Math.round(value * 1000));
+  }
+  // Excel serial date numbers.
+  if (value >= 20000 && value <= 80000) {
+    candidates.push(Math.round((value - EXCEL_EPOCH_OFFSET_DAYS) * MS_PER_DAY));
+  }
+
+  for (const candidate of candidates) {
+    const date = new Date(candidate);
+    if (isReasonableEpochDate(date)) {
+      return date;
+    }
+  }
+  return null;
+};
+
 export const parseDateCandidate = (value: any): Date | null => {
   if (value === null || value === undefined) return null;
 
@@ -76,31 +127,43 @@ export const parseDateCandidate = (value: any): Date | null => {
   }
 
   if (typeof value === "number" && Number.isFinite(value)) {
-    const ms = value > 1e12 ? value : value * 1000;
-    const date = new Date(ms);
-    return Number.isNaN(date.getTime()) ? null : date;
+    return parseNumericDateCandidate(value);
   }
 
   const raw = toStringValue(value);
   if (!raw) return null;
 
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) return parsed;
+  if (/^-?\d+(\.\d+)?$/.test(raw)) {
+    const numeric = Number(raw);
+    return parseNumericDateCandidate(numeric);
+  }
 
   const isoMatch = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
   if (isoMatch) {
     const [, y, m, d] = isoMatch;
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return createDateFromParts(Number(y), Number(m), Number(d));
+  }
+
+  const compactIsoMatch = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compactIsoMatch) {
+    const [, y, m, d] = compactIsoMatch;
+    return createDateFromParts(Number(y), Number(m), Number(d));
   }
 
   const dmyMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (dmyMatch) {
     const [, a, b, y] = dmyMatch;
-    const monthFirst = new Date(Number(y), Number(a) - 1, Number(b));
-    if (!Number.isNaN(monthFirst.getTime())) return monthFirst;
-    const dayFirst = new Date(Number(y), Number(b) - 1, Number(a));
-    return Number.isNaN(dayFirst.getTime()) ? null : dayFirst;
+    const monthFirst = createDateFromParts(Number(y), Number(a), Number(b));
+    if (monthFirst) return monthFirst;
+    return createDateFromParts(Number(y), Number(b), Number(a));
+  }
+
+  const looksDateLike = /[a-zA-Z]|[-/:T.]/.test(raw);
+  if (!looksDateLike) return null;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
   }
 
   return null;

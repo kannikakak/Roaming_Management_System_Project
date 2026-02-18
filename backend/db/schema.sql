@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS files (
   storage_path VARCHAR(512) NULL,
   text_content LONGTEXT NULL,
   uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_files_project_uploaded (project_id, uploaded_at),
+  INDEX idx_files_uploaded_project (uploaded_at, project_id),
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -93,7 +95,8 @@ CREATE TABLE IF NOT EXISTS file_rows (
   row_index INT NOT NULL,
   data_json LONGBLOB NOT NULL,
   FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
-  INDEX idx_file_rows_file_id (file_id)
+  INDEX idx_file_rows_file_id (file_id),
+  INDEX idx_file_rows_file_row_index (file_id, row_index)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS data_quality_scores (
@@ -109,6 +112,46 @@ CREATE TABLE IF NOT EXISTS data_quality_scores (
   total_columns INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS analytics_file_metrics (
+  file_id INT PRIMARY KEY,
+  project_id INT NOT NULL,
+  uploaded_at DATETIME NOT NULL,
+  total_rows INT NOT NULL DEFAULT 0,
+  net_revenue_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  usage_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  partner_count INT NOT NULL DEFAULT 0,
+  net_revenue_key VARCHAR(255) NULL,
+  usage_key VARCHAR(255) NULL,
+  partner_key VARCHAR(255) NULL,
+  computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_afm_project_uploaded (project_id, uploaded_at),
+  INDEX idx_afm_uploaded_at (uploaded_at),
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS analytics_file_daily_partner (
+  file_id INT NOT NULL,
+  project_id INT NOT NULL,
+  uploaded_at DATETIME NOT NULL,
+  day DATE NOT NULL,
+  partner VARCHAR(255) NOT NULL,
+  country VARCHAR(255) NOT NULL,
+  rows_count INT NOT NULL DEFAULT 0,
+  traffic_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  revenue_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  cost_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  expected_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  actual_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  usage_sum DECIMAL(20,4) NOT NULL DEFAULT 0,
+  computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (file_id, day, partner, country),
+  INDEX idx_afdp_project_day (project_id, day),
+  INDEX idx_afdp_project_uploaded (project_id, uploaded_at),
+  INDEX idx_afdp_project_partner_day (project_id, partner, day),
+  INDEX idx_afdp_project_country_day (project_id, country, day),
   FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -223,6 +266,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   INDEX idx_alerts_partner (partner),
   INDEX idx_alerts_alert_type (alert_type),
   INDEX idx_alerts_last_detected (last_detected_at),
+  INDEX idx_alerts_project_detected_status_partner (project_id, last_detected_at, status, partner),
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 

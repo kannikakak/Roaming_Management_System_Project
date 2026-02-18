@@ -1,125 +1,44 @@
 import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
+import {
+  getScopedProjectIds,
+  requireProjectAccess,
+} from "../utils/accessControl";
+import { buildOperationsSnapshot } from "../services/operationsSnapshot";
 
-type SnapshotTotals = {
-  projects: number;
-  files: number;
-  sources: number;
-  ingestionFiles: number;
-  ingestionJobs: number;
-  charts: number;
-  reports: number;
+const toOptionalPositiveInt = (value: unknown) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+};
+const toPositiveInt = (value: unknown, fallback: number, min: number, max: number) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
 };
 
-type FileStatusRow = {
-  status: string;
-  count: number;
-};
-
-type JobResultRow = {
-  result: string | null;
-  count: number;
-};
-
-type TimelineEvent = {
-  id: number;
-  sourceName: string | null;
-  sourceType: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  result: string | null;
-  attempt: number;
-};
-
-type SourceError = {
-  id: number;
-  name: string;
-  type: string;
-  enabled: boolean;
-  lastError: string | null;
-  lastScanAt: string | null;
-};
-
-type OperationsSnapshot = {
-  totals: SnapshotTotals;
-  fileStatus: FileStatusRow[];
-  jobResults: JobResultRow[];
-  timeline: TimelineEvent[];
-  recentErrors: SourceError[];
-};
-
-const mapBoolean = (value: any) => (value === 1 || value === true);
-
-export const getOperationsSnapshot = (dbPool: Pool) => async (_req: Request, res: Response) => {
+export const getOperationsSnapshot = (dbPool: Pool) => async (req: Request, res: Response) => {
   try {
-    const [[{ total: projects }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM projects`);
-    const [[{ total: files }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM files`);
-    const [[{ total: sources }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM ingestion_sources`);
-    const [[{ total: ingestionFiles }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM ingestion_files`);
-    const [[{ total: ingestionJobs }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM ingestion_jobs`);
-    const [[{ total: charts }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM charts`);
-    const [[{ total: reports }]]: any = await dbPool.query(`SELECT COUNT(*) AS total FROM reports`);
+    const requestedProjectId = toOptionalPositiveInt(req.query.projectId);
+    if (req.query.projectId !== undefined && requestedProjectId === null) {
+      return res.status(400).json({ message: "Invalid projectId" });
+    }
+    if (requestedProjectId) {
+      const projectAccess = await requireProjectAccess(dbPool, requestedProjectId, req);
+      if (!projectAccess.ok) {
+        return res.status(projectAccess.status).json({ message: projectAccess.message });
+      }
+    }
+    const staleThresholdHours = toPositiveInt(req.query.staleHours, 24, 1, 24 * 14);
 
-    const [fileStatusRows]: any = await dbPool.query(
-      `SELECT status, COUNT(*) AS count FROM ingestion_files GROUP BY status`
-    );
-    const [jobResultRows]: any = await dbPool.query(
-      `SELECT result, COUNT(*) AS count FROM ingestion_jobs GROUP BY result`
-    );
-    const [recentErrors]: any = await dbPool.query(
-      `SELECT id, name, type, enabled, last_error as lastError, last_scan_at as lastScanAt
-       FROM ingestion_sources
-       WHERE last_error IS NOT NULL
-       ORDER BY last_scan_at DESC
-       LIMIT 5`
-    );
-    const [timeline]: any = await dbPool.query(
-      `SELECT j.id, j.result, j.attempt, j.started_at as startedAt, j.finished_at as finishedAt,
-              s.name as sourceName, s.type as sourceType
-       FROM ingestion_jobs j
-       LEFT JOIN ingestion_sources s ON s.id = j.source_id
-       ORDER BY COALESCE(j.finished_at, j.started_at) DESC
-       LIMIT 6`
-    );
-
-    const snapshot: OperationsSnapshot = {
-      totals: {
-        projects: Number(projects || 0),
-        files: Number(files || 0),
-        sources: Number(sources || 0),
-        ingestionFiles: Number(ingestionFiles || 0),
-        ingestionJobs: Number(ingestionJobs || 0),
-        charts: Number(charts || 0),
-        reports: Number(reports || 0),
-      },
-      fileStatus: Array.isArray(fileStatusRows)
-        ? fileStatusRows.map((row) => ({ status: row.status || "unknown", count: Number(row.count || 0) }))
-        : [],
-      jobResults: Array.isArray(jobResultRows)
-        ? jobResultRows.map((row) => ({ result: row.result, count: Number(row.count || 0) }))
-        : [],
-      recentErrors: Array.isArray(recentErrors)
-        ? recentErrors.map((row: any) => ({
-            id: row.id,
-            name: row.name,
-            type: row.type,
-            enabled: mapBoolean(row.enabled),
-            lastError: row.lastError || null,
-            lastScanAt: row.lastScanAt ? new Date(row.lastScanAt).toISOString() : null,
-          }))
-        : [],
-      timeline: Array.isArray(timeline)
-        ? timeline.map((row: any) => ({
-            id: row.id,
-            sourceName: row.sourceName || null,
-            sourceType: row.sourceType || null,
-            startedAt: row.startedAt ? new Date(row.startedAt).toISOString() : null,
-            finishedAt: row.finishedAt ? new Date(row.finishedAt).toISOString() : null,
-            result: row.result || null,
-            attempt: Number(row.attempt || 1),
-          }))
-        : [],
-    };
+    const scope = await getScopedProjectIds(dbPool, req);
+    if (!scope.ok) {
+      return res.status(scope.status).json({ message: scope.message });
+    }
+    const projectIds = requestedProjectId ? [requestedProjectId] : scope.projectIds;
+    const snapshot = await buildOperationsSnapshot(dbPool, {
+      projectIds,
+      staleThresholdHours,
+    });
 
     res.json(snapshot);
   } catch (error) {

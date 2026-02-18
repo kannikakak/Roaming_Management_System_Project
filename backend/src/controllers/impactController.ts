@@ -2,6 +2,9 @@ import { Request, Response } from "express";
 import { Pool } from "mysql2/promise";
 import { buildDataJsonExpr, buildKeyParams, getEncryptionKey } from "../utils/dbEncryption";
 import { buildSchemaChanges, SchemaChanges } from "../utils/schemaChanges";
+import { requireProjectAccess } from "../utils/accessControl";
+import { TtlCache } from "../utils/ttlCache";
+import { AnalyticsFileMetric, loadFileMetricsMap, queueRefreshAnalyticsForFiles } from "../services/analyticsEtl";
 
 const NET_REVENUE_KEYS = [
   "netrevenue",
@@ -38,7 +41,29 @@ const PARTNER_KEYS = [
   "plmn",
 ];
 
-const IMPACT_ROW_LIMIT = Number(process.env.IMPACT_SUMMARY_ROW_LIMIT || 12000);
+const toBoundedPositiveInt = (
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+};
+
+const IMPACT_ROW_LIMIT = toBoundedPositiveInt(
+  process.env.IMPACT_SUMMARY_ROW_LIMIT,
+  6000,
+  200,
+  25000
+);
+const IMPACT_CACHE_TTL_MS = toBoundedPositiveInt(
+  process.env.IMPACT_SUMMARY_CACHE_TTL_MS,
+  60000,
+  5000,
+  15 * 60 * 1000
+);
 const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -72,6 +97,11 @@ type ImpactResponse = {
   projectName: string;
   currentFile: { id: number; name: string; uploadedAt: string };
   previousFile?: { id: number; name: string; uploadedAt: string };
+  detectedColumns: {
+    netRevenue: string | null;
+    usage: string | null;
+    partner: string | null;
+  };
   metrics: {
     netRevenue: ImpactMetric;
     usage: ImpactMetric;
@@ -79,9 +109,20 @@ type ImpactResponse = {
   };
   kpis: ImpactMetric[];
   chart?: { label: string; previous: number | null; current: number; unit: string };
+  dataConfidence: {
+    currentSampledRows: number;
+    currentTotalRows: number;
+    currentCoverage: number;
+    previousSampledRows: number | null;
+    previousTotalRows: number | null;
+    previousCoverage: number | null;
+  };
+  warnings: string[];
   insights: string[];
   schemaChanges: SchemaChanges;
 };
+
+const impactSummaryCache = new TtlCache<ImpactResponse>(IMPACT_CACHE_TTL_MS, 150);
 
 const normalizeColumnKey = (value?: string | null) =>
   String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -106,13 +147,35 @@ const findColumnByTerms = (columns: string[], terms: string[]) => {
 const parseNumericValue = (value: any) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (value === null || value === undefined) return null;
-  const cleaned = String(value)
-    .replace(/[,$]/g, "")
-    .replace(/[^0-9.-]/g, "")
-    .trim();
+  const asString = String(value).trim();
+  if (!asString) return null;
+  const direct = Number(asString);
+  if (Number.isFinite(direct)) return direct;
+  const withoutCommas = asString.replace(/,/g, "");
+  const commaParsed = Number(withoutCommas);
+  if (Number.isFinite(commaParsed)) return commaParsed;
+  const cleaned = withoutCommas.replace(/[^0-9.-]/g, "");
   if (!cleaned) return null;
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const summaryFromEtlMetric = (metric: AnalyticsFileMetric): FileSummary => {
+  const netKey = metric.netRevenueKey || "net_revenue";
+  const usageKey = metric.usageKey || "usage";
+  const columns = [netKey, usageKey, metric.partnerKey || ""].filter(Boolean);
+  const columnSums: Record<string, number> = {};
+  columnSums[netKey] = Number(metric.netRevenueSum || 0);
+  columnSums[usageKey] = Number(metric.usageSum || 0);
+  return {
+    fileId: metric.fileId,
+    columns,
+    totalRows: Number(metric.totalRows || 0),
+    rowsSampled: Number(metric.totalRows || 0),
+    columnSums,
+    partnerColumn: metric.partnerKey || undefined,
+    partnerCount: Number(metric.partnerCount || 0),
+  };
 };
 
 const loadFileSummary = async (dbPool: Pool, fileId: number): Promise<FileSummary> => {
@@ -146,12 +209,12 @@ const loadFileSummary = async (dbPool: Pool, fileId: number): Promise<FileSummar
   const columnSums: Record<string, number> = {};
   rows.forEach((row: Record<string, any>) => {
     if (!row || typeof row !== "object") return;
-    columns.forEach((column: string) => {
-      const num = parseNumericValue(row[column]);
+    for (const [column, value] of Object.entries(row)) {
+      const num = parseNumericValue(value);
       if (num !== null) {
         columnSums[column] = (columnSums[column] || 0) + num;
       }
-    });
+    }
   });
 
   const partnerColumn = findColumnByTerms(columns, PARTNER_KEYS);
@@ -288,6 +351,11 @@ export const getLatestUploadImpact = (dbPool: Pool) => async (req: Request, res:
   }
 
   try {
+    const projectAccess = await requireProjectAccess(dbPool, projectId, req);
+    if (!projectAccess.ok) {
+      return res.status(projectAccess.status).json({ message: projectAccess.message });
+    }
+
     const [projectRows]: any = await dbPool.query(
       "SELECT name FROM projects WHERE id = ? LIMIT 1",
       [projectId]
@@ -307,13 +375,37 @@ export const getLatestUploadImpact = (dbPool: Pool) => async (req: Request, res:
     }
 
     const [current, previous] = files;
+    const cacheKey = `${projectId}:${current.id}:${previous?.id || 0}:${IMPACT_ROW_LIMIT}`;
+    const cached = impactSummaryCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const metricByFileId = await loadFileMetricsMap(
+      dbPool,
+      [current.id, previous?.id].filter((id): id is number => Number.isFinite(id))
+    );
+    const currentMetric = metricByFileId.get(current.id);
+    const previousMetric = previous ? metricByFileId.get(previous.id) : undefined;
+    const pendingEtlFileIds: number[] = [];
+    if (!currentMetric) pendingEtlFileIds.push(current.id);
+    if (previous && !previousMetric) pendingEtlFileIds.push(previous.id);
+    if (pendingEtlFileIds.length > 0) {
+      queueRefreshAnalyticsForFiles(dbPool, pendingEtlFileIds);
+    }
+
     const [currentSummary, previousSummary] = await Promise.all([
-      loadFileSummary(dbPool, current.id),
-      previous ? loadFileSummary(dbPool, previous.id) : Promise.resolve(null),
+      currentMetric ? Promise.resolve(summaryFromEtlMetric(currentMetric)) : loadFileSummary(dbPool, current.id),
+      previous
+        ? previousMetric
+          ? Promise.resolve(summaryFromEtlMetric(previousMetric))
+          : loadFileSummary(dbPool, previous.id)
+        : Promise.resolve(null),
     ]);
 
     const netColumn = findColumnByTerms(currentSummary.columns, NET_REVENUE_KEYS);
     const usageColumn = findColumnByTerms(currentSummary.columns, USAGE_KEYS);
+    const partnerColumn = findColumnByTerms(currentSummary.columns, PARTNER_KEYS);
 
     const netSum = netColumn ? currentSummary.columnSums[netColumn] || 0 : 0;
     const usageSum = usageColumn ? currentSummary.columnSums[usageColumn] || 0 : 0;
@@ -341,6 +433,11 @@ export const getLatestUploadImpact = (dbPool: Pool) => async (req: Request, res:
       previousFile: previous
         ? { id: previous.id, name: previous.name, uploadedAt: previous.uploadedAt }
         : undefined,
+      detectedColumns: {
+        netRevenue: netColumn || null,
+        usage: usageColumn || null,
+        partner: partnerColumn || null,
+      },
       metrics: {
         netRevenue: buildMetric("Net Revenue", netSum, "currency", prevNetSum),
         usage: buildMetric("Total Usage", usageSum, "usage", prevUsage),
@@ -348,9 +445,41 @@ export const getLatestUploadImpact = (dbPool: Pool) => async (req: Request, res:
       },
       kpis: buildKpiInsights(currentSummary, previousSummary ?? undefined),
       chart: undefined,
+      dataConfidence: {
+        currentSampledRows: currentSummary.rowsSampled,
+        currentTotalRows: currentSummary.totalRows,
+        currentCoverage:
+          currentSummary.totalRows > 0
+            ? Math.min(1, currentSummary.rowsSampled / currentSummary.totalRows)
+            : 0,
+        previousSampledRows: previousSummary?.rowsSampled ?? null,
+        previousTotalRows: previousSummary?.totalRows ?? null,
+        previousCoverage:
+          previousSummary && previousSummary.totalRows > 0
+            ? Math.min(1, previousSummary.rowsSampled / previousSummary.totalRows)
+            : previousSummary
+            ? 0
+            : null,
+      },
+      warnings: [],
       insights: [],
       schemaChanges,
     };
+
+    if (!netColumn) {
+      response.warnings.push("Net revenue column was not detected; revenue delta may be incomplete.");
+    }
+    if (!usageColumn) {
+      response.warnings.push("Usage column was not detected; usage trend may be incomplete.");
+    }
+    if (!partnerColumn) {
+      response.warnings.push("Partner column was not detected; partner count may be understated.");
+    }
+    if (response.dataConfidence.currentCoverage < 0.6) {
+      response.warnings.push(
+        `Current file coverage is ${(response.dataConfidence.currentCoverage * 100).toFixed(1)}% of rows sampled.`
+      );
+    }
 
     const chartMetric = pickChartMetric([
       response.metrics.netRevenue,
@@ -366,6 +495,7 @@ export const getLatestUploadImpact = (dbPool: Pool) => async (req: Request, res:
     }
 
     response.insights = buildInsights(response);
+    impactSummaryCache.set(cacheKey, response);
 
     res.json(response);
   } catch (error) {

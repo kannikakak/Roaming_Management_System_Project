@@ -12,6 +12,8 @@ import { startBackupScheduler } from "./services/backupScheduler";
 import { ensureBootstrapAdmin } from "./services/bootstrapAdmin";
 import { validateSecurityCompliance } from "./utils/securityCompliance";
 import { ensureIngestionAgentSchema } from "./services/ingestionSchema";
+import { ensureAnalyticsSchema } from "./services/analyticsSchema";
+import { ensureAnalyticsEtlSchema, startAnalyticsEtlWorker } from "./services/analyticsEtl";
 
 import projectRoutes from "./routes/projectRoutes";
 import exportPptxRoute from "./routes/exportPptx";
@@ -123,6 +125,8 @@ const startServer = async () => {
   }
 
   await ensureIngestionAgentSchema(dbPool);
+  await ensureAnalyticsSchema(dbPool);
+  await ensureAnalyticsEtlSchema(dbPool);
   await ensureBootstrapAdmin(dbPool);
 
   setRoutes(app, dbPool);
@@ -135,6 +139,7 @@ const startServer = async () => {
   } else {
     console.log("[ingestion] runner disabled by ENABLE_INGESTION_RUNNER=false");
   }
+  startAnalyticsEtlWorker(dbPool);
 
   app.use("/api/projects", projectRoutes(dbPool));
   app.use("/api/export", exportPptxRoute);

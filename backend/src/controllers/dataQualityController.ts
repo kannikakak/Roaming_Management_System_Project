@@ -3,6 +3,7 @@ import { Pool } from "mysql2/promise";
 import { buildDataJsonExpr, buildKeyParams, getEncryptionKey } from "../utils/dbEncryption";
 import { parseDateCandidate } from "../utils/roamingData";
 import { buildSchemaChanges, SchemaChanges } from "../utils/schemaChanges";
+import { requireFileAccess } from "../utils/accessControl";
 
 const NET_REVENUE_KEYS = [
   "netrevenue",
@@ -58,6 +59,11 @@ type DataQualitySummary = {
   status: string;
   confidence: "High" | "Medium" | "Low";
   issues: string[];
+  recommendations: Array<{
+    priority: "high" | "medium" | "low";
+    action: string;
+    rationale: string;
+  }>;
   highlights: DataQualityHighlight[];
   metrics: {
     missingRate: number;
@@ -134,14 +140,101 @@ const isBlankLike = (value: any) => {
   return lower === "-" || lower === "null" || lower === "nan" || lower === "n/a";
 };
 
-export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { fileId } = req.params;
-  const fileIdNum = Number(fileId);
-  if (!fileIdNum || !Number.isFinite(fileIdNum)) {
-    return res.status(400).json({ message: "Invalid fileId" });
+const buildRecommendations = (input: {
+  totalRows: number;
+  missingRate: number;
+  partnerMissingRate: number;
+  negativeRevenueRate: number;
+  invalidRevenueRate: number;
+  missingDateRate: number;
+  timeCoverage: number;
+  partnerCoverage: number;
+  revenueColumn?: string;
+  partnerColumn?: string;
+  dateColumn?: string;
+}) => {
+  const items: DataQualitySummary["recommendations"] = [];
+
+  if (input.totalRows === 0) {
+    items.push({
+      priority: "high",
+      action: "Verify ingestion source and retry the upload.",
+      rationale: "No rows were sampled, so downstream analytics cannot be trusted.",
+    });
+    return items;
   }
 
+  if (input.missingRate > 0.02) {
+    items.push({
+      priority: input.missingRate > 0.08 ? "high" : "medium",
+      action: "Add mandatory-field checks in the source export.",
+      rationale: `Missing values are ${(input.missingRate * 100).toFixed(1)}% of sampled cells.`,
+    });
+  }
+
+  if (!input.partnerColumn) {
+    items.push({
+      priority: "medium",
+      action: "Include a partner/operator column in the source file.",
+      rationale: "Partner-level monitoring and dispute analysis rely on this field.",
+    });
+  } else if (input.partnerMissingRate > 0.05 || input.partnerCoverage < 0.6) {
+    items.push({
+      priority: input.partnerMissingRate > 0.15 ? "high" : "medium",
+      action: "Normalize partner naming and block blank partner rows.",
+      rationale: `Partner coverage is ${(input.partnerCoverage * 100).toFixed(1)}%, which is below target.`,
+    });
+  }
+
+  if (!input.dateColumn) {
+    items.push({
+      priority: "medium",
+      action: "Provide a usage/billing date column with consistent format.",
+      rationale: "Time-series trend, anomaly, and forecast features need event dates.",
+    });
+  } else if (input.missingDateRate > 0.03 || input.timeCoverage < 0.6) {
+    items.push({
+      priority: input.missingDateRate > 0.15 ? "high" : "medium",
+      action: "Fix date parsing at source (prefer ISO `YYYY-MM-DD`).",
+      rationale: `Date validity/coverage is insufficient for accurate daily trend analysis.`,
+    });
+  }
+
+  const revenueProblemRate = Math.min(1, input.negativeRevenueRate + input.invalidRevenueRate);
+  if (!input.revenueColumn) {
+    items.push({
+      priority: "medium",
+      action: "Add a revenue amount column for financial quality controls.",
+      rationale: "Revenue sanity checks are currently limited without a detected revenue field.",
+    });
+  } else if (revenueProblemRate > 0.05) {
+    items.push({
+      priority: revenueProblemRate > 0.2 ? "high" : "medium",
+      action: "Apply numeric/currency formatting rules before ingestion.",
+      rationale: `Revenue issues affect ${(revenueProblemRate * 100).toFixed(1)}% of rows.`,
+    });
+  }
+
+  if (!items.length) {
+    items.push({
+      priority: "low",
+      action: "Keep the current template and monitor trend drift weekly.",
+      rationale: "Current sample quality is acceptable for downstream operations.",
+    });
+  }
+
+  return items.slice(0, 6);
+};
+
+export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const { fileId } = req.params;
   try {
+    const access = await requireFileAccess(dbPool, fileId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+    const fileIdNum = access.fileId;
+
     const [fileRow]: any = await dbPool.query(
       `SELECT id, name, project_id as projectId, uploaded_at as uploadedAt
        FROM files
@@ -169,7 +262,7 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
        WHERE project_id = ? AND id != ? AND uploaded_at < ?
        ORDER BY uploaded_at DESC
        LIMIT 1`,
-      [fileInfo.projectId, fileIdNum, fileInfo.uploadedAt]
+      [access.projectId, fileIdNum, fileInfo.uploadedAt]
     );
     const previousFile = previousFileRows?.[0] ?? null;
     const previousFileId = previousFile?.id ?? null;
@@ -368,6 +461,19 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
       status,
       confidence,
       issues,
+      recommendations: buildRecommendations({
+        totalRows,
+        missingRate,
+        partnerMissingRate,
+        negativeRevenueRate,
+        invalidRevenueRate,
+        missingDateRate,
+        timeCoverage,
+        partnerCoverage,
+        revenueColumn,
+        partnerColumn,
+        dateColumn,
+      }),
       highlights,
       metrics: {
         missingRate,

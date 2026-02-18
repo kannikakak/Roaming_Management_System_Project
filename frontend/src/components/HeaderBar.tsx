@@ -11,6 +11,7 @@ const titleMap: Record<string, string> = {
   "/chart": "Charts",
   "/slide-builder": "Slide Builder",
   "/ai-studio": "AI Studio",
+  "/partner-scorecard": "Partner Scorecard",
   "/reports-library": "Reports Library",
   "/data-explorer": "Data Explorer",
   "/schedules": "Schedules",

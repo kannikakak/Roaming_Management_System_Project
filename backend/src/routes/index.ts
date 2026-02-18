@@ -25,6 +25,7 @@ import { impactRoutes } from "./impactRoutes";
 import { dataQualityRoutes } from "./dataQualityRoutes";
 import { operationsRoutes } from "./operationsRoutes";
 import { alertRoutes } from "./alertRoutes";
+import { partnerScorecardRoutes } from "./partnerScorecardRoutes";
 // ? Reports (DB)
 import { reportRoutes } from "./reportRoutes";
 
@@ -106,4 +107,7 @@ export const setRoutes = (app: Express, dbPool: Pool) => {
 
   // Alert center
   app.use("/api/alerts", alertRoutes(dbPool));
+
+  // Partner scorecard
+  app.use("/api/partner-scorecard", partnerScorecardRoutes(dbPool));
 };

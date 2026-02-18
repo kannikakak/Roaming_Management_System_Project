@@ -6,6 +6,7 @@ import {
   matchesFilterTerm,
   parseDateCandidate,
 } from "../utils/roamingData";
+import { TtlCache } from "../utils/ttlCache";
 
 export type InsightFilters = {
   startDate?: string;
@@ -13,6 +14,7 @@ export type InsightFilters = {
   partner?: string;
   country?: string;
   rowLimit?: number;
+  projectIds?: number[] | null;
 };
 
 type DailyPoint = {
@@ -82,10 +84,30 @@ type RowRecord = {
   data_json: string;
 };
 
-const toPositiveInt = (value: any, fallback: number) => {
+const toBoundedPositiveInt = (
+  value: any,
+  fallback: number,
+  min: number,
+  max: number
+) => {
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
 };
+
+const DEFAULT_ROW_LIMIT = 3500;
+const MIN_ROW_LIMIT = 300;
+const MAX_ROW_LIMIT = 15000;
+const DASHBOARD_INSIGHTS_CACHE_TTL_MS = toBoundedPositiveInt(
+  process.env.DASHBOARD_INSIGHTS_CACHE_TTL_MS,
+  45000,
+  5000,
+  15 * 60 * 1000
+);
+const dashboardInsightsCache = new TtlCache<DashboardInsightsResponse>(
+  DASHBOARD_INSIGHTS_CACHE_TTL_MS,
+  180
+);
 
 const toDateKey = (value: Date) => value.toISOString().slice(0, 10);
 
@@ -252,6 +274,261 @@ const chooseForecastMetric = (daily: DailyPoint[]) => {
   return "rows" as const;
 };
 
+const buildEmptyInsightsResponse = (
+  startDate: string | undefined,
+  endDate: string | undefined,
+  partnerFilter: string,
+  countryFilter: string
+): DashboardInsightsResponse => ({
+  filters: {
+    startDate: startDate || null,
+    endDate: endDate || null,
+    partner: partnerFilter || null,
+    country: countryFilter || null,
+  },
+  totals: {
+    rowsScanned: 0,
+    rowsMatched: 0,
+  },
+  metrics: {
+    trafficKey: null,
+    revenueKey: null,
+    costKey: null,
+    expectedKey: null,
+    actualKey: null,
+    forecastMetric: "rows",
+  },
+  series: {
+    daily: [],
+  },
+  forecast: {
+    horizonDays: 7,
+    metric: "rows",
+    points: [],
+  },
+  anomalies: {
+    metric: "rows",
+    points: [],
+  },
+  leakage: {
+    expectedKey: null,
+    actualKey: null,
+    items: [],
+  },
+  summaries: [
+    "Scanned 0 rows; matched 0 after filters.",
+    "No strong anomalies detected at current sensitivity.",
+    "Leakage detection needs both expected tariff and actual charge columns.",
+  ],
+});
+
+const computeDashboardInsightsFromEtl = async (
+  dbPool: Pool,
+  startDate: string | undefined,
+  endDate: string | undefined,
+  partnerFilter: string,
+  countryFilter: string,
+  scopedProjectIds: number[] | null
+): Promise<DashboardInsightsResponse | null> => {
+  const baseWhereParts: string[] = [];
+  const baseParams: any[] = [];
+  if (startDate) {
+    baseWhereParts.push("a.day >= ?");
+    baseParams.push(startDate);
+  }
+  if (endDate) {
+    baseWhereParts.push("a.day <= ?");
+    baseParams.push(endDate);
+  }
+  if (scopedProjectIds !== null) {
+    if (!scopedProjectIds.length) {
+      return buildEmptyInsightsResponse(startDate, endDate, partnerFilter, countryFilter);
+    }
+    const placeholders = scopedProjectIds.map(() => "?").join(", ");
+    baseWhereParts.push(`a.project_id IN (${placeholders})`);
+    baseParams.push(...scopedProjectIds);
+  }
+  const baseWhereClause = baseWhereParts.length ? `WHERE ${baseWhereParts.join(" AND ")}` : "";
+
+  const matchedWhereParts = [...baseWhereParts];
+  const matchedParams = [...baseParams];
+  if (partnerFilter) {
+    matchedWhereParts.push("LOWER(a.partner) LIKE ?");
+    matchedParams.push(`%${partnerFilter.toLowerCase()}%`);
+  }
+  if (countryFilter) {
+    matchedWhereParts.push("LOWER(a.country) LIKE ?");
+    matchedParams.push(`%${countryFilter.toLowerCase()}%`);
+  }
+  const matchedWhereClause = matchedWhereParts.length ? `WHERE ${matchedWhereParts.join(" AND ")}` : "";
+
+  try {
+    const [[scannedRow]]: any = await dbPool.query(
+      `SELECT COALESCE(SUM(a.rows_count), 0) AS totalRows
+       FROM analytics_file_daily_partner a
+       ${baseWhereClause}`,
+      baseParams
+    );
+    const [[matchedRow]]: any = await dbPool.query(
+      `SELECT COALESCE(SUM(a.rows_count), 0) AS totalRows
+       FROM analytics_file_daily_partner a
+       ${matchedWhereClause}`,
+      matchedParams
+    );
+    const [dailyRows]: any = await dbPool.query(
+      `SELECT
+         a.day AS day,
+         COALESCE(SUM(a.rows_count), 0) AS rows,
+         COALESCE(SUM(a.traffic_sum), 0) AS traffic,
+         COALESCE(SUM(a.revenue_sum), 0) AS revenue,
+         COALESCE(SUM(a.cost_sum), 0) AS cost,
+         COALESCE(SUM(a.expected_sum), 0) AS expected,
+         COALESCE(SUM(a.actual_sum), 0) AS actual
+       FROM analytics_file_daily_partner a
+       ${matchedWhereClause}
+       GROUP BY a.day
+       ORDER BY a.day ASC`,
+      matchedParams
+    );
+    const [topPartnerRows]: any = await dbPool.query(
+      `SELECT a.partner AS partner, COALESCE(SUM(a.rows_count), 0) AS totalRows
+       FROM analytics_file_daily_partner a
+       ${matchedWhereClause}
+       GROUP BY a.partner
+       ORDER BY totalRows DESC
+       LIMIT 1`,
+      matchedParams
+    );
+    const [leakageRows]: any = await dbPool.query(
+      `SELECT
+         a.partner AS partner,
+         a.country AS country,
+         COALESCE(SUM(a.expected_sum), 0) AS expected,
+         COALESCE(SUM(a.actual_sum), 0) AS actual
+       FROM analytics_file_daily_partner a
+       ${matchedWhereClause}
+       GROUP BY a.partner, a.country
+       HAVING ABS(COALESCE(SUM(a.actual_sum), 0) - COALESCE(SUM(a.expected_sum), 0)) > 0
+       ORDER BY ABS(COALESCE(SUM(a.actual_sum), 0) - COALESCE(SUM(a.expected_sum), 0)) DESC
+       LIMIT 8`,
+      matchedParams
+    );
+
+    const rowsScanned = Number(scannedRow?.totalRows || 0);
+    const rowsMatched = Number(matchedRow?.totalRows || 0);
+    if (rowsScanned === 0 && rowsMatched === 0) {
+      return buildEmptyInsightsResponse(startDate, endDate, partnerFilter, countryFilter);
+    }
+
+    const daily: DailyPoint[] = (dailyRows as any[]).map((row) => ({
+      day: String(row.day || ""),
+      rows: Number(row.rows || 0),
+      traffic: Number(row.traffic || 0),
+      revenue: Number(row.revenue || 0),
+      cost: Number(row.cost || 0),
+      expected: Number(row.expected || 0),
+      actual: Number(row.actual || 0),
+    }));
+
+    const forecastMetric = chooseForecastMetric(daily);
+    const forecastHorizonDays = 7;
+    const forecast = linearRegressionForecast(daily, forecastMetric, forecastHorizonDays);
+    const anomalies = detectAnomalies(daily, forecastMetric);
+
+    const leakageItems: LeakageItem[] = (leakageRows as any[]).map((row) => {
+      const expected = Number(row.expected || 0);
+      const actual = Number(row.actual || 0);
+      const diff = actual - expected;
+      const diffPct = expected !== 0 ? (diff / expected) * 100 : null;
+      return {
+        partner: String(row.partner || "Unknown Partner"),
+        country: String(row.country || "Unknown Country"),
+        expected: Math.round(expected * 100) / 100,
+        actual: Math.round(actual * 100) / 100,
+        diff: Math.round(diff * 100) / 100,
+        diffPct: diffPct === null ? null : Math.round(diffPct * 100) / 100,
+      };
+    });
+
+    const topPartner = topPartnerRows?.[0];
+    const lastActualPoint = daily[daily.length - 1];
+    const nextForecast = forecast.points[0];
+
+    const summaries: string[] = [];
+    summaries.push(`Scanned ${rowsScanned} rows; matched ${rowsMatched} after filters.`);
+    if (topPartner) {
+      summaries.push(`Top roaming partner: ${String(topPartner.partner)} (${Number(topPartner.totalRows || 0)} rows).`);
+    }
+    if (lastActualPoint && nextForecast) {
+      const baseValue = Number(lastActualPoint[forecastMetric] ?? 0);
+      const delta = nextForecast.value - baseValue;
+      const direction = delta >= 0 ? "up" : "down";
+      summaries.push(
+        `Forecast (${forecastMetric}) for ${nextForecast.day} is ${nextForecast.value.toLocaleString()} (${direction} ${Math.abs(
+          Math.round(delta * 100) / 100
+        ).toLocaleString()} vs last observed day).`
+      );
+    }
+    if (anomalies.points.length > 0) {
+      const a = anomalies.points[0];
+      summaries.push(`Detected ${anomalies.points.length} anomaly day(s); largest on ${a.day} (z=${a.zScore}).`);
+    } else {
+      summaries.push("No strong anomalies detected at current sensitivity.");
+    }
+    if (leakageItems.length > 0) {
+      const leak = leakageItems[0];
+      const pct = leak.diffPct === null ? "" : ` (${leak.diffPct.toLocaleString()}%)`;
+      summaries.push(`Potential leakage: ${leak.partner} / ${leak.country} diff ${leak.diff.toLocaleString()}${pct}.`);
+    } else {
+      summaries.push("Expected vs actual charges look aligned at the aggregated level.");
+    }
+
+    return {
+      filters: {
+        startDate: startDate || null,
+        endDate: endDate || null,
+        partner: partnerFilter || null,
+        country: countryFilter || null,
+      },
+      totals: {
+        rowsScanned,
+        rowsMatched,
+      },
+      metrics: {
+        trafficKey: "traffic_sum",
+        revenueKey: "revenue_sum",
+        costKey: "cost_sum",
+        expectedKey: "expected_sum",
+        actualKey: "actual_sum",
+        forecastMetric,
+      },
+      series: {
+        daily,
+      },
+      forecast: {
+        horizonDays: forecastHorizonDays,
+        metric: forecast.metric,
+        points: forecast.points,
+      },
+      anomalies: {
+        metric: anomalies.metric,
+        points: anomalies.points,
+      },
+      leakage: {
+        expectedKey: "expected_sum",
+        actualKey: "actual_sum",
+        items: leakageItems,
+      },
+      summaries,
+    };
+  } catch (error: any) {
+    if (String(error?.code || "") === "ER_NO_SUCH_TABLE") {
+      return null;
+    }
+    throw error;
+  }
+};
+
 export const computeDashboardInsights = async (
   dbPool: Pool,
   filters: InsightFilters
@@ -260,10 +537,59 @@ export const computeDashboardInsights = async (
   const endDate = typeof filters.endDate === "string" ? filters.endDate : undefined;
   const partnerFilter = typeof filters.partner === "string" ? filters.partner.trim() : "";
   const countryFilter = typeof filters.country === "string" ? filters.country.trim() : "";
-  const rowLimit = toPositiveInt(
-    filters.rowLimit,
-    Number(process.env.DASHBOARD_INSIGHTS_ROW_LIMIT || process.env.DASHBOARD_ANALYTICS_ROW_LIMIT || 3500)
+  const scopedProjectIds = Array.isArray(filters.projectIds)
+    ? Array.from(
+        new Set(
+          filters.projectIds
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      )
+    : null;
+  const envRowLimit = toBoundedPositiveInt(
+    process.env.DASHBOARD_INSIGHTS_ROW_LIMIT || process.env.DASHBOARD_ANALYTICS_ROW_LIMIT,
+    DEFAULT_ROW_LIMIT,
+    MIN_ROW_LIMIT,
+    MAX_ROW_LIMIT
   );
+  const rowLimit = toBoundedPositiveInt(
+    filters.rowLimit,
+    envRowLimit,
+    MIN_ROW_LIMIT,
+    MAX_ROW_LIMIT
+  );
+
+  if (scopedProjectIds !== null && scopedProjectIds.length === 0) {
+    return buildEmptyInsightsResponse(startDate, endDate, partnerFilter, countryFilter);
+  }
+
+  const scopedProjectKey =
+    scopedProjectIds === null ? "all" : [...scopedProjectIds].sort((a, b) => a - b).join(",");
+  const cacheKey = JSON.stringify({
+    startDate: startDate || null,
+    endDate: endDate || null,
+    partner: partnerFilter.toLowerCase(),
+    country: countryFilter.toLowerCase(),
+    rowLimit,
+    projects: scopedProjectKey,
+  });
+  const cached = dashboardInsightsCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const etlResponse = await computeDashboardInsightsFromEtl(
+    dbPool,
+    startDate,
+    endDate,
+    partnerFilter,
+    countryFilter,
+    scopedProjectIds
+  );
+  if (etlResponse) {
+    dashboardInsightsCache.set(cacheKey, etlResponse);
+    return etlResponse;
+  }
 
   const encryptionKey = getEncryptionKey();
   const dataJsonExpr = buildDataJsonExpr(encryptionKey);
@@ -278,6 +604,11 @@ export const computeDashboardInsights = async (
   if (endDate) {
     rowWhereParts.push("f.uploaded_at <= ?");
     rowWhereParams.push(endDate);
+  }
+  if (scopedProjectIds !== null) {
+    const placeholders = scopedProjectIds.map(() => "?").join(", ");
+    rowWhereParts.push(`f.project_id IN (${placeholders})`);
+    rowWhereParams.push(...scopedProjectIds);
   }
   const rowWhereClause = rowWhereParts.length ? `WHERE ${rowWhereParts.join(" AND ")}` : "";
 
@@ -436,7 +767,7 @@ export const computeDashboardInsights = async (
     summaries.push("Expected vs actual charges look aligned at the aggregated level.");
   }
 
-  return {
+  const response: DashboardInsightsResponse = {
     filters: {
       startDate: startDate || null,
       endDate: endDate || null,
@@ -474,5 +805,6 @@ export const computeDashboardInsights = async (
     },
     summaries,
   };
+  dashboardInsightsCache.set(cacheKey, response);
+  return response;
 };
-

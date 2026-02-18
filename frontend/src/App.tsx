@@ -18,6 +18,7 @@ import DataExplorerPage from "./pages/DataExplorerPage";
 import DeliveryHistoryPage from "./pages/DeliveryHistoryPage";
 import MyActivityPage from "./pages/MyActivityPage";
 import TemplateManagerPage from "./pages/TemplateManagerPage";
+import PartnerScorecardPage from "./pages/PartnerScorecardPage";
 import DataSourcesPage from "./pages/DataSourcesPage";
 import IngestionHistoryPage from "./pages/IngestionHistoryPage";
 import UserManagementPage from "./pages/UserManagementPage";
@@ -128,6 +129,16 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <AiChartsPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/partner-scorecard"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <PartnerScorecardPage />
             </MainLayout>
           </RequireAuth>
         }

@@ -216,6 +216,7 @@ export const ensureAlertsTable = async (dbPool: Pool) => {
       INDEX idx_alerts_partner (partner),
       INDEX idx_alerts_alert_type (alert_type),
       INDEX idx_alerts_last_detected (last_detected_at),
+      INDEX idx_alerts_project_detected_status_partner (project_id, last_detected_at, status, partner),
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
     ) ENGINE=InnoDB
   `);

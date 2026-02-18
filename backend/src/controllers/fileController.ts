@@ -18,6 +18,7 @@ import { getNotificationSettings } from "../services/notificationSettings";
 import { buildFileProfile, ensureFileProfileTable, saveFileProfile, FileProfile } from "../services/fileProfile";
 import { upsertAlert } from "../services/alerts";
 import { createDeletedSourceFileBackup } from "../services/backupRecovery";
+import { queueRefreshAnalyticsForFiles } from "../services/analyticsEtl";
 import { writeAuditLog } from "../utils/auditLogger";
 
 type ParsedFile = {
@@ -687,6 +688,12 @@ const ingestFiles = async (
     const totalMs = Date.now() - overallStart;
     console.log(
       `[ingest] upload complete files=${prepared.length} created=${createdFiles.length} total=${totalMs}ms`
+    );
+    queueRefreshAnalyticsForFiles(
+      dbPool,
+      createdFiles
+        .map((file) => Number(file?.id))
+        .filter((id) => Number.isFinite(id) && id > 0)
     );
     return {
       files: createdFiles,

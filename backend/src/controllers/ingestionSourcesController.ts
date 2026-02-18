@@ -4,6 +4,11 @@ import fs from "fs/promises";
 import { normalizeLocalSourceConfig, runIngestionScanOnce } from "../services/ingestionService";
 import { buildAgentKeyHint, generateAgentKey, hashAgentKey } from "../utils/agentKey";
 import { writeAuditLog } from "../utils/auditLogger";
+import {
+  getScopedProjectIds,
+  pushProjectScopeCondition,
+  requireProjectAccess,
+} from "../utils/accessControl";
 
 type SourceInput = {
   name?: string;
@@ -27,8 +32,45 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   return fallback;
 };
 
-export const listSources = (dbPool: Pool) => async (_req: Request, res: Response) => {
+export const listSources = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const rawProjectId = req.query.projectId;
+  const requestedProjectIdRaw =
+    rawProjectId === undefined || rawProjectId === null || rawProjectId === ""
+      ? null
+      : Number(rawProjectId);
+  const requestedProjectId =
+    requestedProjectIdRaw !== null &&
+    Number.isFinite(requestedProjectIdRaw) &&
+    requestedProjectIdRaw > 0
+      ? requestedProjectIdRaw
+      : null;
+  if (
+    rawProjectId !== undefined &&
+    rawProjectId !== null &&
+    rawProjectId !== "" &&
+    requestedProjectId === null
+  ) {
+    return res.status(400).json({ message: "Invalid projectId" });
+  }
+
   try {
+    if (requestedProjectId) {
+      const projectAccess = await requireProjectAccess(dbPool, requestedProjectId, req);
+      if (!projectAccess.ok) {
+        return res.status(projectAccess.status).json({ message: projectAccess.message });
+      }
+    }
+
+    const scope = await getScopedProjectIds(dbPool, req);
+    if (!scope.ok) {
+      return res.status(scope.status).json({ message: scope.message });
+    }
+    const scopedProjectIds = requestedProjectId ? [requestedProjectId] : scope.projectIds;
+    const whereParts: string[] = [];
+    const whereParams: any[] = [];
+    pushProjectScopeCondition(whereParts, whereParams, "project_id", scopedProjectIds);
+    const whereClause = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
     const [rows]: any = await dbPool.query(
       `SELECT id, name, type, connection_config as connectionConfig, file_pattern as filePattern,
               template_rule as templateRule, poll_interval_minutes as pollIntervalMinutes, enabled, project_id as projectId,
@@ -36,7 +78,9 @@ export const listSources = (dbPool: Pool) => async (_req: Request, res: Response
               last_scan_at as lastScanAt, last_error as lastError, created_by as createdBy,
               created_at as createdAt, updated_at as updatedAt
        FROM ingestion_sources
-       ORDER BY created_at DESC`
+       ${whereClause}
+       ORDER BY created_at DESC`,
+      whereParams
     );
     const normalized = Array.isArray(rows)
       ? rows.map((row: any) => ({
@@ -67,6 +111,10 @@ export const createSource = (dbPool: Pool) => async (req: Request, res: Response
   }
   if (!projectId || !Number.isFinite(projectId)) {
     return res.status(400).json({ message: "projectId is required" });
+  }
+  const projectAccess = await requireProjectAccess(dbPool, projectId, req);
+  if (!projectAccess.ok) {
+    return res.status(projectAccess.status).json({ message: projectAccess.message });
   }
 
   if (type !== "local" && type !== "folder_sync") {
@@ -138,16 +186,18 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
     return res.status(400).json({ message: "Invalid source id" });
   }
 
-  let existingSource: any = null;
-  if (body.type !== undefined || body.connectionConfig !== undefined) {
-    const [sourceRows]: any = await dbPool.query(
-      "SELECT type, connection_config as connectionConfig FROM ingestion_sources WHERE id = ? LIMIT 1",
-      [id]
-    );
-    existingSource = sourceRows?.[0];
-    if (!existingSource) {
-      return res.status(404).json({ message: "Source not found" });
-    }
+  const [sourceRows]: any = await dbPool.query(
+    "SELECT type, connection_config as connectionConfig, project_id as projectId FROM ingestion_sources WHERE id = ? LIMIT 1",
+    [id]
+  );
+  const existingSource = sourceRows?.[0];
+  if (!existingSource) {
+    return res.status(404).json({ message: "Source not found" });
+  }
+
+  const currentProjectAccess = await requireProjectAccess(dbPool, Number(existingSource.projectId), req);
+  if (!currentProjectAccess.ok) {
+    return res.status(currentProjectAccess.status).json({ message: currentProjectAccess.message });
   }
 
   const fields: string[] = [];
@@ -224,6 +274,10 @@ export const updateSource = (dbPool: Pool) => async (req: Request, res: Response
     if (!Number.isFinite(projectId)) {
       return res.status(400).json({ message: "Invalid projectId" });
     }
+    const targetProjectAccess = await requireProjectAccess(dbPool, projectId, req);
+    if (!targetProjectAccess.ok) {
+      return res.status(targetProjectAccess.status).json({ message: targetProjectAccess.message });
+    }
     fields.push("project_id = ?");
     values.push(projectId);
   }
@@ -248,11 +302,15 @@ export const testSource = (dbPool: Pool) => async (req: Request, res: Response) 
   }
   try {
     const [[source]]: any = await dbPool.query(
-      "SELECT type, connection_config as connectionConfig FROM ingestion_sources WHERE id = ?",
+      "SELECT type, connection_config as connectionConfig, project_id as projectId FROM ingestion_sources WHERE id = ?",
       [id]
     );
     if (!source) {
       return res.status(404).json({ message: "Source not found" });
+    }
+    const projectAccess = await requireProjectAccess(dbPool, Number(source.projectId), req);
+    if (!projectAccess.ok) {
+      return res.status(projectAccess.status).json({ message: projectAccess.message });
     }
     if (source.type === "folder_sync") {
       return res.json({
@@ -297,6 +355,18 @@ export const scanSource = (dbPool: Pool) => async (req: Request, res: Response) 
     return res.status(400).json({ message: "Invalid source id" });
   }
   try {
+    const [[source]]: any = await dbPool.query(
+      "SELECT project_id as projectId FROM ingestion_sources WHERE id = ? LIMIT 1",
+      [id]
+    );
+    if (!source) {
+      return res.status(404).json({ message: "Source not found" });
+    }
+    const projectAccess = await requireProjectAccess(dbPool, Number(source.projectId), req);
+    if (!projectAccess.ok) {
+      return res.status(projectAccess.status).json({ message: projectAccess.message });
+    }
+
     const result = await runIngestionScanOnce(dbPool, id);
     res.json(result);
   } catch (err) {
@@ -315,11 +385,15 @@ export const rotateAgentKey = (dbPool: Pool) => async (req: Request, res: Respon
   }
   try {
     const [[source]]: any = await dbPool.query(
-      "SELECT id, type FROM ingestion_sources WHERE id = ? LIMIT 1",
+      "SELECT id, type, project_id as projectId FROM ingestion_sources WHERE id = ? LIMIT 1",
       [id]
     );
     if (!source) {
       return res.status(404).json({ message: "Source not found" });
+    }
+    const projectAccess = await requireProjectAccess(dbPool, Number(source.projectId), req);
+    if (!projectAccess.ok) {
+      return res.status(projectAccess.status).json({ message: projectAccess.message });
     }
     if (String(source.type || "").toLowerCase() !== "folder_sync") {
       return res.status(400).json({ message: "Agent key rotation is only available for folder_sync sources." });
@@ -362,6 +436,10 @@ export const deleteSource = (dbPool: Pool) => async (req: Request, res: Response
 
     if (!source) {
       return res.status(404).json({ message: "Source not found" });
+    }
+    const projectAccess = await requireProjectAccess(dbPool, Number(source.projectId), req);
+    if (!projectAccess.ok) {
+      return res.status(projectAccess.status).json({ message: projectAccess.message });
     }
 
     let purgedFileCount = 0;
