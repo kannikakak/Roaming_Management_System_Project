@@ -120,8 +120,17 @@ const ComplaintInvestigationPage: React.FC = () => {
       setError(null);
       const res = await apiFetch(`/api/operations/complaint-investigation?${queryString}`);
       if (!res.ok) {
-        const message = await res.text();
-        throw new Error(message || "Failed to run complaint investigation.");
+        let message = "Failed to run complaint investigation.";
+        try {
+          const json = await res.json();
+          if (json?.message) {
+            message = String(json.message);
+          }
+        } catch {
+          const text = await res.text();
+          if (text) message = text;
+        }
+        throw new Error(message);
       }
       const json = (await res.json()) as ComplaintResponse;
       setData(json);

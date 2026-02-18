@@ -106,6 +106,8 @@ const round = (value: number, digits = 2) => {
   return Math.round(value * power) / power;
 };
 
+const isMissingTableError = (error: any) => String(error?.code || "") === "ER_NO_SUCH_TABLE";
+
 const toLike = (value: string) => `%${value.toLowerCase()}%`;
 
 const sanitizeLabel = (value: unknown, fallback: string) => {
@@ -169,7 +171,7 @@ const loadCandidateRows = async (
     );
     return Array.isArray(rows) ? (rows as CandidateRow[]) : [];
   } catch (error: any) {
-    if (String(error?.code || "") === "ER_NO_SUCH_TABLE") {
+    if (isMissingTableError(error)) {
       return [];
     }
     throw error;
@@ -198,14 +200,21 @@ const loadAlertCountsByPartner = async (
   }
 
   const whereClause = `WHERE ${whereParts.join(" AND ")}`;
-  const [rows]: any = await dbPool.query(
-    `SELECT COALESCE(NULLIF(TRIM(a.partner), ''), 'Unknown Partner') AS partner,
-            COUNT(*) AS total
-     FROM alerts a
-     ${whereClause}
-     GROUP BY COALESCE(NULLIF(TRIM(a.partner), ''), 'Unknown Partner')`,
-    whereParams
-  );
+  let rows: any[] = [];
+  try {
+    const [queryRows]: any = await dbPool.query(
+      `SELECT COALESCE(NULLIF(TRIM(a.partner), ''), 'Unknown Partner') AS partner,
+              COUNT(*) AS total
+       FROM alerts a
+       ${whereClause}
+       GROUP BY COALESCE(NULLIF(TRIM(a.partner), ''), 'Unknown Partner')`,
+      whereParams
+    );
+    rows = Array.isArray(queryRows) ? queryRows : [];
+  } catch (error: any) {
+    if (!isMissingTableError(error)) throw error;
+    return new Map<string, number>();
+  }
 
   const map = new Map<string, number>();
   for (const row of rows as Array<{ partner: string; total: number }>) {
@@ -233,26 +242,30 @@ const loadAlertList = async (dbPool: Pool, input: ComplaintInvestigationInput) =
   }
   const whereClause = `WHERE ${whereParts.join(" AND ")}`;
 
-  const [rows]: any = await dbPool.query(
-    `SELECT
-       a.id,
-       a.severity,
-       a.status,
-       a.title,
-       a.message,
-       a.partner,
-       a.project_id AS projectId,
-       p.name AS projectName,
-       a.last_detected_at AS lastDetectedAt
-     FROM alerts a
-     LEFT JOIN projects p ON p.id = a.project_id
-     ${whereClause}
-     ORDER BY a.last_detected_at DESC
-     LIMIT ?`,
-    [...whereParams, Math.max(input.limit, 8)]
-  );
-
-  return Array.isArray(rows) ? (rows as AlertListRow[]) : [];
+  try {
+    const [rows]: any = await dbPool.query(
+      `SELECT
+         a.id,
+         a.severity,
+         a.status,
+         a.title,
+         a.message,
+         a.partner,
+         a.project_id AS projectId,
+         p.name AS projectName,
+         a.last_detected_at AS lastDetectedAt
+       FROM alerts a
+       LEFT JOIN projects p ON p.id = a.project_id
+       ${whereClause}
+       ORDER BY a.last_detected_at DESC
+       LIMIT ?`,
+      [...whereParams, Math.max(input.limit, 8)]
+    );
+    return Array.isArray(rows) ? (rows as AlertListRow[]) : [];
+  } catch (error: any) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
 };
 
 const loadRecentUploads = async (
@@ -319,22 +332,44 @@ const loadRecentUploads = async (
     fallbackWhereParams.push(qLike, qLike);
   }
 
-  const [fallbackRows]: any = await dbPool.query(
-    `SELECT
-       f.id AS fileId,
-       f.name AS fileName,
-       f.project_id AS projectId,
-       p.name AS projectName,
-       f.uploaded_at AS uploadedAt,
-       COALESCE(dq.total_rows, 0) AS totalRows
-     FROM files f
-     JOIN projects p ON p.id = f.project_id
-     LEFT JOIN data_quality_scores dq ON dq.file_id = f.id
-     WHERE ${fallbackWhereParts.join(" AND ")}
-     ORDER BY f.uploaded_at DESC
-     LIMIT ?`,
-    [...fallbackWhereParams, Math.max(input.limit, 8)]
-  );
+  let fallbackRows: any[] = [];
+  try {
+    const [rowsWithQuality]: any = await dbPool.query(
+      `SELECT
+         f.id AS fileId,
+         f.name AS fileName,
+         f.project_id AS projectId,
+         p.name AS projectName,
+         f.uploaded_at AS uploadedAt,
+         COALESCE(dq.total_rows, 0) AS totalRows
+       FROM files f
+       JOIN projects p ON p.id = f.project_id
+       LEFT JOIN data_quality_scores dq ON dq.file_id = f.id
+       WHERE ${fallbackWhereParts.join(" AND ")}
+       ORDER BY f.uploaded_at DESC
+       LIMIT ?`,
+      [...fallbackWhereParams, Math.max(input.limit, 8)]
+    );
+    fallbackRows = Array.isArray(rowsWithQuality) ? rowsWithQuality : [];
+  } catch (error: any) {
+    if (!isMissingTableError(error)) throw error;
+    const [rowsNoQuality]: any = await dbPool.query(
+      `SELECT
+         f.id AS fileId,
+         f.name AS fileName,
+         f.project_id AS projectId,
+         p.name AS projectName,
+         f.uploaded_at AS uploadedAt,
+         0 AS totalRows
+       FROM files f
+       JOIN projects p ON p.id = f.project_id
+       WHERE ${fallbackWhereParts.join(" AND ")}
+       ORDER BY f.uploaded_at DESC
+       LIMIT ?`,
+      [...fallbackWhereParams, Math.max(input.limit, 8)]
+    );
+    fallbackRows = Array.isArray(rowsNoQuality) ? rowsNoQuality : [];
+  }
 
   return Array.isArray(fallbackRows)
     ? (fallbackRows as any[]).map((row) => ({
@@ -499,7 +534,12 @@ export const buildComplaintInvestigation = async (
     },
     candidates,
     countryProfiles,
-    alerts: alerts.map((row) => ({
+    alerts: alerts.map((row) => {
+      const detectedAt = new Date(row.lastDetectedAt);
+      const lastDetectedAt = Number.isFinite(detectedAt.getTime())
+        ? detectedAt.toISOString()
+        : new Date().toISOString();
+      return {
       id: Number(row.id || 0),
       severity: String(row.severity || "medium"),
       status: String(row.status || "open"),
@@ -508,8 +548,9 @@ export const buildComplaintInvestigation = async (
       partner: row.partner ? String(row.partner) : null,
       projectId: row.projectId === null ? null : Number(row.projectId),
       projectName: row.projectName ? String(row.projectName) : null,
-      lastDetectedAt: new Date(row.lastDetectedAt).toISOString(),
-    })),
+      lastDetectedAt,
+    };
+    }),
     recentUploads,
     recommendations,
   };
