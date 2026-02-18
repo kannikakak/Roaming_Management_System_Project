@@ -142,7 +142,7 @@ const PartnerScorecardPage: React.FC = () => {
     loadScorecard();
   }, [loadScorecard]);
 
-  const partners = scorecard?.partners || [];
+  const partners = useMemo(() => scorecard?.partners ?? [], [scorecard?.partners]);
 
   const filteredPartners = useMemo(() => {
     const q = search.trim().toLowerCase();
