@@ -152,6 +152,16 @@ const normalizeKey = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 
+const isSchemaFallbackError = (error: any) => {
+  const code = String(error?.code || "").toUpperCase();
+  return (
+    code === "ER_NO_SUCH_TABLE" ||
+    code === "ER_BAD_FIELD_ERROR" ||
+    code === "ER_BAD_DB_ERROR" ||
+    code === "ER_PARSE_ERROR"
+  );
+};
+
 const round = (value: number, decimals = 2) => {
   const power = 10 ** decimals;
   return Math.round(value * power) / power;
@@ -371,7 +381,10 @@ const toDisputeMap = async (
      WHERE ${whereParts.join(" AND ")}
      GROUP BY COALESCE(NULLIF(TRIM(partner), ''), 'Unknown Partner')`,
     params
-  );
+  ).catch((error: any) => {
+    if (isSchemaFallbackError(error)) return [[]];
+    throw error;
+  });
 
   const map = new Map<string, number>();
   for (const row of rows as Array<{ partner: string; disputeCount: number }>) {
@@ -391,7 +404,10 @@ const toQualityByFileMap = async (dbPool: Pool, fileIds: number[]) => {
      FROM data_quality_scores
      WHERE file_id IN (${placeholders})`,
     fileIds
-  );
+  ).catch((error: any) => {
+    if (isSchemaFallbackError(error)) return [[]];
+    throw error;
+  });
 
   for (const row of rows as Array<{ fileId: number; score: number }>) {
     const fileId = Number(row.fileId);
@@ -692,7 +708,7 @@ const computePartnerScorecardFromEtl = async (
       partners: sortedItems.slice(0, limit),
     };
   } catch (error: any) {
-    if (String(error?.code || "") === "ER_NO_SUCH_TABLE") {
+    if (isSchemaFallbackError(error)) {
       return null;
     }
     throw error;

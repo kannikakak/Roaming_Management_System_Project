@@ -107,6 +107,15 @@ const round = (value: number, digits = 2) => {
 };
 
 const isMissingTableError = (error: any) => String(error?.code || "") === "ER_NO_SUCH_TABLE";
+const isRecoverableSqlError = (error: any) => {
+  const code = String(error?.code || "");
+  return (
+    code === "ER_NO_SUCH_TABLE" ||
+    code === "ER_BAD_FIELD_ERROR" ||
+    code === "ER_PARSE_ERROR" ||
+    code === "ER_BAD_DB_ERROR"
+  );
+};
 
 const toLike = (value: string) => `%${value.toLowerCase()}%`;
 
@@ -171,7 +180,7 @@ const loadCandidateRows = async (
     );
     return Array.isArray(rows) ? (rows as CandidateRow[]) : [];
   } catch (error: any) {
-    if (isMissingTableError(error)) {
+    if (isRecoverableSqlError(error)) {
       return [];
     }
     throw error;
@@ -212,7 +221,7 @@ const loadAlertCountsByPartner = async (
     );
     rows = Array.isArray(queryRows) ? queryRows : [];
   } catch (error: any) {
-    if (!isMissingTableError(error)) throw error;
+    if (!isRecoverableSqlError(error)) throw error;
     return new Map<string, number>();
   }
 
@@ -263,7 +272,7 @@ const loadAlertList = async (dbPool: Pool, input: ComplaintInvestigationInput) =
     );
     return Array.isArray(rows) ? (rows as AlertListRow[]) : [];
   } catch (error: any) {
-    if (isMissingTableError(error)) return [];
+    if (isRecoverableSqlError(error)) return [];
     throw error;
   }
 };
@@ -318,7 +327,7 @@ const loadRecentUploads = async (
         }))
       : [];
   } catch (error: any) {
-    if (String(error?.code || "") !== "ER_NO_SUCH_TABLE") {
+    if (!isRecoverableSqlError(error)) {
       throw error;
     }
   }
@@ -352,7 +361,7 @@ const loadRecentUploads = async (
     );
     fallbackRows = Array.isArray(rowsWithQuality) ? rowsWithQuality : [];
   } catch (error: any) {
-    if (!isMissingTableError(error)) throw error;
+    if (!isRecoverableSqlError(error)) throw error;
     const [rowsNoQuality]: any = await dbPool.query(
       `SELECT
          f.id AS fileId,
@@ -438,11 +447,20 @@ export const buildComplaintInvestigation = async (
     country: input.country?.trim() || "",
   };
 
+  const safeLoad = async <T>(label: string, fallback: T, loader: () => Promise<T>) => {
+    try {
+      return await loader();
+    } catch (error: any) {
+      console.warn(`[complaint-investigation] degraded ${label}:`, error?.message || error);
+      return fallback;
+    }
+  };
+
   const [candidateRows, alertCountsByPartner, alerts, recentUploads] = await Promise.all([
-    loadCandidateRows(dbPool, normalizedInput),
-    loadAlertCountsByPartner(dbPool, normalizedInput),
-    loadAlertList(dbPool, normalizedInput),
-    loadRecentUploads(dbPool, normalizedInput),
+    safeLoad("candidates", [] as CandidateRow[], () => loadCandidateRows(dbPool, normalizedInput)),
+    safeLoad("alert-counts", new Map<string, number>(), () => loadAlertCountsByPartner(dbPool, normalizedInput)),
+    safeLoad("alerts", [] as AlertListRow[], () => loadAlertList(dbPool, normalizedInput)),
+    safeLoad("recent-uploads", [] as UploadRow[], () => loadRecentUploads(dbPool, normalizedInput)),
   ]);
 
   const candidates: ComplaintCandidate[] = candidateRows

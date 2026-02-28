@@ -111,6 +111,16 @@ const dashboardInsightsCache = new TtlCache<DashboardInsightsResponse>(
 
 const toDateKey = (value: Date) => value.toISOString().slice(0, 10);
 
+const isSchemaFallbackError = (error: any) => {
+  const code = String(error?.code || "").toUpperCase();
+  return (
+    code === "ER_NO_SUCH_TABLE" ||
+    code === "ER_BAD_FIELD_ERROR" ||
+    code === "ER_BAD_DB_ERROR" ||
+    code === "ER_PARSE_ERROR"
+  );
+};
+
 const normalizeKey = (key: string) =>
   String(key || "")
     .toLowerCase()
@@ -522,7 +532,7 @@ const computeDashboardInsightsFromEtl = async (
       summaries,
     };
   } catch (error: any) {
-    if (String(error?.code || "") === "ER_NO_SUCH_TABLE") {
+    if (isSchemaFallbackError(error)) {
       return null;
     }
     throw error;
@@ -673,7 +683,8 @@ export const computeDashboardInsights = async (
 
     const partner = summary.partner || "Unknown Partner";
     const country = summary.country || "Unknown Country";
-    const dateKey = eventDate ? toDateKey(eventDate) : toDateKey(new Date(rowMeta.uploadedAt));
+    const safeEventDate = eventDate || parseDateCandidate(rowMeta.uploadedAt) || new Date();
+    const dateKey = toDateKey(safeEventDate);
 
     partnerCounts.set(partner, (partnerCounts.get(partner) || 0) + 1);
 
