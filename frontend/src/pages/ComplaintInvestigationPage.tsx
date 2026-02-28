@@ -77,6 +77,13 @@ const numberText = (value: number | null | undefined, digits = 2) => {
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
 };
 
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+};
+
 const ComplaintInvestigationPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | "all">("all");
@@ -142,6 +149,15 @@ const ComplaintInvestigationPage: React.FC = () => {
     }
   };
 
+  const clearFilters = () => {
+    setProjectId("all");
+    setQ("");
+    setPartner("");
+    setCountry("");
+    setDays(14);
+    setLimit(12);
+  };
+
   useEffect(() => {
     runInvestigation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,89 +173,124 @@ const ComplaintInvestigationPage: React.FC = () => {
                 Complaint Desk
               </p>
               <h2 className="text-3xl font-bold text-gray-900 mt-2 dark:text-gray-100">
-                Fast partner and country complaint triage
+                Find complaint issues quickly
               </h2>
               <p className="text-sm text-gray-500 mt-1.5 dark:text-gray-400">
-                Search by partner, country, or keyword to identify likely problem corridors, open alerts, and recent upload context.
+                Filter by keyword, partner, and country. Then review risky routes, open alerts, and recent uploads below.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
-              <label className="md:col-span-2 xl:col-span-2 relative">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 dark:text-gray-500" />
+              <div className="md:col-span-2 xl:col-span-2">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                  Keyword
+                </div>
+                <label className="relative block">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 dark:text-gray-500" />
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Example: revenue drop, missing records, SMS"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                  />
+                </label>
+              </div>
+
+              <div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                  Partner
+                </div>
                 <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Complaint keyword..."
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                  value={partner}
+                  onChange={(e) => setPartner(e.target.value)}
+                  placeholder="Example: Optus"
+                  className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
                 />
-              </label>
+              </div>
 
-              <input
-                value={partner}
-                onChange={(e) => setPartner(e.target.value)}
-                placeholder="Partner"
-                className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-              />
+              <div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                  Country
+                </div>
+                <input
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  placeholder="Example: Australia"
+                  className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                />
+              </div>
 
-              <input
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                placeholder="Country"
-                className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-              />
-
-              <select
-                value={projectId}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setProjectId(next === "all" ? "all" : Number(next));
-                }}
-                className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-              >
-                <option value="all">All Projects</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-
-              <div className="grid grid-cols-2 gap-2 xl:col-span-1">
+              <div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                  Project
+                </div>
                 <select
-                  value={days}
-                  onChange={(e) => setDays(Number(e.target.value))}
-                  className="w-full px-2 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                  value={projectId}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setProjectId(next === "all" ? "all" : Number(next));
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
                 >
-                  {DAY_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value}d
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
-                  className="w-full px-2 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                >
-                  {LIMIT_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      Top {value}
+                  <option value="all">All Projects</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
                     </option>
                   ))}
                 </select>
               </div>
+
+              <div className="xl:col-span-1">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                  Time and Results
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={days}
+                    onChange={(e) => setDays(Number(e.target.value))}
+                    className="w-full px-2 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                  >
+                    {DAY_OPTIONS.map((value) => (
+                      <option key={value} value={value}>
+                        {value} days
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={limit}
+                    onChange={(e) => setLimit(Number(e.target.value))}
+                    className="w-full px-2 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                  >
+                    {LIMIT_OPTIONS.map((value) => (
+                      <option key={value} value={value}>
+                        Top {value}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={runInvestigation}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600"
               >
                 <Search className="w-4 h-4" />
-                Run Investigation
+                Search Issues
               </button>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-200 bg-white text-sm font-semibold text-amber-700 hover:bg-amber-50 dark:border-white/20 dark:bg-white/5 dark:text-amber-300"
+              >
+                Clear Filters
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Viewing last {days} days, top {limit} routes.
+              </span>
             </div>
           </div>
         </section>
@@ -247,7 +298,7 @@ const ComplaintInvestigationPage: React.FC = () => {
         {loading && (
           <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Checking complaint data...
+            Loading complaint analysis...
           </div>
         )}
         {error && (
@@ -258,11 +309,15 @@ const ComplaintInvestigationPage: React.FC = () => {
 
         {data && (
           <>
+            <div className="text-sm text-gray-600 dark:text-gray-300">
+              <span className="font-semibold text-gray-900 dark:text-gray-100">Summary:</span>{" "}
+              quick counts for the selected filters.
+            </div>
             <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
-                { label: "Partner-Country Pairs", value: data.summary.candidatePairs },
-                { label: "Partners", value: data.summary.uniquePartners },
-                { label: "Countries", value: data.summary.uniqueCountries },
+                { label: "Risky Routes", value: data.summary.candidatePairs },
+                { label: "Partners Affected", value: data.summary.uniquePartners },
+                { label: "Countries Affected", value: data.summary.uniqueCountries },
                 { label: "Open Alerts", value: data.summary.openAlerts },
                 { label: "Recent Uploads", value: data.summary.recentUploads },
               ].map((item) => (
@@ -281,10 +336,12 @@ const ComplaintInvestigationPage: React.FC = () => {
             <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-300" />
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">High-risk partner/country candidates</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Potential Problem Routes</h3>
               </div>
               {data.candidates.length === 0 ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400">No candidate issues found for current filters.</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  No risky routes found for the current filters. Try expanding to all projects or a larger date range.
+                </div>
               ) : (
                 <div className="overflow-auto">
                   <table className="min-w-full text-sm">
@@ -292,12 +349,12 @@ const ComplaintInvestigationPage: React.FC = () => {
                       <tr className="text-left text-gray-500 dark:text-gray-400">
                         <th className="py-2 pr-3">Partner</th>
                         <th className="py-2 pr-3">Country</th>
-                        <th className="py-2 pr-3">Risk</th>
-                        <th className="py-2 pr-3">Leakage</th>
-                        <th className="py-2 pr-3">Leakage %</th>
-                        <th className="py-2 pr-3">Rows</th>
+                        <th className="py-2 pr-3">Risk Score</th>
+                        <th className="py-2 pr-3">Estimated Leakage</th>
+                        <th className="py-2 pr-3">Leakage Rate</th>
+                        <th className="py-2 pr-3">Records</th>
                         <th className="py-2 pr-3">Open Alerts</th>
-                        <th className="py-2 pr-3">Last Seen</th>
+                        <th className="py-2 pr-3">Last Detected</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -310,7 +367,7 @@ const ComplaintInvestigationPage: React.FC = () => {
                           <td className="py-2 pr-3">{row.leakagePct === null ? "-" : `${numberText(row.leakagePct, 2)}%`}</td>
                           <td className="py-2 pr-3">{numberText(row.rows, 0)}</td>
                           <td className="py-2 pr-3">{numberText(row.openAlerts, 0)}</td>
-                          <td className="py-2 pr-3">{row.lastSeen || "-"}</td>
+                          <td className="py-2 pr-3">{formatDateTime(row.lastSeen)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -321,9 +378,9 @@ const ComplaintInvestigationPage: React.FC = () => {
 
             <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Country Profiles</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Country Overview</h3>
                 {data.countryProfiles.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">No country profile data.</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">No country overview data for this filter.</div>
                 ) : (
                   <ul className="space-y-2 text-sm">
                     {data.countryProfiles.map((item) => (
@@ -342,7 +399,7 @@ const ComplaintInvestigationPage: React.FC = () => {
               </div>
 
               <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Open Alerts</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Open Alerts (Latest)</h3>
                 {data.alerts.length === 0 ? (
                   <div className="text-sm text-gray-500 dark:text-gray-400">No open alerts in this filter window.</div>
                 ) : (
@@ -351,7 +408,7 @@ const ComplaintInvestigationPage: React.FC = () => {
                       <li key={alert.id} className="rounded-xl p-3 bg-amber-50/70 dark:bg-white/5">
                         <div className="font-medium text-gray-900 dark:text-gray-100">{alert.title}</div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {alert.severity.toUpperCase()} | {alert.partner || "Unknown Partner"} | {new Date(alert.lastDetectedAt).toLocaleString()}
+                          {alert.severity.toUpperCase()} | {alert.partner || "Unknown Partner"} | {formatDateTime(alert.lastDetectedAt)}
                         </div>
                       </li>
                     ))}
@@ -369,7 +426,7 @@ const ComplaintInvestigationPage: React.FC = () => {
                       <li key={file.fileId} className="rounded-xl p-3 bg-amber-50/70 dark:bg-white/5">
                         <div className="font-medium text-gray-900 dark:text-gray-100">{file.fileName}</div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {file.projectName} | {new Date(file.uploadedAt).toLocaleString()}
+                          {file.projectName} | {formatDateTime(file.uploadedAt)}
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">
                           Rows {numberText(file.totalRows, 0)} | Partners {numberText(file.partnerCount, 0)}
@@ -382,9 +439,9 @@ const ComplaintInvestigationPage: React.FC = () => {
             </section>
 
             <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Recommended Actions</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">What To Do Next</h3>
               {data.recommendations.length === 0 ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400">No recommendation generated.</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">No recommendations generated for these filters.</div>
               ) : (
                 <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 dark:text-gray-200">
                   {data.recommendations.map((item, index) => (
