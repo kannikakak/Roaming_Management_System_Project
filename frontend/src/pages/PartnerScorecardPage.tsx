@@ -125,7 +125,20 @@ const PartnerScorecardPage: React.FC = () => {
 
       const res = await apiFetch(`/api/partner-scorecard?${params.toString()}`);
       if (!res.ok) {
-        const message = await res.text();
+        let message = "Failed to load partner scorecard.";
+        const payload = await res.text();
+        if (payload) {
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed?.message) {
+              message = String(parsed.message);
+            } else {
+              message = payload;
+            }
+          } catch {
+            message = payload;
+          }
+        }
         throw new Error(message || "Failed to load partner scorecard.");
       }
       const data = (await res.json()) as PartnerScorecardResponse;
