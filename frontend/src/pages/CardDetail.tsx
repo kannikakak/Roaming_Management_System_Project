@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical, Plus, Pencil, X } from 'lucide-react';
+import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical, Plus, Pencil, X, ChevronDown, ChevronUp } from 'lucide-react';
 import axios from 'axios';
 import { logAudit } from '../utils/auditLog';
 import { apiFetch, getApiBaseUrl, getAuthToken } from '../utils/api';
@@ -86,6 +86,7 @@ const CardDetail: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [loadingFileId, setLoadingFileId] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<{ [key: string]: number }>({});
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
   const [isEditingColumns, setIsEditingColumns] = useState(false);
   const [editorTab, setEditorTab] = useState<'columns' | 'data'>('columns');
   const [columnEdits, setColumnEdits] = useState<ColumnEdit[]>([]);
@@ -718,6 +719,8 @@ const CardDetail: React.FC = () => {
   useEffect(() => {
     if (!activeFile) return;
     const nextColumns = activeColumns || [];
+    setShowAdvancedTools(false);
+    setIsEditingColumns(false);
     setOriginalColumns(nextColumns);
     setColumnEdits(
       nextColumns.map((name, index) => ({
@@ -733,7 +736,7 @@ const CardDetail: React.FC = () => {
     setRowPage(1);
     setRowEdits({});
     setPasteValues('');
-  }, [activeFileId, activeFile, activeColumns]);
+  }, [activeFileId, activeColumns]);
 
   useEffect(() => {
     if (activeColumns?.length && editColumnName && !activeColumns.includes(editColumnName)) {
@@ -922,71 +925,18 @@ const CardDetail: React.FC = () => {
         {activeFile && activeFile.columns.length > 0 && (
           <div className="bg-white/90 backdrop-blur border-b border-amber-100 px-6 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              {([
-                { key: 'excel', label: 'Excel' },
-                { key: 'pdf', label: 'PDF' },
-                { key: 'png', label: 'PNG' },
-                { key: 'json', label: 'JSON' },
-                { key: 'xml', label: 'XML' },
-              ] as Array<{ key: ExportFormat; label: string }>).map(fmt => (
-                <button
-                  key={fmt.key}
-                  type="button"
-                  className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                  onClick={() => handleExport(fmt.key)}
-                  disabled={Boolean(exportingFormat)}
-                  title={`Export as ${fmt.label}`}
-                >
-                  <Download className="w-4 h-4" />
-                  {exportingFormat === fmt.key ? 'Exporting...' : fmt.label}
-                </button>
-              ))}
-              {activeFile && activeFile.columns.length > 0 && (
-                <button
-                  className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm shadow-sm"
-                  disabled={selectedChartCols.length === 0}
-                  onClick={() => {
-                    logAudit('Generate Chart', {
-                      fileName: activeFile.name,
-                      fileId: activeFile.id,
-                      selectedCols: selectedChartCols,
-                      generatedAt: new Date().toISOString(),
-                    });
-                    navigate('/charts', {
-                      state: {
-                        file: activeFile,
-                        selectedCols: selectedChartCols,
-                      }
-                    });
-                  }}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Generate chart
-                  {selectedChartCols.length > 0 && (
-                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
-                      {selectedChartCols.length}
-                    </span>
-                  )}
-                </button>
-              )}
-              <button
-                className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-amber-200 text-amber-800 hover:bg-amber-50 text-sm shadow-sm"
-                onClick={() => setIsEditingColumns(prev => !prev)}
-              >
-                <Pencil className="w-4 h-4" />
-                {isEditingColumns ? 'Close editor' : 'Edit columns'}
-              </button>
               <div className="relative flex-1 min-w-[240px]">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-amber-600" />
                 <input
                   type="text"
-                  placeholder="Search any value, partner, country, or service type..."
+                  placeholder="Search all columns..."
                   className="w-full pl-10 pr-3 py-2.5 border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm bg-amber-50/40"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                 />
               </div>
               <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-600">Filter</span>
                 <div className="relative">
                   <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-amber-600" />
                   <select
@@ -1001,20 +951,105 @@ const CardDetail: React.FC = () => {
                 </div>
                 <input
                   type="text"
-                  placeholder="Filter value..."
+                  placeholder="Value"
                   className="pl-3 pr-3 py-2.5 border border-amber-200 rounded-xl bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
                   value={filterValue}
                   onChange={e => setFilterValue(e.target.value)}
                 />
                 <button
                   className="px-3 py-2.5 border border-amber-200 rounded-xl hover:bg-amber-50 flex items-center gap-2 text-sm font-semibold text-amber-800"
-                  onClick={() => setFilterValue('')}
+                  onClick={() => {
+                    setSearchTerm('');
+                    setFilterColumn(activeFile.columns[0] || '');
+                    setFilterValue('');
+                  }}
                 >
                   <X className="w-4 h-4" />
-                  Clear
+                  Reset
+                </button>
+                <button
+                  className="px-3 py-2.5 border border-amber-200 rounded-xl hover:bg-amber-50 flex items-center gap-2 text-sm font-semibold text-amber-800"
+                  onClick={() => {
+                    if (showAdvancedTools) {
+                      setIsEditingColumns(false);
+                    }
+                    setShowAdvancedTools(prev => !prev);
+                  }}
+                >
+                  {showAdvancedTools ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {showAdvancedTools ? 'Hide advanced' : 'Show advanced'}
                 </button>
               </div>
             </div>
+
+            <p className="mt-2 text-xs text-gray-500">
+              Showing <span className="font-semibold text-gray-700">{displayRows.length}</span> of{' '}
+              <span className="font-semibold text-gray-700">{baseRows.length}</span> rows.
+            </p>
+
+            {showAdvancedTools && (
+              <div className="mt-3 border-t border-amber-100 pt-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {([
+                    { key: 'excel', label: 'Excel' },
+                    { key: 'pdf', label: 'PDF' },
+                    { key: 'png', label: 'PNG' },
+                    { key: 'json', label: 'JSON' },
+                    { key: 'xml', label: 'XML' },
+                  ] as Array<{ key: ExportFormat; label: string }>).map(fmt => (
+                    <button
+                      key={fmt.key}
+                      type="button"
+                      className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                      onClick={() => handleExport(fmt.key)}
+                      disabled={Boolean(exportingFormat)}
+                      title={`Export as ${fmt.label}`}
+                    >
+                      <Download className="w-4 h-4" />
+                      {exportingFormat === fmt.key ? 'Exporting...' : `Export ${fmt.label}`}
+                    </button>
+                  ))}
+                  <button
+                    className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm shadow-sm"
+                    disabled={selectedChartCols.length === 0}
+                    onClick={() => {
+                      logAudit('Generate Chart', {
+                        fileName: activeFile.name,
+                        fileId: activeFile.id,
+                        selectedCols: selectedChartCols,
+                        generatedAt: new Date().toISOString(),
+                      });
+                      navigate('/charts', {
+                        state: {
+                          file: activeFile,
+                          selectedCols: selectedChartCols,
+                        }
+                      });
+                    }}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    Open chart builder
+                    {selectedChartCols.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                        {selectedChartCols.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-white border border-amber-200 text-amber-800 hover:bg-amber-50 text-sm shadow-sm"
+                    onClick={() => setIsEditingColumns(prev => !prev)}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    {isEditingColumns ? 'Close data editor' : 'Open data editor'}
+                  </button>
+                </div>
+                {selectedChartCols.length === 0 && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Tip: click table headers to select columns before opening the chart builder.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1043,8 +1078,8 @@ const CardDetail: React.FC = () => {
                     <div className="rounded-xl border border-amber-100 bg-white shadow-sm p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <h3 className="text-sm font-semibold text-gray-900">Editor</h3>
-                          <p className="text-xs text-gray-500">Manage columns or edit data values.</p>
+                          <h3 className="text-sm font-semibold text-gray-900">Advanced editor</h3>
+                          <p className="text-xs text-gray-500">Rename columns or update row values.</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -1059,7 +1094,7 @@ const CardDetail: React.FC = () => {
                             onClick={() => setEditorTab('data')}
                             type="button"
                           >
-                            Data
+                            Rows
                           </button>
                         </div>
                       </div>
@@ -1123,7 +1158,7 @@ const CardDetail: React.FC = () => {
                           </div>
                           <div className="mt-4 grid gap-4 md:grid-cols-2">
                             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                              <p className="text-xs font-semibold text-gray-600 mb-2">Previous columns</p>
+                              <p className="text-xs font-semibold text-gray-600 mb-2">Original columns</p>
                               <div className="flex flex-wrap gap-2">
                                 {originalColumns.map(col => (
                                   <span key={col} className="px-2 py-1 rounded-full bg-white border border-gray-200 text-xs text-gray-700">
@@ -1133,7 +1168,7 @@ const CardDetail: React.FC = () => {
                               </div>
                             </div>
                             <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-3">
-                              <p className="text-xs font-semibold text-amber-800 mb-2">Current columns</p>
+                              <p className="text-xs font-semibold text-amber-800 mb-2">Edited columns</p>
                               <div className="space-y-2 max-h-80 overflow-auto pr-1">
                                 {columnEdits
                                   .filter(col => col.name.toLowerCase().includes(columnSearch.toLowerCase()))
@@ -1168,7 +1203,7 @@ const CardDetail: React.FC = () => {
                       {editorTab === 'data' && (
                         <div className="mt-4 space-y-4">
                           <div className="flex flex-wrap items-center gap-2">
-                            <label className="text-xs font-semibold text-gray-600">Edit column</label>
+                            <label className="text-xs font-semibold text-gray-600">Column to edit</label>
                             <select
                               className="px-3 py-2 rounded-lg border border-amber-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
                               value={editColumnName}
@@ -1188,13 +1223,13 @@ const CardDetail: React.FC = () => {
                               onClick={handleDownloadTemplate}
                               type="button"
                             >
-                              Download template
+                              Download CSV template
                             </button>
                           </div>
 
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                              <p className="text-xs font-semibold text-gray-600 mb-2">Paste values (one per line)</p>
+                              <p className="text-xs font-semibold text-gray-600 mb-2">Paste values (one value per line)</p>
                               <textarea
                                 value={pasteValues}
                                 onChange={e => setPasteValues(e.target.value)}
@@ -1206,12 +1241,12 @@ const CardDetail: React.FC = () => {
                                 onClick={handleApplyPaste}
                                 type="button"
                               >
-                                Apply to rows
+                                Apply values
                               </button>
                             </div>
                             <div className="rounded-lg border border-amber-100 bg-white p-3">
                               <div className="flex items-center justify-between mb-2">
-                                <p className="text-xs font-semibold text-gray-600">Row editor</p>
+                                <p className="text-xs font-semibold text-gray-600">Row values</p>
                                 <div className="flex items-center gap-2">
                                   <select
                                     className="px-2 py-1 rounded border border-amber-200 text-xs"
@@ -1263,7 +1298,7 @@ const CardDetail: React.FC = () => {
                                 disabled={savingRows}
                                 type="button"
                               >
-                                Save row changes
+                                Save row updates
                               </button>
                             </div>
                           </div>
@@ -1317,9 +1352,9 @@ const CardDetail: React.FC = () => {
                                 <div className="flex flex-col items-center">
                                   <Search className="w-5 h-5 text-gray-400 mb-2" />
                                   <p className="text-gray-600 text-sm font-semibold">
-                                    {searchTerm || filterValue ? 'No results found' : 'No data available'}
+                                    {searchTerm || filterValue ? 'No rows match your search' : 'No rows found in this file'}
                                   </p>
-                                  <p className="text-xs text-gray-500 mt-1">Try a different search or upload data</p>
+                                  <p className="text-xs text-gray-500 mt-1">Try resetting filters or upload another file</p>
                                 </div>
                               </td>
                             </tr>
@@ -1367,7 +1402,7 @@ const CardDetail: React.FC = () => {
                       <div className="h-full flex flex-col items-center justify-center text-center px-6">
                         <p className="text-sm font-semibold text-gray-700">No columns found for this file</p>
                         <p className="text-xs text-gray-500 mt-1">
-                          This file has no detected table header. Try re-uploading with a valid CSV/XLSX header row.
+                          This file does not have a detected header row. Re-upload with a valid CSV/XLSX header.
                         </p>
                       </div>
                     )}
