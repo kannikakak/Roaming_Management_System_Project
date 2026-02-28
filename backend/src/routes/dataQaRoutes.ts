@@ -30,6 +30,22 @@ type IntentType =
   | "summary"
   | "types";
 
+const METRIC_KEYWORD_GROUPS: Array<{ name: string; keywords: string[] }> = [
+  { name: "revenue", keywords: ["revenue", "rev", "income", "sales", "charge", "billing", "amount"] },
+  { name: "cost", keywords: ["cost", "expense", "actual", "payable", "wholesale", "spend"] },
+  { name: "expected", keywords: ["expected", "tariff", "agreed", "contract", "rate"] },
+  { name: "traffic", keywords: ["traffic", "usage", "volume", "mb", "gb", "minute", "minutes", "sms"] },
+];
+
+const DIMENSION_KEYWORD_GROUPS: Array<{ name: string; keywords: string[] }> = [
+  { name: "client", keywords: ["client", "customer", "account", "enterprise"] },
+  { name: "dataset", keywords: ["dataset", "file", "source", "table"] },
+  { name: "partner", keywords: ["partner", "operator", "carrier", "network", "mno"] },
+  { name: "country", keywords: ["country", "market", "region", "destination", "origin"] },
+  { name: "service", keywords: ["service", "product", "plan", "package"] },
+  { name: "date", keywords: ["date", "day", "month", "year", "period", "time"] },
+];
+
 function normalizeText(input: string) {
   return input
     .toLowerCase()
@@ -66,7 +82,7 @@ function detectIntent(question: string): { type: IntentType; topN: number } {
   if (/\btop\b|\bmost common\b|\bmost frequent\b/.test(lower)) {
     return { type: "top", topN };
   }
-  if (/\bcompare\b|\bvs\b|\bversus\b/.test(lower)) {
+  if (/\bcompare\b|\bcomparison\b|\bdifference\b|\bdelta\b|\bvs\b|\bversus\b|\bbetween\b/.test(lower)) {
     return { type: "compare", topN };
   }
   if (/\bdistinct\b|\bunique\b/.test(lower)) {
@@ -109,6 +125,68 @@ function scoreColumn(questionNorm: string, column: string) {
   return score;
 }
 
+function scoreColumnByKeywords(column: string, keywords: string[]) {
+  const colNorm = normalizeText(column);
+  if (!colNorm) return 0;
+  const compact = colNorm.replace(/\s+/g, "");
+  let score = 0;
+
+  for (const keyword of keywords) {
+    const kwNorm = normalizeText(keyword);
+    if (!kwNorm) continue;
+    const kwCompact = kwNorm.replace(/\s+/g, "");
+    if (colNorm.includes(kwNorm)) {
+      score += 2;
+      continue;
+    }
+    if (compact.includes(kwCompact)) {
+      score += 1.5;
+      continue;
+    }
+    const kwTokens = kwNorm.split(" ").filter(Boolean);
+    if (kwTokens.length > 0 && kwTokens.every((token) => colNorm.includes(token))) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+function findBestColumnByKeywords(columns: string[], keywords: string[], excluded: string[] = []) {
+  const excludedSet = new Set(excluded);
+  let best = "";
+  let bestScore = 0;
+  for (const col of columns) {
+    if (excludedSet.has(col)) continue;
+    const score = scoreColumnByKeywords(col, keywords);
+    if (score > bestScore) {
+      best = col;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : "";
+}
+
+function pickColumnsByAskedGroups(
+  questionNorm: string,
+  columns: string[],
+  groups: Array<{ name: string; keywords: string[] }>,
+  excluded: string[] = []
+) {
+  const selected: string[] = [];
+  const used = new Set(excluded);
+  for (const group of groups) {
+    const asked = group.keywords.some((kw) => questionNorm.includes(normalizeText(kw)));
+    if (!asked) continue;
+    const match = findBestColumnByKeywords(columns, group.keywords, Array.from(used));
+    if (match) {
+      selected.push(match);
+      used.add(match);
+    }
+  }
+  return selected;
+}
+
 function pickColumn(questionNorm: string, columns: string[]) {
   let best = "";
   let bestScore = 0;
@@ -124,6 +202,7 @@ function pickColumn(questionNorm: string, columns: string[]) {
 
 function findGroupByColumn(question: string, columns: string[]) {
   const lower = question.toLowerCase();
+  const normalized = normalizeText(question);
   const sorted = [...columns].sort((a, b) => b.length - a.length);
 
   for (const col of sorted) {
@@ -136,6 +215,13 @@ function findGroupByColumn(question: string, columns: string[]) {
     ];
     if (patterns.some((pattern) => pattern.test(lower))) {
       return col;
+    }
+  }
+
+  if (/\b(by|per|group|grouped|split|wise)\b/.test(lower)) {
+    const semantic = pickColumnsByAskedGroups(normalized, columns, DIMENSION_KEYWORD_GROUPS);
+    if (semantic.length > 0) {
+      return semantic[0];
     }
   }
   return "";
@@ -343,8 +429,16 @@ function normalizeCellValue(value: any) {
 function parseNumericValue(value: any) {
   const normalized = normalizeCellValue(value);
   if (!normalized) return null;
-  const parsed = Number(normalized.replace(/,/g, ""));
-  return Number.isFinite(parsed) ? parsed : null;
+  const isParenNegative = /^\(.*\)$/.test(normalized);
+  const unwrapped = isParenNegative ? normalized.slice(1, -1) : normalized;
+  const cleaned = unwrapped
+    .replace(/,/g, "")
+    .replace(/[$€£¥₩₫៛%]/g, "")
+    .replace(/[^\d.+-]/g, "");
+  if (!cleaned || !/[0-9]/.test(cleaned)) return null;
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed)) return null;
+  return isParenNegative ? -Math.abs(parsed) : parsed;
 }
 
 function inferNumericColumnsFromRows(columns: string[], rows: QaRowObject[]) {
@@ -487,17 +581,38 @@ async function loadRowsForFallback(
   return parsed;
 }
 
+function cleanCompareHintText(input: string) {
+  return input
+    .toLowerCase()
+    .replace(/\b(graph|chart|visual|plot|please|show|me|the|a|an|based on|base on)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseCompareHints(question: string) {
   const lower = question.toLowerCase();
   const compareMatch = lower.match(
     /\bcompare\s+(.+?)\s+(?:and|vs|versus)\s+(.+?)(?:\s+\bby\b|\s+\bper\b|$)/
   );
   if (compareMatch?.[1] && compareMatch?.[2]) {
-    return { leftHint: compareMatch[1].trim(), rightHint: compareMatch[2].trim() };
+    return {
+      leftHint: cleanCompareHintText(compareMatch[1]),
+      rightHint: cleanCompareHintText(compareMatch[2]),
+    };
+  }
+  const betweenMatch = lower.match(/\bbetween\s+(.+?)\s+and\s+(.+?)(?:\s+\bby\b|\s+\bper\b|$)/);
+  if (betweenMatch?.[1] && betweenMatch?.[2]) {
+    return {
+      leftHint: cleanCompareHintText(betweenMatch[1]),
+      rightHint: cleanCompareHintText(betweenMatch[2]),
+    };
   }
   const vsMatch = lower.match(/\b(.+?)\s+(?:vs|versus)\s+(.+?)(?:\s+\bby\b|\s+\bper\b|$)/);
   if (vsMatch?.[1] && vsMatch?.[2]) {
-    return { leftHint: vsMatch[1].trim(), rightHint: vsMatch[2].trim() };
+    return {
+      leftHint: cleanCompareHintText(vsMatch[1]),
+      rightHint: cleanCompareHintText(vsMatch[2]),
+    };
   }
   return null;
 }
@@ -518,27 +633,41 @@ function resolveCompareColumns(
       ? profile.overview.categoricalColumns
       : inferCategoricalColumnsFromRows(columns, rows);
 
+  const comparePool = numericCandidates.length ? numericCandidates : columns;
   const hints = parseCompareHints(questionRaw);
-  let left = hints?.leftHint ? pickColumn(normalizeText(hints.leftHint), columns) : "";
-  let right = hints?.rightHint ? pickColumn(normalizeText(hints.rightHint), columns) : "";
+  let left = hints?.leftHint ? pickColumn(normalizeText(hints.leftHint), comparePool) : "";
+  let right = hints?.rightHint ? pickColumn(normalizeText(hints.rightHint), comparePool) : "";
 
-  const ranked = columns
+  const askedMetricColumns = pickColumnsByAskedGroups(questionNorm, comparePool, METRIC_KEYWORD_GROUPS);
+  if (!left && askedMetricColumns.length > 0) {
+    left = askedMetricColumns[0];
+  }
+  if (!right && askedMetricColumns.length > 1) {
+    right = askedMetricColumns.find((col) => col !== left) || "";
+  }
+
+  const ranked = comparePool
     .map((col) => ({ col, score: scoreColumn(questionNorm, col) }))
     .sort((a, b) => b.score - a.score)
     .map((item) => item.col);
 
   if (!left) {
-    left = ranked.find((col) => numericCandidates.includes(col)) || numericCandidates[0] || ranked[0] || "";
+    left = ranked[0] || "";
   }
   if (!right) {
     right =
-      ranked.find((col) => col !== left && numericCandidates.includes(col)) ||
-      numericCandidates.find((col) => col !== left) ||
       ranked.find((col) => col !== left) ||
       "";
   }
 
   let groupBy = findGroupByColumn(questionRaw, columns);
+  const askedDimensions = pickColumnsByAskedGroups(questionNorm, categoricalCandidates, DIMENSION_KEYWORD_GROUPS, [
+    left,
+    right,
+  ]);
+  if (!groupBy && askedDimensions.length > 0) {
+    groupBy = askedDimensions[0];
+  }
   if (!groupBy) {
     groupBy =
       categoricalCandidates.find((col) => col !== left && col !== right) ||
@@ -693,13 +822,27 @@ async function answerQuestionWithFallback(
   }
 
   if (intent.type === "compare") {
-    const compareItems = new Map<string, { count: number; compare: number }>();
+    const numericCompareItems = new Map<string, { count: number; compare: number }>();
+    const categoricalMatrix = new Map<string, Map<string, number>>();
+    const splitTotals = new Map<string, number>();
+
     let primaryLabel = "";
     let secondaryLabel = "";
     let groupLabel = "";
-    let matchedFiles = 0;
+    let splitByLabel = "";
+    let numericMatchedFiles = 0;
+    let categoricalMatchedFiles = 0;
 
     for (const context of contexts) {
+      const numericCandidates =
+        context.profile?.overview.numericColumns?.length
+          ? context.profile.overview.numericColumns
+          : inferNumericColumnsFromRows(context.columns, context.rows);
+      const categoricalCandidates =
+        context.profile?.overview.categoricalColumns?.length
+          ? context.profile.overview.categoricalColumns
+          : inferCategoricalColumnsFromRows(context.columns, context.rows);
+
       const resolved = resolveCompareColumns(
         options.questionRaw,
         questionNorm,
@@ -707,28 +850,97 @@ async function answerQuestionWithFallback(
         context.rows,
         context.profile
       );
-      if (!resolved.left || !resolved.right || !resolved.groupBy) continue;
-      if (!primaryLabel) primaryLabel = resolved.left;
-      if (!secondaryLabel) secondaryLabel = resolved.right;
-      if (!groupLabel) groupLabel = resolved.groupBy;
+
+      const leftIsNumeric = !!resolved.left && numericCandidates.includes(resolved.left);
+      const rightIsNumeric = !!resolved.right && numericCandidates.includes(resolved.right);
+      const askedNumericDimensions = pickColumnsByAskedGroups(
+        questionNorm,
+        categoricalCandidates,
+        DIMENSION_KEYWORD_GROUPS,
+        [resolved.left, resolved.right]
+      );
+      const numericGroupBy =
+        (resolved.groupBy && categoricalCandidates.includes(resolved.groupBy) ? resolved.groupBy : "") ||
+        askedNumericDimensions[0] ||
+        findGroupByColumn(options.questionRaw, categoricalCandidates) ||
+        categoricalCandidates.find((col) => col !== resolved.left && col !== resolved.right) ||
+        "";
+
+      if (leftIsNumeric && rightIsNumeric && numericGroupBy) {
+        if (!primaryLabel) primaryLabel = resolved.left;
+        if (!secondaryLabel) secondaryLabel = resolved.right;
+        if (!groupLabel) groupLabel = numericGroupBy;
+
+        let contributed = false;
+        for (const row of context.rows) {
+          const groupValue = normalizeCellValue(row?.[numericGroupBy]);
+          if (!groupValue) continue;
+          const leftValue = parseNumericValue(row?.[resolved.left]) || 0;
+          const rightValue = parseNumericValue(row?.[resolved.right]) || 0;
+          if (leftValue === 0 && rightValue === 0) continue;
+          const current = numericCompareItems.get(groupValue) || { count: 0, compare: 0 };
+          current.count += leftValue;
+          current.compare += rightValue;
+          numericCompareItems.set(groupValue, current);
+          contributed = true;
+        }
+        if (contributed) numericMatchedFiles += 1;
+        continue;
+      }
+
+      const categoricalPool = categoricalCandidates.length ? categoricalCandidates : context.columns;
+      if (!categoricalPool.length) continue;
+      const askedDimensionColumns = pickColumnsByAskedGroups(
+        questionNorm,
+        categoricalPool,
+        DIMENSION_KEYWORD_GROUPS,
+        [resolved.left, resolved.right]
+      );
+
+      let localGroupBy =
+        (groupLabel && categoricalPool.includes(groupLabel) ? groupLabel : "") ||
+        (resolved.groupBy && categoricalPool.includes(resolved.groupBy) ? resolved.groupBy : "") ||
+        askedDimensionColumns[0] ||
+        ([resolved.left, resolved.right].find(
+          (col): col is string => Boolean(col) && categoricalPool.includes(col)
+        ) || "") ||
+        categoricalPool[0] ||
+        "";
+
+      let localSplitBy =
+        (splitByLabel && categoricalPool.includes(splitByLabel) && splitByLabel !== localGroupBy
+          ? splitByLabel
+          : "") ||
+        askedDimensionColumns.find((col) => col !== localGroupBy) ||
+        ([resolved.left, resolved.right].find(
+          (col): col is string =>
+            Boolean(col) && col !== localGroupBy && categoricalPool.includes(col)
+        ) || "") ||
+        categoricalPool.find((col) => col !== localGroupBy) ||
+        "";
+
+      if (!localGroupBy || !localSplitBy) continue;
+      if (!groupLabel) groupLabel = localGroupBy;
+      if (!splitByLabel) splitByLabel = localSplitBy;
 
       let contributed = false;
       for (const row of context.rows) {
-        const groupValue = normalizeCellValue(row?.[resolved.groupBy]);
-        if (!groupValue) continue;
-        const leftValue = parseNumericValue(row?.[resolved.left]) || 0;
-        const rightValue = parseNumericValue(row?.[resolved.right]) || 0;
-        if (leftValue === 0 && rightValue === 0) continue;
-        const current = compareItems.get(groupValue) || { count: 0, compare: 0 };
-        current.count += leftValue;
-        current.compare += rightValue;
-        compareItems.set(groupValue, current);
+        const groupValue = normalizeCellValue(row?.[localGroupBy]);
+        const splitValue = normalizeCellValue(row?.[localSplitBy]);
+        if (!groupValue || !splitValue) continue;
+
+        if (!categoricalMatrix.has(groupValue)) {
+          categoricalMatrix.set(groupValue, new Map<string, number>());
+        }
+        const splitMap = categoricalMatrix.get(groupValue)!;
+        splitMap.set(splitValue, (splitMap.get(splitValue) || 0) + 1);
+        splitTotals.set(splitValue, (splitTotals.get(splitValue) || 0) + 1);
         contributed = true;
       }
-      if (contributed) matchedFiles += 1;
+      if (contributed) categoricalMatchedFiles += 1;
     }
 
-    const items = Array.from(compareItems.entries())
+    const numericItems = Array.from(numericCompareItems.entries())
       .map(([value, pair]) => ({
         value,
         count: Number(pair.count || 0),
@@ -737,10 +949,54 @@ async function answerQuestionWithFallback(
       .sort((a, b) => Math.max(b.count, b.compare) - Math.max(a.count, a.compare))
       .slice(0, Math.max(2, intent.topN));
 
+    if (numericItems.length) {
+      const preview = numericItems
+        .slice(0, 5)
+        .map((item) => `${item.value} (${formatNumber(item.count)} vs ${formatNumber(item.compare)})`)
+        .join(", ");
+      const scopeText =
+        contexts.length > 1 ? `across ${numericMatchedFiles || contexts.length} files` : `in ${contexts[0].name}`;
+      return {
+        answer: `Comparison of "${primaryLabel}" vs "${secondaryLabel}" by "${groupLabel}" ${scopeText}: ${preview}`,
+        intent: "compare",
+        column: primaryLabel,
+        compareColumn: secondaryLabel,
+        groupBy: groupLabel,
+        items: numericItems,
+      };
+    }
+
+    const topSplits = Array.from(splitTotals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([value]) => value);
+
+    if (topSplits.length < 2 || !groupLabel || !splitByLabel) {
+      return {
+        answer:
+          "I could not build a comparison from your data. Try: compare Revenue vs Cost by Country, or compare Client and Dataset.",
+        intent: "compare",
+      };
+    }
+
+    const [primarySplit, secondarySplit] = topSplits;
+    primaryLabel = `${splitByLabel}: ${primarySplit}`;
+    secondaryLabel = `${splitByLabel}: ${secondarySplit}`;
+
+    const items = Array.from(categoricalMatrix.entries())
+      .map(([value, splitMap]) => ({
+        value,
+        count: Number(splitMap.get(primarySplit) || 0),
+        compare: Number(splitMap.get(secondarySplit) || 0),
+      }))
+      .filter((item) => item.count > 0 || item.compare > 0)
+      .sort((a, b) => Math.max(b.count, b.compare) - Math.max(a.count, a.compare))
+      .slice(0, Math.max(2, intent.topN));
+
     if (!items.length) {
       return {
         answer:
-          "I could not build a comparison from your data. Try: compare Revenue vs Cost by Country.",
+          "I could not build a comparison from your data. Try: compare Revenue vs Cost by Country, or compare Client and Dataset.",
         intent: "compare",
       };
     }
@@ -749,7 +1005,8 @@ async function answerQuestionWithFallback(
       .slice(0, 5)
       .map((item) => `${item.value} (${formatNumber(item.count)} vs ${formatNumber(item.compare)})`)
       .join(", ");
-    const scopeText = contexts.length > 1 ? `across ${matchedFiles || contexts.length} files` : `in ${contexts[0].name}`;
+    const scopeText =
+      contexts.length > 1 ? `across ${categoricalMatchedFiles || contexts.length} files` : `in ${contexts[0].name}`;
     return {
       answer: `Comparison of "${primaryLabel}" vs "${secondaryLabel}" by "${groupLabel}" ${scopeText}: ${preview}`,
       intent: "compare",
