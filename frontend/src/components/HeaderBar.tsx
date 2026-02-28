@@ -4,30 +4,39 @@ import { Bell, Search } from "lucide-react";
 import { apiFetch } from "../utils/api";
 import ThemeToggle from "./ThemeToggle";
 
-const titleMap: Record<string, string> = {
-  "/dashboard": "Dashboard",
-  "/projects": "Projects",
-  "/charts": "Charts",
-  "/chart": "Charts",
-  "/slide-builder": "Slide Builder",
-  "/ai-studio": "AI Studio",
-  "/partner-scorecard": "Partner Scorecard",
-  "/complaint-desk": "Complaint Desk",
-  "/reports-library": "Reports Library",
-  "/data-explorer": "Data Explorer",
-  "/schedules": "Schedules",
-  "/alert-center": "Alert Center",
-  "/delivery-history": "Delivery History",
-  "/my-activity": "My Activity",
-  "/templates": "Templates",
-  "/users": "User Management",
-  "/system-health": "System Health",
-  "/backup-restore": "Backup & Restore",
-  "/security-center": "Security Center",
-  "/audit-log": "Audit Log",
-  "/account": "Account Settings",
-  "/search": "Global Search",
+type PageMeta = {
+  path: string;
+  title: string;
+  subtitle: string;
 };
+
+const pageMetaList: PageMeta[] = [
+  { path: "/dashboard", title: "Dashboard", subtitle: "View key metrics, alerts, and activity in one place." },
+  { path: "/projects", title: "Projects", subtitle: "Create and manage project workspaces and files." },
+  { path: "/complaint-desk", title: "Complaint Desk", subtitle: "Search complaint patterns and identify risky routes." },
+  { path: "/data-quality", title: "Data Quality", subtitle: "Track data completeness and quality checks." },
+  { path: "/partner-scorecard", title: "Partner Scorecard", subtitle: "Compare partner performance over time." },
+  { path: "/charts", title: "Charts", subtitle: "Build visual charts from your selected columns." },
+  { path: "/chart", title: "Charts", subtitle: "Build visual charts from your selected columns." },
+  { path: "/ai-studio", title: "AI Analysis", subtitle: "Generate AI-assisted charts and insights." },
+  { path: "/reports-library", title: "Reports", subtitle: "Open and manage generated reports." },
+  { path: "/slide-builder", title: "Slide Builder", subtitle: "Create presentation slides from system data." },
+  { path: "/data-explorer", title: "Data Explorer", subtitle: "Browse and inspect raw table data quickly." },
+  { path: "/data-sources", title: "Data Sources", subtitle: "Configure data ingestion locations and rules." },
+  { path: "/ingestion-history", title: "Upload History", subtitle: "Review ingestion runs and file processing results." },
+  { path: "/schedules", title: "Schedules", subtitle: "Automate report and data workflows." },
+  { path: "/delivery-history", title: "Notification History", subtitle: "Review delivery and notification events." },
+  { path: "/alert-center", title: "Alert Center", subtitle: "Monitor active alerts and take action." },
+  { path: "/my-activity", title: "My Activity", subtitle: "See your recent actions in the system." },
+  { path: "/templates", title: "Templates", subtitle: "Manage reusable report and slide templates." },
+  { path: "/users", title: "User Management", subtitle: "Manage users, roles, and access rights." },
+  { path: "/system-health", title: "System Status", subtitle: "Check service health and runtime status." },
+  { path: "/backup-restore", title: "Backup & Restore", subtitle: "Create backups and recover system data." },
+  { path: "/security-center", title: "Security", subtitle: "Review security settings and hardening controls." },
+  { path: "/audit-log", title: "Audit Log", subtitle: "Inspect detailed activity and compliance records." },
+  { path: "/account", title: "Account Settings", subtitle: "Update your personal profile and preferences." },
+  { path: "/search", title: "Global Search", subtitle: "Search across projects, files, alerts, and events." },
+];
 
 type NotificationItem = {
   id: number;
@@ -46,9 +55,15 @@ const HeaderBar: React.FC = () => {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const title = useMemo(() => {
+  const pageMeta = useMemo(() => {
     const path = location.pathname;
-    return titleMap[path] || "Dashboard";
+    return (
+      pageMetaList.find((item) => path === item.path || path.startsWith(`${item.path}/`)) || {
+        path: "/dashboard",
+        title: "Dashboard",
+        subtitle: "View key metrics, alerts, and activity in one place.",
+      }
+    );
   }, [location.pathname]);
 
   const loadNotifications = () => {
@@ -97,16 +112,21 @@ const HeaderBar: React.FC = () => {
     <header className="sticky top-0 z-30 backdrop-blur border-b border-amber-100 bg-white/80 dark:border-white/10 dark:bg-gray-900/80">
       <div className="flex items-center justify-between gap-4 px-6 py-4">
         <div className="flex items-center gap-4 min-w-0">
-          <h1 className="text-xl font-bold text-amber-800 dark:text-amber-300 whitespace-nowrap">
-            {title}
-          </h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-amber-800 dark:text-amber-300 whitespace-nowrap">
+              {pageMeta.title}
+            </h1>
+            <p className="hidden md:block text-xs text-gray-500 dark:text-gray-400 truncate">
+              {pageMeta.subtitle}
+            </p>
+          </div>
           <form onSubmit={onSearchSubmit} className="hidden lg:flex items-center">
             <label className="relative">
               <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Global search: partner, country, date..."
+                placeholder="Search partner, country, project, file, alert..."
                 className="w-96 max-w-[40vw] pl-9 pr-3 py-2 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </label>

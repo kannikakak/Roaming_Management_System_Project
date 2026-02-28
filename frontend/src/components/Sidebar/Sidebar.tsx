@@ -24,27 +24,59 @@ import {
 } from 'lucide-react';
 import SidebarItem from './SidebarItem';
 
-const navItems = [
-  { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/dashboard' },
-  { label: 'Data Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
-  { label: 'Projects', icon: <Layers size={20} />, path: '/projects' },
-  { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
-  { label: 'AI Studio', icon: <Sparkles size={20} />, path: '/ai-studio' },
-  { label: 'Partner Scorecard', icon: <LineChartIcon size={20} />, path: '/partner-scorecard' },
-  { label: 'Complaint Desk', icon: <Search size={20} />, path: '/complaint-desk' },
-  { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
-  { label: 'Reports Library', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
-  { label: 'Data Explorer', icon: <LayoutList size={20} />, path: '/data-explorer' },
-  { label: 'Data Sources', icon: <Database size={20} />, path: '/data-sources', roles: ['admin', 'analyst'] },
-  { label: 'Ingestion History', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
-  { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
-  { label: 'Delivery History', icon: <History size={20} />, path: '/delivery-history' },
-  { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
-  { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
-  { label: 'System Health', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
-  { label: 'Backup & Restore', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
-  { label: 'Security Center', icon: <Shield size={20} />, path: '/security-center', roles: ['admin'] },
-  { label: 'Account', icon: <User size={20} />, path: '/account' },
+type NavItem = {
+  label: string;
+  icon: React.ReactNode;
+  path: string;
+  roles?: string[];
+};
+
+type NavSection = {
+  title: string;
+  items: NavItem[];
+};
+
+const navSections: NavSection[] = [
+  {
+    title: 'Core',
+    items: [
+      { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/dashboard' },
+      { label: 'Projects', icon: <Layers size={20} />, path: '/projects' },
+      { label: 'Complaint Desk', icon: <Search size={20} />, path: '/complaint-desk' },
+      { label: 'Data Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
+      { label: 'Partner Scorecard', icon: <LineChartIcon size={20} />, path: '/partner-scorecard' },
+      { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
+      { label: 'AI Analysis', icon: <Sparkles size={20} />, path: '/ai-studio' },
+    ],
+  },
+  {
+    title: 'Data',
+    items: [
+      { label: 'Data Sources', icon: <Database size={20} />, path: '/data-sources', roles: ['admin', 'analyst'] },
+      { label: 'Upload History', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
+      { label: 'Data Explorer', icon: <LayoutList size={20} />, path: '/data-explorer' },
+    ],
+  },
+  {
+    title: 'Reporting',
+    items: [
+      { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
+      { label: 'Reports', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
+      { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
+      { label: 'Notification History', icon: <History size={20} />, path: '/delivery-history' },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
+      { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
+      { label: 'System Status', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
+      { label: 'Backup & Restore', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
+      { label: 'Security', icon: <Shield size={20} />, path: '/security-center', roles: ['admin'] },
+      { label: 'Account', icon: <User size={20} />, path: '/account' },
+    ],
+  },
 ];
 
 const Sidebar: React.FC = () => {
@@ -82,29 +114,37 @@ const Sidebar: React.FC = () => {
           Roaming Analytics
         </div>
       </div>
-      <nav className="flex-1 px-2 space-y-1">
-        {navItems
-          .map((item) => {
-            const canAccess =
-              !item.roles ||
-              item.roles.length === 0 ||
-              userRoles.some((role: string) => item.roles?.includes(role));
+      <nav className="flex-1 px-2 overflow-y-auto">
+        {navSections.map((section) => (
+          <div key={section.title} className="mb-4">
+            <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              {section.title}
+            </p>
+            <div className="space-y-1">
+              {section.items.map((item) => {
+                const canAccess =
+                  !item.roles ||
+                  item.roles.length === 0 ||
+                  userRoles.some((role: string) => item.roles?.includes(role));
 
-            return (
-              <SidebarItem
-                key={item.label}
-                icon={item.icon}
-                label={item.label}
-                active={canAccess && location.pathname.startsWith(item.path)}
-                disabled={!canAccess}
-                hint={!canAccess ? "Admin access required" : undefined}
-                onClick={() => {
-                  if (!canAccess) return;
-                  navigate(item.path);
-                }}
-              />
-            );
-          })}
+                return (
+                  <SidebarItem
+                    key={item.label}
+                    icon={item.icon}
+                    label={item.label}
+                    active={canAccess && location.pathname.startsWith(item.path)}
+                    disabled={!canAccess}
+                    hint={!canAccess ? "Access restricted for your role" : undefined}
+                    onClick={() => {
+                      if (!canAccess) return;
+                      navigate(item.path);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
       <div className="px-4 pb-6 mt-auto">
         <div className="rounded-xl p-3 shadow-sm bg-white/80 border border-amber-100 dark:bg-white/5 dark:border-white/10">
