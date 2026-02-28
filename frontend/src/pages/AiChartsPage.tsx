@@ -94,6 +94,7 @@ const DEFAULT_SUGGESTIONS = [
   "How many rows are in this file?",
   "Top 5 values of Service",
   "Compare Revenue vs Cost by Country",
+  "Compare Client and Dataset",
   "Average of Revenue",
 ];
 const FILE_CARD_STYLES = [
@@ -142,6 +143,15 @@ const formatDisplayValue = (value: number | null | undefined, percentMode: boole
   return formatMetricValue(value);
 };
 
+const truncateText = (input: string, max = 180) => {
+  const normalized = String(input || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= max) return normalized;
+  const cut = normalized.lastIndexOf(" ", max);
+  const idx = cut > Math.floor(max * 0.65) ? cut : max;
+  return `${normalized.slice(0, idx).trimEnd()}...`;
+};
+
 const AiChartsPage: React.FC = () => {
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -154,6 +164,7 @@ const AiChartsPage: React.FC = () => {
   const [activeFileResultId, setActiveFileResultId] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
+  const [showFullAnswer, setShowFullAnswer] = useState(false);
   const [qaItems, setQaItems] = useState<QaItem[]>([]);
   const [qaColumns, setQaColumns] = useState<string[]>([]);
   const [qaValue, setQaValue] = useState<number | null>(null);
@@ -177,6 +188,7 @@ const AiChartsPage: React.FC = () => {
 
   const resetQaState = useCallback(() => {
     setAnswer(null);
+    setShowFullAnswer(false);
     setQaItems([]);
     setQaColumns([]);
     setQaValue(null);
@@ -248,8 +260,28 @@ const AiChartsPage: React.FC = () => {
       setInsightError(null);
       const res = await apiFetch("/api/dashboard/insights");
       if (!res.ok) {
-        const message = await res.text();
-        throw new Error(message || "Failed to load insights");
+        const raw = await res.text();
+        let message = "Failed to load insights";
+        if (raw) {
+          try {
+            const payload = JSON.parse(raw) as { message?: unknown } | string;
+            if (typeof payload === "string" && payload.trim()) {
+              message = payload.trim();
+            } else if (
+              payload &&
+              typeof payload === "object" &&
+              typeof payload.message === "string" &&
+              payload.message.trim()
+            ) {
+              message = payload.message.trim();
+            } else {
+              message = raw;
+            }
+          } catch {
+            message = raw;
+          }
+        }
+        throw new Error(message);
       }
       const json = (await res.json()) as DashboardInsights;
       setInsights(json);
@@ -538,6 +570,34 @@ const AiChartsPage: React.FC = () => {
     () => files.find((f) => f.id === selectedFileId) || null,
     [files, selectedFileId]
   );
+
+  useEffect(() => {
+    setShowFullAnswer(false);
+  }, [answer]);
+
+  const scopeStatusText = useMemo(() => {
+    if (files.length === 0) return "No files uploaded";
+    if (scopeMode === "single") return selectedFile?.name ? `File: ${selectedFile.name}` : "Select a file";
+    return `${files.length} files`;
+  }, [files.length, scopeMode, selectedFile]);
+
+  const normalizedAnswer = useMemo(
+    () => String(answer || "").replace(/\s+/g, " ").trim(),
+    [answer]
+  );
+  const compactAnswer = useMemo(() => truncateText(normalizedAnswer, 220), [normalizedAnswer]);
+  const hasLongAnswer = normalizedAnswer.length > compactAnswer.length;
+  const answerHighlights = useMemo(() => {
+    if (!normalizedAnswer) return [];
+    const source = normalizedAnswer.includes(":")
+      ? normalizedAnswer.slice(normalizedAnswer.indexOf(":") + 1)
+      : normalizedAnswer;
+    return source
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }, [normalizedAnswer]);
 
   const applyFileResult = useCallback((result: FileQaResult) => {
     setActiveFileResultId(result.fileId);
@@ -829,12 +889,10 @@ const AiChartsPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="bg-white border rounded-2xl p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-3xl font-bold text-amber-800">AI Studio</h2>
-              <p className="text-sm text-gray-600">
-                Ask a question, generate a chart, and review AI insights in one place.
-              </p>
+              <p className="text-sm text-gray-600">Fast Q&A and chart analysis for your selected data scope.</p>
             </div>
             <button
               className="px-4 py-2 rounded-xl border border-amber-200 text-amber-700 text-sm font-semibold hover:bg-amber-50"
@@ -845,11 +903,11 @@ const AiChartsPage: React.FC = () => {
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-gray-600">Project</label>
+          <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-gray-200 p-3">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Project</label>
               <select
-                className="w-full border rounded-lg px-3 py-2"
+                className="mt-2 w-full border rounded-lg px-3 py-2 text-sm"
                 value={projectId ?? ""}
                 onChange={(e) => setProjectId(Number(e.target.value))}
               >
@@ -861,9 +919,9 @@ const AiChartsPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-gray-600">Data Scope</label>
-              <div className="flex gap-2">
+            <div className="rounded-xl border border-gray-200 p-3">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Data Scope</label>
+              <div className="mt-2 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setScopeMode("single")}
@@ -887,55 +945,56 @@ const AiChartsPage: React.FC = () => {
                   All Files
                 </button>
               </div>
+            </div>
 
-              {scopeMode === "single" && (
-                <select
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  value={selectedFileId ?? ""}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
-                    setSelectedFileId(Number.isFinite(next) && next > 0 ? next : null);
-                  }}
-                >
-                  {files.length === 0 ? (
-                    <option value="">No files uploaded</option>
-                  ) : (
-                    files.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              )}
-
-              <div className="flex items-center gap-2">
-                <div className="w-full border rounded-lg px-3 py-2 text-xs text-gray-600 bg-gray-50">
-                  {files.length === 0
-                    ? "No files uploaded yet"
-                    : scopeMode === "single"
-                      ? `Focused on: ${selectedFile?.name || "Select a file"}`
-                      : `AI checks all ${files.length} files separately (no merge)`}
-                </div>
+            <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Scope Status</span>
                 <button
                   type="button"
                   onClick={() => loadFiles({ keepSelection: true })}
-                  className="px-3 py-2 rounded-lg border border-amber-200 text-amber-700 text-xs font-semibold hover:bg-amber-50"
+                  className="px-2.5 py-1 rounded-lg border border-amber-200 text-amber-700 text-xs font-semibold hover:bg-amber-50"
                 >
                   Refresh
                 </button>
               </div>
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                {scopeStatusText}
+              </div>
             </div>
-
           </div>
+
+          {scopeMode === "single" && (
+            <div className="mt-3">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Selected File</label>
+              <select
+                className="mt-2 w-full border rounded-lg px-3 py-2 text-sm"
+                value={selectedFileId ?? ""}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setSelectedFileId(Number.isFinite(next) && next > 0 ? next : null);
+                }}
+              >
+                {files.length === 0 ? (
+                  <option value="">No files uploaded</option>
+                ) : (
+                  files.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="bg-white border rounded-2xl p-5">
-          <form onSubmit={askQuestion} className="space-y-3">
+          <form onSubmit={askQuestion} className="space-y-4">
             <div className="flex flex-col md:flex-row gap-3">
               <input
                 className="flex-1 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
-                placeholder="Example: Top 5 values of Service"
+                placeholder="Ask clearly. Example: Compare Revenue vs Cost by Country"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 disabled={files.length === 0}
@@ -949,14 +1008,24 @@ const AiChartsPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="text-xs text-gray-500">
-              {files.length === 0
-                ? "Upload at least one file to start asking AI."
-                : scopeMode === "single"
-                  ? `Accuracy mode: AI reads only "${selectedFile?.name || "selected file"}".`
-                  : `All-files mode: AI reads each file independently and shows per-file results.`}
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
+                {scopeMode === "single" ? "Single-file mode" : "All-files mode"}
+              </span>
+              <span className="px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
+                Auto search: on
+              </span>
+              {qaColumns.length > 0 && (
+                <span className="px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700">
+                  Columns detected: {qaColumns.length}
+                </span>
+              )}
+              {qaIntent && (
+                <span className="px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                  Intent: {qaIntent}
+                </span>
+              )}
             </div>
-            <div className="text-[11px] text-gray-400">Auto search is on while typing.</div>
 
             {error && (
               <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -965,30 +1034,55 @@ const AiChartsPage: React.FC = () => {
             )}
 
             {answer && (
-              <div className="text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-                {answer}
+              <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Key Result</div>
+                  {(qaColumn || qaCompareColumn) && (
+                    <div className="text-[11px] text-gray-600">
+                      {qaColumn || "Value"}
+                      {qaCompareColumn ? ` vs ${qaCompareColumn}` : ""}
+                    </div>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-gray-800 leading-relaxed">
+                  {showFullAnswer ? normalizedAnswer : compactAnswer}
+                </p>
+                {!showFullAnswer && answerHighlights.length > 1 && (
+                  <div className="mt-2 grid gap-1 text-xs text-gray-700">
+                    {answerHighlights.map((line) => (
+                      <div key={line} className="rounded-lg border border-amber-100 bg-white/80 px-2.5 py-1.5">
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {hasLongAnswer && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFullAnswer((prev) => !prev)}
+                    className="mt-2 text-xs font-semibold text-amber-700 hover:text-amber-800"
+                  >
+                    {showFullAnswer ? "Show less" : "Show details"}
+                  </button>
+                )}
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-              {quickPrompts.map((text) => (
-                <button
-                  key={text}
-                  type="button"
-                  onClick={() => handleSuggestionClick(text)}
-                  className="px-2 py-1 rounded-full border border-amber-200 text-amber-700 hover:bg-amber-50"
-                >
-                  {text}
-                </button>
-              ))}
+            <div className="space-y-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Quick Ask</div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {quickPrompts.map((text) => (
+                  <button
+                    key={text}
+                    type="button"
+                    onClick={() => handleSuggestionClick(text)}
+                    className="px-2.5 py-1 rounded-full border border-amber-200 text-amber-700 hover:bg-amber-50"
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
             </div>
-
-            {qaColumns.length > 0 && (
-              <div className="text-xs text-gray-500">
-                Detected columns: {qaColumns.slice(0, 6).join(", ")}
-                {qaColumns.length > 6 ? ` +${qaColumns.length - 6} more` : ""}
-              </div>
-            )}
           </form>
         </div>
 
@@ -1030,13 +1124,13 @@ const AiChartsPage: React.FC = () => {
                     </div>
                     <div className="mt-1 text-xs text-gray-600">
                       {result.column
-                        ? `Detected column: ${result.column}`
+                        ? `Column: ${result.column}`
                         : result.columns.length > 0
-                          ? `Columns: ${result.columns.slice(0, 3).join(", ")}${result.columns.length > 3 ? "..." : ""}`
-                          : "No columns detected in AI response."}
+                          ? `${result.columns.length} columns detected`
+                          : "No column detected"}
                     </div>
                     <div className="mt-2 text-xs text-gray-500">
-                      {result.error ? result.error : result.answer || "No answer."}
+                      {result.error ? result.error : truncateText(result.answer || "No answer.", 120)}
                     </div>
                   </button>
                 );
@@ -1046,30 +1140,43 @@ const AiChartsPage: React.FC = () => {
         )}
 
         {hasChart && (
-          <div className="bg-white dark:bg-gray-900/70 border dark:border-white/10 rounded-2xl p-5 shadow-sm">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
+          <div className="relative overflow-hidden rounded-3xl border border-amber-100 bg-white p-5 shadow-[0_16px_40px_rgba(180,83,9,0.08)] md:p-6 dark:bg-gray-900/75 dark:border-white/10">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.18),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.10),transparent_48%)]" />
+            <div className="relative flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-5">
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Generated Chart</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Click a point to focus. Drag the bottom range selector to zoom.
+                <div className="inline-flex items-center rounded-full border border-amber-300/70 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold tracking-[0.14em] text-amber-800">
+                  CHART PRECISION
+                </div>
+                <h3 className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Generated Chart</h3>
+                <p className="text-xs text-gray-600 dark:text-gray-300">
+                  Focus a category point, then use range zoom to inspect dense sections accurately.
                 </p>
               </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                Showing {chartData.length}/{chartTotalPoints} points
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-gray-700 dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-200">
+                  Showing {chartData.length}/{chartTotalPoints} points
+                </span>
+                {hiddenPointCount > 0 && (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-800">
+                    {hiddenPointCount} hidden by limit
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-              <div className="rounded-xl border border-gray-200 bg-white px-3 py-2">
-                <div className="text-[11px] text-gray-500 mb-1">Metric View</div>
+              <div className="rounded-2xl border border-amber-100 bg-white/90 px-3.5 py-3 dark:bg-gray-900/40 dark:border-white/10">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2 dark:text-gray-400">
+                  Metric View
+                </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setChartMetricView("absolute")}
                     className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${
                       chartMetricView === "absolute"
-                        ? "border-amber-400 bg-amber-50 text-amber-800"
-                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        ? "border-amber-500 bg-amber-500 text-white shadow-sm"
+                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-white/15 dark:bg-gray-900/60 dark:text-gray-300"
                     }`}
                   >
                     Absolute
@@ -1079,18 +1186,20 @@ const AiChartsPage: React.FC = () => {
                     onClick={() => setChartMetricView("percent")}
                     className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${
                       chartMetricView === "percent"
-                        ? "border-amber-400 bg-amber-50 text-amber-800"
-                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        ? "border-amber-500 bg-amber-500 text-white shadow-sm"
+                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-white/15 dark:bg-gray-900/60 dark:text-gray-300"
                     }`}
                   >
                     Share %
                   </button>
                 </div>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white px-3 py-2">
-                <div className="text-[11px] text-gray-500 mb-1">Sort</div>
+              <div className="rounded-2xl border border-amber-100 bg-white/90 px-3.5 py-3 dark:bg-gray-900/40 dark:border-white/10">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2 dark:text-gray-400">
+                  Sort
+                </div>
                 <select
-                  className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 dark:border-white/15 dark:bg-gray-900/60 dark:text-gray-200"
                   value={chartSortMode}
                   onChange={(e) =>
                     setChartSortMode(
@@ -1104,10 +1213,12 @@ const AiChartsPage: React.FC = () => {
                   <option value="label-asc">A to Z</option>
                 </select>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white px-3 py-2">
-                <div className="text-[11px] text-gray-500 mb-1">Point Limit</div>
+              <div className="rounded-2xl border border-amber-100 bg-white/90 px-3.5 py-3 dark:bg-gray-900/40 dark:border-white/10">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2 dark:text-gray-400">
+                  Point Limit
+                </div>
                 <select
-                  className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 dark:border-white/15 dark:bg-gray-900/60 dark:text-gray-200"
                   value={chartPointLimit}
                   onChange={(e) => setChartPointLimit(Number(e.target.value))}
                 >
@@ -1122,35 +1233,46 @@ const AiChartsPage: React.FC = () => {
             </div>
 
             {(baseChartSummary.mergedRows > 0 || baseChartSummary.droppedRows > 0 || hiddenPointCount > 0) && (
-              <div className="mb-4 text-xs text-gray-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                {baseChartSummary.mergedRows > 0
-                  ? `Merged ${baseChartSummary.mergedRows} duplicate category rows for accuracy. `
-                  : ""}
-                {baseChartSummary.droppedRows > 0
-                  ? `Ignored ${baseChartSummary.droppedRows} rows with non-numeric values. `
-                  : ""}
-                {hiddenPointCount > 0
-                  ? `Hidden ${hiddenPointCount} points due to current limit.`
-                  : ""}
+              <div className="mb-4 rounded-2xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">
+                  Accuracy Notes
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-amber-900">
+                  {baseChartSummary.mergedRows > 0 && (
+                    <span className="rounded-full bg-white/70 border border-amber-200 px-2.5 py-1">
+                      Merged {baseChartSummary.mergedRows} duplicate category rows
+                    </span>
+                  )}
+                  {baseChartSummary.droppedRows > 0 && (
+                    <span className="rounded-full bg-white/70 border border-amber-200 px-2.5 py-1">
+                      Ignored {baseChartSummary.droppedRows} non-numeric rows
+                    </span>
+                  )}
+                  {hiddenPointCount > 0 && (
+                    <span className="rounded-full bg-white/70 border border-amber-200 px-2.5 py-1">
+                      {hiddenPointCount} points hidden by current limit
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
             {generatedChartStats && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2">
-                  <div className="text-[11px] text-amber-700">Total</div>
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                <div className="rounded-2xl border border-orange-200 bg-orange-50/70 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold text-orange-800 uppercase tracking-wide">Total</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                     {formatDisplayValue(generatedChartStats.total, isPercentView)}
                   </div>
                 </div>
-                <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2">
-                  <div className="text-[11px] text-amber-700">Average</div>
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide">Average</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                     {formatDisplayValue(generatedChartStats.average, isPercentView)}
                   </div>
                 </div>
-                <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2">
-                  <div className="text-[11px] text-amber-700">Peak</div>
+                <div className="rounded-2xl border border-sky-200 bg-sky-50/70 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold text-sky-800 uppercase tracking-wide">Peak</div>
                   <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {generatedChartStats.peak.label}
                   </div>
@@ -1158,13 +1280,13 @@ const AiChartsPage: React.FC = () => {
                     {formatDisplayValue(generatedChartStats.peak.count, isPercentView)}
                   </div>
                 </div>
-                <div className="rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2">
-                  <div className="text-[11px] text-amber-700">
+                <div className="rounded-2xl border border-violet-200 bg-violet-50/70 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold text-violet-800 uppercase tracking-wide">
                     {hasCompareSeries ? (isPercentView ? "Delta vs Compare (pp)" : "Delta vs Compare") : "Lowest"}
                   </div>
                   {hasCompareSeries ? (
                     <div
-                      className={`text-sm font-semibold ${
+                      className={`text-lg font-semibold ${
                         (generatedChartStats.compareDelta || 0) >= 0 ? "text-emerald-600" : "text-rose-600"
                       }`}
                     >
@@ -1185,58 +1307,64 @@ const AiChartsPage: React.FC = () => {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => toggleSeries("count")}
-                className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
-                  showCountSeries
-                    ? "border-amber-300 bg-amber-50 text-amber-800"
-                    : "border-gray-200 bg-white text-gray-500"
-                }`}
-              >
-                {showCountSeries ? "Hide" : "Show"} {qaColumn || "Value"}
-              </button>
-              {hasCompareSeries && (
+            <div className="mb-3 rounded-2xl border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-white/10 dark:bg-gray-900/40">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => toggleSeries("compare")}
+                  onClick={() => toggleSeries("count")}
                   className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
-                    showCompareSeries
-                      ? "border-blue-300 bg-blue-50 text-blue-700"
-                      : "border-gray-200 bg-white text-gray-500"
+                    showCountSeries
+                      ? "border-amber-400 bg-amber-100 text-amber-900"
+                      : "border-gray-200 bg-white text-gray-600 dark:border-white/15 dark:bg-gray-900/60 dark:text-gray-300"
                   }`}
                 >
-                  {showCompareSeries ? "Hide" : "Show"} {qaCompareColumn || "Compare"}
+                  {showCountSeries ? "Hide" : "Show"} {qaColumn || "Value"}
                 </button>
-              )}
-              {focusedPoint && (
-                <button
-                  type="button"
-                  onClick={() => setFocusedLabel(null)}
-                  className="px-3 py-1.5 rounded-full border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                >
-                  Clear Focus
-                </button>
-              )}
-              {focusedPoint && (
-                <div className="text-xs text-gray-600 dark:text-gray-300 ml-auto">
-                  Focused: <span className="font-semibold">{focusedPoint.label}</span> |{" "}
-                  {qaColumn || "Value"}: {formatDisplayValue(focusedPoint.count, isPercentView)}
-                  {Number.isFinite(focusedPoint.compare as number)
-                    ? ` | ${qaCompareColumn || "Compare"}: ${formatDisplayValue(Number(focusedPoint.compare || 0), isPercentView)}`
-                    : ""}
+                {hasCompareSeries && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSeries("compare")}
+                    className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
+                      showCompareSeries
+                        ? "border-blue-400 bg-blue-100 text-blue-800"
+                        : "border-gray-200 bg-white text-gray-600 dark:border-white/15 dark:bg-gray-900/60 dark:text-gray-300"
+                    }`}
+                  >
+                    {showCompareSeries ? "Hide" : "Show"} {qaCompareColumn || "Compare"}
+                  </button>
+                )}
+                {focusedPoint && (
+                  <button
+                    type="button"
+                    onClick={() => setFocusedLabel(null)}
+                    className="px-3 py-1.5 rounded-full border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:border-white/15 dark:text-gray-300 dark:hover:bg-white/5"
+                  >
+                    Clear Focus
+                  </button>
+                )}
+                <div className="ml-auto text-xs text-gray-600 dark:text-gray-300">
+                  {focusedPoint ? (
+                    <>
+                      Focused: <span className="font-semibold">{focusedPoint.label}</span> | {qaColumn || "Value"}:{" "}
+                      {formatDisplayValue(focusedPoint.count, isPercentView)}
+                      {Number.isFinite(focusedPoint.compare as number)
+                        ? ` | ${qaCompareColumn || "Compare"}: ${formatDisplayValue(Number(focusedPoint.compare || 0), isPercentView)}`
+                        : ""}
+                    </>
+                  ) : (
+                    "Click a data point to inspect exact values."
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {!hasVisibleSeries && (
-              <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                Enable at least one series to see the chart.
+              <div className="mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                Enable at least one series to render the chart.
               </div>
             )}
 
-            <div className="h-[23rem] rounded-2xl border border-amber-100 bg-gradient-to-b from-white to-amber-50/40 p-3">
+            <div className="h-[24rem] rounded-2xl border border-amber-200/70 bg-[linear-gradient(180deg,#fff8ec_0%,#fffefb_45%,#f8fbff_100%)] p-3 md:p-4">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} onClick={handleChartPointFocus}>
                   <defs>
@@ -1257,7 +1385,7 @@ const AiChartsPage: React.FC = () => {
                       <stop offset="100%" stopColor="#60A5FA" />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
+                  <CartesianGrid strokeDasharray="4 4" stroke={chartPalette.grid} />
                   <XAxis
                     dataKey="label"
                     stroke={chartPalette.axis}
@@ -1364,7 +1492,7 @@ const AiChartsPage: React.FC = () => {
               </ResponsiveContainer>
             </div>
             <div className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">
-              Tip: click chart points, hide/show series, and drag the bottom selector to inspect dense areas.
+              Tip: click points for exact values, toggle series to isolate signals, then drag the bottom selector to zoom.
             </div>
           </div>
         )}
