@@ -28,6 +28,8 @@ const SchedulesPage: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [runningNowId, setRunningNowId] = useState<number | null>(null);
+  const [deliveryMode, setDeliveryMode] = useState<"send" | "schedule">("send");
+  const [sendingNow, setSendingNow] = useState(false);
 
   const [name, setName] = useState("");
   const [targetType, setTargetType] = useState("report");
@@ -40,6 +42,12 @@ const SchedulesPage: React.FC = () => {
   const [recipientsEmail, setRecipientsEmail] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
+
+  const resetComposer = () => {
+    setName("");
+    setRecipientsEmail("");
+    setAttachment(null);
+  };
 
   const loadSchedules = async () => {
     setLoading(true);
@@ -57,6 +65,48 @@ const SchedulesPage: React.FC = () => {
   useEffect(() => {
     loadSchedules();
   }, []);
+
+  const sendNow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSendingNow(true);
+      const emails = toList(recipientsEmail);
+      if (emails.length === 0) {
+        throw new Error("Enter at least one email recipient.");
+      }
+
+      const formData = new FormData();
+      formData.append("recipientsEmail", JSON.stringify(emails));
+      if (name.trim()) {
+        formData.append("subject", name.trim());
+      }
+      if (attachment) {
+        formData.append("file", attachment);
+      }
+
+      const res = await apiFetch("/api/schedules/send-now", {
+        method: "POST",
+        body: formData,
+      });
+      const raw = await res.text();
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        throw new Error((data && data.message) || raw || "Failed to send email");
+      }
+      alert(data?.message || "Email sent.");
+      resetComposer();
+      await loadSchedules();
+    } catch (err: any) {
+      alert(err?.message || "Failed to send email");
+    } finally {
+      setSendingNow(false);
+    }
+  };
 
   const createSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,9 +140,7 @@ const SchedulesPage: React.FC = () => {
         body: formData,
       });
       if (!res.ok) throw new Error(await res.text());
-      setName("");
-      setRecipientsEmail("");
-      setAttachment(null);
+      resetComposer();
       await loadSchedules();
     } catch (err: any) {
       alert(err?.message || "Failed to create schedule");
@@ -175,21 +223,55 @@ const SchedulesPage: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-amber-100 p-5">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Create Schedule</h3>
+            <div className="mb-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDeliveryMode("send")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                  deliveryMode === "send"
+                    ? "bg-amber-500 text-white"
+                    : "border border-amber-200 bg-white text-amber-700"
+                }`}
+              >
+                Quick Send
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliveryMode("schedule")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                  deliveryMode === "schedule"
+                    ? "bg-amber-500 text-white"
+                    : "border border-amber-200 bg-white text-amber-700"
+                }`}
+              >
+                Create Schedule
+              </button>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">
+              {deliveryMode === "send" ? "Send File By Email" : "Create Schedule"}
+            </h3>
+            <p className="mb-4 text-sm text-gray-500">
+              {deliveryMode === "send"
+                ? "Upload a file, enter email recipients, and send immediately without choosing a schedule time."
+                : "Create an automated email delivery that runs on a fixed time."}
+            </p>
             <form
-              onSubmit={createSchedule}
+              onSubmit={deliveryMode === "send" ? sendNow : createSchedule}
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Name</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  {deliveryMode === "send" ? "Email Subject" : "Name"}
+                </label>
                 <input
                   className="w-full border rounded-lg px-3 py-2"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Weekly Roaming Report"
-                  required
+                  placeholder={deliveryMode === "send" ? "Roaming report delivery" : "Weekly Roaming Report"}
+                  required={deliveryMode === "schedule"}
                 />
               </div>
+              {deliveryMode === "schedule" && (
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Target</label>
                 <div className="flex gap-2">
@@ -213,6 +295,8 @@ const SchedulesPage: React.FC = () => {
                   Use the ID from your saved report or dashboard.
                 </div>
               </div>
+              )}
+              {deliveryMode === "schedule" && (
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Frequency</label>
                 <select
@@ -225,6 +309,8 @@ const SchedulesPage: React.FC = () => {
                   <option value="monthly">Monthly</option>
                 </select>
               </div>
+              )}
+              {deliveryMode === "schedule" && (
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Time</label>
                 <input
@@ -234,7 +320,8 @@ const SchedulesPage: React.FC = () => {
                   onChange={(e) => setTimeOfDay(e.target.value)}
                 />
               </div>
-              {frequency === "weekly" && (
+              )}
+              {deliveryMode === "schedule" && frequency === "weekly" && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">
                     Day of Week
@@ -254,7 +341,7 @@ const SchedulesPage: React.FC = () => {
                   </select>
                 </div>
               )}
-              {frequency === "monthly" && (
+              {deliveryMode === "schedule" && frequency === "monthly" && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">
                     Day of Month
@@ -275,6 +362,7 @@ const SchedulesPage: React.FC = () => {
                   className="w-full border rounded-lg px-3 py-2"
                   value={fileFormat}
                   onChange={(e) => setFileFormat(e.target.value)}
+                  disabled={deliveryMode === "send"}
                 >
                   <option value="pptx">PPTX</option>
                   <option value="pdf">PDF</option>
@@ -306,6 +394,7 @@ const SchedulesPage: React.FC = () => {
                   </div>
                 )}
               </div>
+              {deliveryMode === "schedule" && (
               <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
                 <input
                   type="checkbox"
@@ -314,13 +403,18 @@ const SchedulesPage: React.FC = () => {
                 />
                 Active schedule
               </label>
+              )}
               <div className="md:col-span-2">
-                <button className="px-4 py-2 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600">
-                  Create Schedule
+                <button
+                  className="px-4 py-2 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 disabled:opacity-60"
+                  disabled={sendingNow}
+                >
+                  {deliveryMode === "send" ? (sendingNow ? "Sending..." : "Send Now") : "Create Schedule"}
                 </button>
                 <div className="text-[11px] text-gray-500 mt-2">
-                  Attachments are sent with email (and noted in Teams) when delivery
-                  credentials are configured on the server.
+                  {deliveryMode === "send"
+                    ? "Quick Send uses the server email settings and sends immediately to the addresses you enter."
+                    : "Attachments are sent with email (and noted in Teams) when delivery credentials are configured on the server."}
                 </div>
               </div>
             </form>

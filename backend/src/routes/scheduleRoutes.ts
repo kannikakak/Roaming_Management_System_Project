@@ -7,6 +7,7 @@ import { computeNextRunAt, runDueSchedules, ScheduleFrequency } from "../service
 import { requireAuth, requireRole } from "../middleware/auth";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { writeAuditLog } from "../utils/auditLogger";
+import { isEmailReady, sendEmail } from "../services/delivery";
 
 type SchedulePayload = {
   name: string;
@@ -52,6 +53,19 @@ function toList(input?: string[] | string) {
 function toNumber(value: unknown, fallback: number) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+async function createNotification(
+  dbPool: Pool,
+  type: string,
+  channel: string,
+  message: string,
+  metadata?: unknown
+) {
+  await dbPool.execute(
+    "INSERT INTO notifications (type, channel, message, metadata) VALUES (?, ?, ?, ?)",
+    [type, channel, message, JSON.stringify(metadata ?? null)]
+  );
 }
 
 export function scheduleRoutes(dbPool: Pool) {
@@ -191,6 +205,77 @@ export function scheduleRoutes(dbPool: Pool) {
       res.json({ ok: true, scheduleId });
     } catch (err: any) {
       res.status(500).send(err.message || "Failed to create schedule");
+    }
+  });
+
+  router.post("/send-now", requireRole(["admin", "analyst"]), upload.single("file"), async (req, res) => {
+    try {
+      const recipientsEmail = toList((req.body as { recipientsEmail?: string[] | string }).recipientsEmail);
+      if (recipientsEmail.length === 0) {
+        return res.status(400).json({ message: "At least one email recipient is required." });
+      }
+      if (!isEmailReady) {
+        return res.status(400).json({
+          message:
+            "Email delivery is not configured on the server. Set SMTP_HOST, SMTP_FROM, and SMTP credentials first.",
+        });
+      }
+
+      const file = req.file as Express.Multer.File | undefined;
+      const attachment = file
+        ? {
+            path: file.path,
+            name: file.originalname,
+            mime: file.mimetype || "application/octet-stream",
+            size: file.size,
+          }
+        : undefined;
+      const subject = String((req.body as { subject?: string }).subject || "").trim() || "Roaming report delivery";
+      const message =
+        String((req.body as { message?: string }).message || "").trim() ||
+        "Please find the requested file attached.";
+
+      const result = await sendEmail(recipientsEmail, subject, message, attachment);
+
+      await createNotification(
+        dbPool,
+        "schedule_delivery",
+        "email",
+        subject,
+        {
+          mode: "send_now",
+          recipients: recipientsEmail,
+          sent: result.ok,
+          reason: result.ok ? null : result.reason || "unknown",
+          attachmentName: attachment?.name || null,
+        }
+      );
+
+      await writeAuditLog(dbPool, {
+        req,
+        action: "schedule_send_now",
+        details: {
+          recipientsEmailCount: recipientsEmail.length,
+          subject,
+          sent: result.ok,
+          reason: result.reason || null,
+          attachmentName: attachment?.name || null,
+        },
+      });
+
+      if (!result.ok) {
+        return res.status(502).json({
+          ok: false,
+          message: result.reason || "Email delivery failed.",
+        });
+      }
+
+      return res.json({
+        ok: true,
+        message: `Sent to ${recipientsEmail.length} recipient(s).`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message || "Failed to send email now." });
     }
   });
 
