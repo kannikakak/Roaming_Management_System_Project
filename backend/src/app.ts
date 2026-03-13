@@ -11,7 +11,7 @@ import { buildCorsOptions } from "./utils/cors";
 dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const app: Express = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const corsOptions = buildCorsOptions();
 
 

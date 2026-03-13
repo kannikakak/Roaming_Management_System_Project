@@ -94,6 +94,12 @@ docker-compose build
 - Configure proper CORS origins
 - Enable SSL/TLS
 - Set up proper backup strategy
+- If frontend and backend are deployed on different domains, pass `REACT_APP_API_URL` as a Docker build arg for the frontend image so the built React app points to the backend API.
+
+Example:
+```bash
+docker build -f frontend/Dockerfile --build-arg REACT_APP_API_URL=https://your-backend.example.com -t roaming-frontend ./frontend
+```
 
 ### Health Checks
 

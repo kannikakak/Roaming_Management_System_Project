@@ -2,6 +2,7 @@
 // - CRA dev server typically runs on :3000
 // - Backend API typically runs on :3001 (also matches frontend/package.json "proxy")
 const DEFAULT_DEV_BACKEND = "http://localhost:3001";
+const DEFAULT_DEV_BACKEND_PORT = new URL(DEFAULT_DEV_BACKEND).port;
 
 export function getApiBaseUrl() {
   const envBase = process.env.REACT_APP_API_URL;
@@ -13,8 +14,9 @@ export function getApiBaseUrl() {
   // When running the containerized build (e.g., :80 via nginx), we want same-origin
   // so that `/api/*` can be reverse-proxied by nginx without CORS issues.
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    if (port === "3000") return DEFAULT_DEV_BACKEND;
-    return origin;
+    if (!port || port === "80" || port === "443") return origin;
+    if (port === DEFAULT_DEV_BACKEND_PORT) return origin;
+    return DEFAULT_DEV_BACKEND;
   }
 
   return origin;
