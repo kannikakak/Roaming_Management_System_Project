@@ -10,13 +10,13 @@ import {
   Line,
   LineChart,
   ReferenceLine,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { apiFetch } from "../utils/api";
 import { useTheme } from "../theme/ThemeProvider";
+import ChartContainer from "../components/ChartContainer";
 
 type Project = { id: number; name: string };
 type FileItem = { id: number; name: string };
@@ -1365,7 +1365,7 @@ const AiChartsPage: React.FC = () => {
             )}
 
             <div className="h-[24rem] rounded-2xl border border-amber-200/70 bg-[linear-gradient(180deg,#fff8ec_0%,#fffefb_45%,#f8fbff_100%)] p-3 md:p-4">
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer>
                 <ComposedChart data={chartData} onClick={handleChartPointFocus}>
                   <defs>
                     <linearGradient id="aiStudioCountArea" x1="0" y1="0" x2="0" y2="1">
@@ -1489,7 +1489,7 @@ const AiChartsPage: React.FC = () => {
                     />
                   )}
                 </ComposedChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             </div>
             <div className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">
               Tip: click points for exact values, toggle series to isolate signals, then drag the bottom selector to zoom.
@@ -1597,7 +1597,7 @@ const AiChartsPage: React.FC = () => {
                 <div className="rounded-2xl border border-amber-100 p-4 bg-white">
                   <h4 className="font-semibold text-gray-900 mb-2">Predictive Trend ({insightMetricLabel})</h4>
                   <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ChartContainer>
                       <LineChart data={insightForecastSeries}>
                         <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                         <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
@@ -1630,7 +1630,7 @@ const AiChartsPage: React.FC = () => {
                           connectNulls
                         />
                       </LineChart>
-                    </ResponsiveContainer>
+                    </ChartContainer>
                   </div>
                 </div>
               )}

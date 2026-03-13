@@ -4,12 +4,12 @@ import {
   Legend,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { apiFetch } from "../utils/api";
+import ChartContainer from "../components/ChartContainer";
 
 type Project = {
   id: number;
@@ -372,7 +372,7 @@ const PartnerScorecardPage: React.FC = () => {
                   Compare monthly revenue trajectories for top-ranked partners.
                 </p>
                 <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ChartContainer>
                     <LineChart data={topTrendData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#F3E8D2" />
                       <XAxis
@@ -401,7 +401,7 @@ const PartnerScorecardPage: React.FC = () => {
                         />
                       ))}
                     </LineChart>
-                  </ResponsiveContainer>
+                  </ChartContainer>
                 </div>
               </div>
 
@@ -414,7 +414,7 @@ const PartnerScorecardPage: React.FC = () => {
                   <span className="font-semibold">{selectedPartnerData?.partner || "no partner selected"}</span>.
                 </p>
                 <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ChartContainer>
                     <LineChart data={selectedTrendData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#F3E8D2" />
                       <XAxis
@@ -450,7 +450,7 @@ const PartnerScorecardPage: React.FC = () => {
                         activeDot={{ r: 5 }}
                       />
                     </LineChart>
-                  </ResponsiveContainer>
+                  </ChartContainer>
                 </div>
               </div>
             </div>

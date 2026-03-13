@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Database,
   BarChart2,
@@ -16,13 +17,13 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
   CartesianGrid,
   BarChart,
   Bar,
 } from "recharts";
 import { apiFetch } from "../utils/api";
 import { useTheme } from "../theme/ThemeProvider";
+import ChartContainer from "../components/ChartContainer";
 
 type Project = { id: number; name: string };
 
@@ -191,18 +192,18 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2.5">
-              <a
-                href="/projects"
+              <Link
+                to="/projects"
                 className="px-4 py-2 rounded-lg border border-amber-200 text-amber-700 font-semibold hover:bg-amber-50 dark:border-amber-400/20 dark:text-amber-300 dark:hover:bg-amber-500/10"
               >
                 View Projects
-              </a>
-              <a
-                href="/schedules"
+              </Link>
+              <Link
+                to="/schedules"
                 className="px-4 py-2 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600"
               >
                 Create Schedule
-              </a>
+              </Link>
             </div>
           </div>
         </section>
@@ -300,7 +301,7 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="h-44 md:h-52">
-              <ResponsiveContainer width="100%" height="100%">
+              <ChartContainer>
                 <LineChart data={activitySeriesWithComparison}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                   <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
@@ -331,7 +332,7 @@ export default function Dashboard() {
                     activeDot={{ r: 5 }}
                   />
                 </LineChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             </div>
           </div>
 
@@ -371,7 +372,7 @@ export default function Dashboard() {
               <div className="text-sm text-gray-500 dark:text-gray-400">No projects yet.</div>
             ) : (
               <div className="h-52">
-                <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer>
                   <BarChart data={topProjects} layout="vertical" margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                     <XAxis type="number" stroke={chartPalette.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} />
@@ -379,7 +380,7 @@ export default function Dashboard() {
                     <Tooltip />
                     <Bar dataKey="count" fill={ACCENT} radius={[0, 10, 10, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               </div>
             )}
           </div>

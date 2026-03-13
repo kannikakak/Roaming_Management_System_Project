@@ -14,7 +14,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
   CartesianGrid,
   BarChart,
   Bar,
@@ -26,6 +25,7 @@ import {
 import { apiFetch } from "../utils/api";
 import { useTheme } from "../theme/ThemeProvider";
 import * as htmlToImage from "html-to-image";
+import ChartContainer from "../components/ChartContainer";
 
 type AnalyticsSeries = { name: string; value: number };
 
@@ -545,8 +545,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                   </div>
                   <TrendingUp className="w-5 h-5 text-amber-700 dark:text-amber-300" />
                 </div>
-                <div className="h-64" ref={setChartRef("rowTrend")}>
-                  <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer className="h-64 min-w-0" containerRef={setChartRef("rowTrend")}>
                     <LineChart data={rowTrendSeries}>
                       <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                       <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
@@ -563,8 +562,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                       />
                       <Line type="monotone" dataKey="rows" stroke={ACCENT} strokeWidth={3} dot={{ r: 2 }} activeDot={{ r: 5 }} />
                     </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                </ChartContainer>
               </div>
 
               <div className="rounded-2xl border border-amber-100 p-4 bg-white dark:bg-white/5 dark:border-white/10">
@@ -578,8 +576,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 {analytics.partnerShare.length === 0 ? (
                   <div className="text-sm text-gray-500 dark:text-gray-400">No partner data yet.</div>
                 ) : (
-                  <div className="h-64" ref={setChartRef("partnerShare")}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <ChartContainer className="h-64 min-w-0" containerRef={setChartRef("partnerShare")}>
                       <PieChart>
                         <Pie
                           data={analytics.partnerShare}
@@ -604,8 +601,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                         />
                         <Legend />
                       </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+                  </ChartContainer>
                 )}
                 {drilldownPartner && (
                   <div className="text-xs text-amber-700 dark:text-amber-300 mt-2">
@@ -622,8 +618,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                   </div>
                   <Database className="w-5 h-5 text-amber-700 dark:text-amber-300" />
                 </div>
-                <div className="h-56" ref={setChartRef("uploadTrend")}>
-                  <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer className="h-56 min-w-0" containerRef={setChartRef("uploadTrend")}>
                     <LineChart data={uploadTrendSeries}>
                       <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                       <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
@@ -640,8 +635,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                       />
                       <Line type="monotone" dataKey="files" stroke={ACCENT_SOFT} strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
                     </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                </ChartContainer>
               </div>
 
               <div className="xl:col-span-2 rounded-2xl border border-amber-100 p-4 bg-white dark:bg-white/5 dark:border-white/10">
@@ -655,8 +649,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 {analytics.projectComparison.length === 0 ? (
                   <div className="text-sm text-gray-500 dark:text-gray-400">No project data yet.</div>
                 ) : (
-                  <div className="h-64" ref={setChartRef("projectComparison")}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <ChartContainer className="h-64 min-w-0" containerRef={setChartRef("projectComparison")}>
                       <BarChart data={analytics.projectComparison} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                         <XAxis dataKey="name" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
@@ -674,8 +667,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                         <Bar dataKey="rowCount" name="Rows" fill={ACCENT} radius={[10, 10, 0, 0]} />
                         <Bar dataKey="fileCount" name="Files" fill={ACCENT_SOFT} radius={[10, 10, 0, 0]} />
                       </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  </ChartContainer>
                 )}
               </div>
 
@@ -694,8 +686,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 {drilldownSeries.length === 0 ? (
                   <div className="text-sm text-gray-500 dark:text-gray-400">No country data yet.</div>
                 ) : (
-                  <div className="h-64" ref={setChartRef("countryDrilldown")}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <ChartContainer className="h-64 min-w-0" containerRef={setChartRef("countryDrilldown")}>
                       <BarChart data={drilldownSeries} layout="vertical" margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                         <XAxis type="number" stroke={chartPalette.axis} fontSize={12} allowDecimals={false} tickLine={false} axisLine={false} />
@@ -710,8 +701,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                         />
                         <Bar dataKey="value" fill={ACCENT} radius={[0, 10, 10, 0]} />
                       </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  </ChartContainer>
                 )}
               </div>
             </div>

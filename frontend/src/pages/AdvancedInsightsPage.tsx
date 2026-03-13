@@ -6,11 +6,11 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
 import { apiFetch } from "../utils/api";
 import { useTheme } from "../theme/ThemeProvider";
+import ChartContainer from "../components/ChartContainer";
 
 type InsightDailyPoint = {
   day: string;
@@ -306,7 +306,7 @@ const AdvancedInsightsPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ChartContainer>
                     <LineChart data={insightForecastSeries}>
                       <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
                       <XAxis dataKey="label" stroke={chartPalette.axis} fontSize={12} tickLine={false} axisLine={false} />
@@ -339,7 +339,7 @@ const AdvancedInsightsPage: React.FC = () => {
                         connectNulls
                       />
                     </LineChart>
-                  </ResponsiveContainer>
+                  </ChartContainer>
                 </div>
               </div>
 
@@ -443,4 +443,3 @@ const AdvancedInsightsPage: React.FC = () => {
 };
 
 export default AdvancedInsightsPage;
-
