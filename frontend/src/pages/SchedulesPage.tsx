@@ -66,6 +66,84 @@ const SchedulesPage: React.FC = () => {
     loadSchedules();
   }, []);
 
+  const createTemporaryScheduleAndSend = async (emails: string[]) => {
+    const formData = new FormData();
+    formData.append("name", name.trim() || "Quick Send");
+    formData.append("targetType", "report");
+    formData.append("targetId", "1");
+    formData.append("frequency", "daily");
+    formData.append("timeOfDay", "00:00");
+    formData.append("fileFormat", fileFormat);
+    formData.append("isActive", "true");
+    formData.append("recipientsEmail", JSON.stringify(emails));
+    if (attachment) {
+      formData.append("file", attachment);
+    }
+
+    const createRes = await apiFetch("/api/schedules/with-file", {
+      method: "POST",
+      body: formData,
+    });
+    const createRaw = await createRes.text();
+    let createData: any = null;
+    try {
+      createData = createRaw ? JSON.parse(createRaw) : null;
+    } catch {
+      createData = null;
+    }
+    if (!createRes.ok) {
+      throw new Error((createData && createData.message) || createRaw || "Failed to create temporary schedule");
+    }
+
+    const scheduleId = Number(createData?.scheduleId || 0);
+    if (!scheduleId) {
+      throw new Error("Temporary schedule was created without an ID.");
+    }
+
+    try {
+      const runRes = await apiFetch(`/api/schedules/${scheduleId}/run-now`, {
+        method: "POST",
+      });
+      const runRaw = await runRes.text();
+      let runData: any = null;
+      try {
+        runData = runRaw ? JSON.parse(runRaw) : null;
+      } catch {
+        runData = null;
+      }
+      if (!runRes.ok) {
+        throw new Error((runData && runData.message) || runRaw || "Failed to run temporary schedule");
+      }
+
+      const recent = Array.isArray(runData?.notifications) ? runData.notifications : [];
+      const failures = recent.filter((n: any) => {
+        const type = String(n?.type || "");
+        const sent = n?.metadata?.sent;
+        return type === "schedule_error" || type === "schedule_warning" || sent === false;
+      });
+      if (failures.length > 0) {
+        const reasons = Array.from(
+          new Set(
+            failures
+              .map(
+                (n: any) =>
+                  n?.metadata?.error ||
+                  n?.metadata?.reason ||
+                  n?.message ||
+                  `${n?.channel || "channel"} failed`
+              )
+              .filter(Boolean)
+          )
+        );
+        throw new Error(reasons.slice(0, 3).join(" | ") || "Quick Send finished with issues.");
+      }
+    } finally {
+      await apiFetch(`/api/schedules/${scheduleId}`, { method: "DELETE" }).catch(() => null);
+    }
+
+    return `Sent to ${emails.length} recipient(s).`;
+  };
+
   const sendNow = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -94,6 +172,13 @@ const SchedulesPage: React.FC = () => {
         data = raw ? JSON.parse(raw) : null;
       } catch {
         data = null;
+      }
+      if (res.status === 404) {
+        const fallbackMessage = await createTemporaryScheduleAndSend(emails);
+        alert(fallbackMessage);
+        resetComposer();
+        await loadSchedules();
+        return;
       }
       if (!res.ok) {
         throw new Error((data && data.message) || raw || "Failed to send email");
