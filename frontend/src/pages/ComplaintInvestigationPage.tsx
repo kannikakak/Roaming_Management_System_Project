@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Loader2, Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 type Project = {
@@ -7,451 +7,466 @@ type Project = {
   name: string;
 };
 
-type ComplaintResponse = {
-  filters: {
-    q: string | null;
-    partner: string | null;
-    country: string | null;
-    days: number;
-    limit: number;
-  };
-  summary: {
-    candidatePairs: number;
-    uniquePartners: number;
-    uniqueCountries: number;
-    openAlerts: number;
-    recentUploads: number;
-  };
-  candidates: Array<{
-    partner: string;
-    country: string;
-    rows: number;
-    usage: number;
-    revenue: number;
-    expected: number;
-    actual: number;
-    leakage: number;
-    leakagePct: number | null;
-    openAlerts: number;
-    riskScore: number;
-    lastSeen: string | null;
-  }>;
-  countryProfiles: Array<{
-    country: string;
-    partners: number;
-    rows: number;
-    totalLeakage: number;
-    openAlerts: number;
-    highestRiskPartner: string | null;
-  }>;
-  alerts: Array<{
-    id: number;
-    severity: string;
-    status: string;
-    title: string;
-    message: string;
-    partner: string | null;
-    projectId: number | null;
-    projectName: string | null;
-    lastDetectedAt: string;
-  }>;
-  recentUploads: Array<{
-    fileId: number;
-    fileName: string;
-    projectId: number;
-    projectName: string;
-    uploadedAt: string;
-    totalRows: number;
-    partnerCount: number;
-    netRevenue: number;
-    usage: number;
-  }>;
-  recommendations: string[];
+type UploadedFile = {
+  id: number;
+  name: string;
 };
 
-const DAY_OPTIONS = [7, 14, 30, 60, 90];
-const LIMIT_OPTIONS = [10, 12, 20, 30];
+type RowObject = Record<string, unknown>;
 
-const numberText = (value: number | null | undefined, digits = 2) => {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
+type FileDataResponse = {
+  columns: string[];
+  rows: RowObject[];
 };
 
-const formatDateTime = (value: string | null | undefined) => {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString();
+const PAGE_SIZES = [10, 20, 50];
+
+const normalizeCellValue = (value: unknown) => {
+  if (value === null || value === undefined) return "";
+  const text = String(value).trim();
+  if (!text || text === "-" || text.toLowerCase() === "null" || text.toLowerCase() === "nan") return "";
+  return text;
 };
 
 const ComplaintInvestigationPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState<number | "all">("all");
-  const [q, setQ] = useState("");
-  const [partner, setPartner] = useState("");
-  const [country, setCountry] = useState("");
-  const [days, setDays] = useState(14);
-  const [limit, setLimit] = useState(12);
+  const [projectId, setProjectId] = useState<number | "">("");
 
-  const [loading, setLoading] = useState(false);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<number | "">("");
+
+  const [rows, setRows] = useState<RowObject[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [selectedColumn, setSelectedColumn] = useState("");
+
+  const [inputValue, setInputValue] = useState("");
+  const [activeValue, setActiveValue] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const [pageSize, setPageSize] = useState(20);
+  const [page, setPage] = useState(1);
+
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [loadingFileData, setLoadingFileData] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<ComplaintResponse | null>(null);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("authUser");
-    const userId = storedUser ? JSON.parse(storedUser)?.id : 1;
-    apiFetch(`/api/projects?user_id=${userId}`)
-      .then((res) => res.json())
-      .then((json) => {
-        setProjects(Array.isArray(json) ? (json as Project[]) : []);
-      })
-      .catch(() => {
+    let active = true;
+    const loadProjects = async () => {
+      try {
+        setLoadingProjects(true);
+        setError(null);
+        const storedUser = localStorage.getItem("authUser");
+        const userId = storedUser ? JSON.parse(storedUser)?.id : 1;
+        const res = await apiFetch(`/api/projects?user_id=${userId}`);
+        if (!res.ok) throw new Error("Failed to load projects.");
+        const json = await res.json();
+        if (!active) return;
+
+        const list: Project[] = Array.isArray(json)
+          ? json
+              .map((item: any) => ({
+                id: Number(item?.id || 0),
+                name: String(item?.name || "Untitled project"),
+              }))
+              .filter((item: Project) => item.id > 0)
+          : [];
+        setProjects(list);
+        setProjectId("");
+      } catch (err: any) {
+        if (!active) return;
         setProjects([]);
-      });
-  }, []);
-
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams();
-    if (projectId !== "all") params.set("projectId", String(projectId));
-    if (q.trim()) params.set("q", q.trim());
-    if (partner.trim()) params.set("partner", partner.trim());
-    if (country.trim()) params.set("country", country.trim());
-    params.set("days", String(days));
-    params.set("limit", String(limit));
-    return params.toString();
-  }, [country, days, limit, partner, projectId, q]);
-
-  const runInvestigation = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await apiFetch(`/api/operations/complaint-investigation?${queryString}`);
-      if (!res.ok) {
-        let message = "Failed to run complaint investigation.";
-        try {
-          const json = await res.json();
-          if (json?.message) {
-            message = String(json.message);
-          }
-        } catch {
-          const text = await res.text();
-          if (text) message = text;
-        }
-        throw new Error(message);
+        setProjectId("");
+        setError(err?.message || "Cannot load projects.");
+      } finally {
+        if (active) setLoadingProjects(false);
       }
-      const json = (await res.json()) as ComplaintResponse;
-      setData(json);
-    } catch (err: any) {
-      setError(err?.message || "Failed to run complaint investigation.");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  const clearFilters = () => {
-    setProjectId("all");
-    setQ("");
-    setPartner("");
-    setCountry("");
-    setDays(14);
-    setLimit(12);
-  };
+    void loadProjects();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
-    runInvestigation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!projectId) {
+      setFiles([]);
+      setSelectedFileId("");
+      setRows([]);
+      setColumns([]);
+      setSelectedColumn("");
+      setInputValue("");
+      setActiveValue("");
+      setHasSearched(false);
+      return;
+    }
+
+    let active = true;
+    const loadFiles = async () => {
+      try {
+        setLoadingFiles(true);
+        setError(null);
+        const res = await apiFetch(`/api/files?projectId=${projectId}`);
+        if (!res.ok) throw new Error("Failed to load uploaded files.");
+        const json = await res.json();
+        if (!active) return;
+
+        const list: UploadedFile[] = Array.isArray(json?.files)
+          ? json.files
+              .map((item: any) => ({
+                id: Number(item?.id || 0),
+                name: String(item?.name || "Unknown file"),
+              }))
+              .filter((item: UploadedFile) => item.id > 0)
+          : [];
+        setFiles(list);
+        setSelectedFileId("");
+        setRows([]);
+        setColumns([]);
+        setSelectedColumn("");
+        setInputValue("");
+        setActiveValue("");
+        setHasSearched(false);
+      } catch (err: any) {
+        if (!active) return;
+        setFiles([]);
+        setSelectedFileId("");
+        setRows([]);
+        setColumns([]);
+        setSelectedColumn("");
+        setInputValue("");
+        setActiveValue("");
+        setError(err?.message || "Cannot load uploaded files.");
+      } finally {
+        if (active) setLoadingFiles(false);
+      }
+    };
+
+    void loadFiles();
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!selectedFileId) {
+      setRows([]);
+      setColumns([]);
+      setSelectedColumn("");
+      setInputValue("");
+      setActiveValue("");
+      setHasSearched(false);
+      return;
+    }
+
+    let active = true;
+    const loadFileData = async () => {
+      try {
+        setLoadingFileData(true);
+        setError(null);
+        const res = await apiFetch(`/api/files/${selectedFileId}/data`);
+        if (!res.ok) throw new Error("Failed to load file data.");
+        const json = (await res.json()) as FileDataResponse;
+        if (!active) return;
+
+        const nextRows = Array.isArray(json?.rows) ? json.rows : [];
+        const nextColumns =
+          Array.isArray(json?.columns) && json.columns.length > 0
+            ? json.columns.map((col) => String(col || "").trim()).filter(Boolean)
+            : Object.keys(nextRows[0] || {});
+
+        setRows(nextRows);
+        setColumns(nextColumns);
+        setSelectedColumn("");
+        setInputValue("");
+        setActiveValue("");
+        setHasSearched(false);
+        setPage(1);
+      } catch (err: any) {
+        if (!active) return;
+        setRows([]);
+        setColumns([]);
+        setSelectedColumn("");
+        setInputValue("");
+        setActiveValue("");
+        setError(err?.message || "Cannot load selected file.");
+      } finally {
+        if (active) setLoadingFileData(false);
+      }
+    };
+
+    void loadFileData();
+    return () => {
+      active = false;
+    };
+  }, [selectedFileId]);
+
+  const valueOptions = useMemo(() => {
+    if (!selectedColumn || rows.length === 0) return [];
+    const counts = new Map<string, number>();
+    const sampleSize = Math.min(rows.length, 5000);
+    for (let i = 0; i < sampleSize; i += 1) {
+      const value = normalizeCellValue(rows[i]?.[selectedColumn]);
+      if (!value) continue;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 20)
+      .map(([value]) => value);
+  }, [rows, selectedColumn]);
+
+  const filteredRows = useMemo(() => {
+    if (!hasSearched || !selectedColumn) return [];
+    const filterValue = activeValue.trim().toLowerCase();
+    if (!filterValue) return [];
+    return rows.filter((row) => normalizeCellValue(row?.[selectedColumn]).toLowerCase() === filterValue);
+  }, [activeValue, hasSearched, rows, selectedColumn]);
+
+  const totalRows = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, activeValue, selectedColumn, selectedFileId]);
+
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const end = start + pageSize;
+  const visibleRows = filteredRows.slice(start, end);
+
+  const applyFilter = () => {
+    const next = inputValue.trim();
+    if (!selectedColumn || !next) return;
+    setActiveValue(next);
+    setHasSearched(true);
+    setPage(1);
+  };
 
   return (
-    <div className="min-h-screen p-6 bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900">
+      <div className="mx-auto max-w-7xl space-y-5">
         <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-          <div className="flex flex-col gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-amber-600 font-semibold dark:text-amber-300">
-                Complaint Desk
-              </p>
-              <h2 className="text-3xl font-bold text-gray-900 mt-2 dark:text-gray-100">
-                Find complaint issues quickly
-              </h2>
-              <p className="text-sm text-gray-500 mt-1.5 dark:text-gray-400">
-                Filter by keyword, partner, and country. Then review risky routes, open alerts, and recent uploads below.
-              </p>
-            </div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Column Filter Search</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Select one column and one value. The table shows rows that match exactly.
+          </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
-              <div className="md:col-span-2 xl:col-span-2">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                  Keyword
-                </div>
-                <label className="relative block">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 dark:text-gray-500" />
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Example: revenue drop, missing records, SMS"
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                  />
-                </label>
-              </div>
-
-              <div>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                  Partner
-                </div>
-                <input
-                  value={partner}
-                  onChange={(e) => setPartner(e.target.value)}
-                  placeholder="Example: Optus"
-                  className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                />
-              </div>
-
-              <div>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                  Country
-                </div>
-                <input
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                  placeholder="Example: Australia"
-                  className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                />
-              </div>
-
-              <div>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                  Project
-                </div>
-                <select
-                  value={projectId}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setProjectId(next === "all" ? "all" : Number(next));
-                  }}
-                  className="w-full px-3 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                >
-                  <option value="all">All Projects</option>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")}
+              disabled={loadingProjects}
+              className="w-full rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-sm text-gray-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+            >
+              {loadingProjects ? (
+                <option value="">Loading projects...</option>
+              ) : projects.length === 0 ? (
+                <option value="">No projects</option>
+              ) : (
+                <>
+                  <option value="">Select project</option>
                   {projects.map((project) => (
                     <option key={project.id} value={project.id}>
                       {project.name}
                     </option>
                   ))}
-                </select>
-              </div>
+                </>
+              )}
+            </select>
 
-              <div className="xl:col-span-1">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                  Time and Results
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    value={days}
-                    onChange={(e) => setDays(Number(e.target.value))}
-                    className="w-full px-2 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                  >
-                    {DAY_OPTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        {value} days
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={limit}
-                    onChange={(e) => setLimit(Number(e.target.value))}
-                    className="w-full px-2 py-2.5 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
-                  >
-                    {LIMIT_OPTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        Top {value}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
+            <select
+              value={selectedFileId}
+              onChange={(e) => setSelectedFileId(e.target.value ? Number(e.target.value) : "")}
+              disabled={!projectId || loadingFiles}
+              className="w-full rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-sm text-gray-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+            >
+              {!projectId ? (
+                <option value="">Select project first</option>
+              ) : loadingFiles ? (
+                <option value="">Loading files...</option>
+              ) : files.length === 0 ? (
+                <option value="">No uploaded files</option>
+              ) : (
+                <>
+                  <option value="">Select file</option>
+                  {files.map((file) => (
+                    <option key={file.id} value={file.id}>
+                      {file.name}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedColumn}
+              onChange={(e) => setSelectedColumn(e.target.value)}
+              disabled={!selectedFileId || loadingFileData || columns.length === 0}
+              className="w-full rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-sm text-gray-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+            >
+              {loadingFileData ? (
+                <option value="">Loading columns...</option>
+              ) : columns.length === 0 ? (
+                <option value="">No columns</option>
+              ) : (
+                <>
+                  <option value="">Select column</option>
+                  {columns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
+
+            <div className="flex gap-2">
+              <input
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                list="column-values"
+                disabled={!selectedColumn}
+                placeholder="Value"
+                className="w-full rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-sm text-gray-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+              />
+              <datalist id="column-values">
+                {valueOptions.map((value) => (
+                  <option key={value} value={value} />
+                ))}
+              </datalist>
               <button
                 type="button"
-                onClick={runInvestigation}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600"
+                onClick={applyFilter}
+                disabled={!selectedColumn || !inputValue.trim()}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
               >
-                <Search className="w-4 h-4" />
-                Search Issues
+                <Search className="h-4 w-4" />
+                Show
               </button>
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-200 bg-white text-sm font-semibold text-amber-700 hover:bg-amber-50 dark:border-white/20 dark:bg-white/5 dark:text-amber-300"
-              >
-                Clear Filters
-              </button>
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                Viewing last {days} days, top {limit} routes.
-              </span>
             </div>
+
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="w-full rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size} rows
+                </option>
+              ))}
+            </select>
           </div>
+
+          {valueOptions.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                Quick values for <span className="font-semibold text-gray-700 dark:text-gray-200">{selectedColumn}</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {valueOptions.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setInputValue(value);
+                      setActiveValue(value);
+                      setHasSearched(true);
+                      setPage(1);
+                    }}
+                    className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-white/15 dark:bg-white/5 dark:text-amber-300"
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
-        {loading && (
+        {(loadingFiles || loadingFileData) && (
           <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Loading complaint analysis...
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading file data...
           </div>
         )}
+
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
             {error}
           </div>
         )}
 
-        {data && (
-          <>
+        <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Result Rows</h3>
             <div className="text-sm text-gray-600 dark:text-gray-300">
-              <span className="font-semibold text-gray-900 dark:text-gray-100">Summary:</span>{" "}
-              quick counts for the selected filters.
+              Matched: <span className="font-semibold text-gray-900 dark:text-gray-100">{totalRows}</span>
             </div>
-            <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {[
-                { label: "Risky Routes", value: data.summary.candidatePairs },
-                { label: "Partners Affected", value: data.summary.uniquePartners },
-                { label: "Countries Affected", value: data.summary.uniqueCountries },
-                { label: "Open Alerts", value: data.summary.openAlerts },
-                { label: "Recent Uploads", value: data.summary.recentUploads },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-xl border border-amber-100 bg-white p-4 dark:border-white/10 dark:bg-white/5"
-                >
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{item.label}</div>
-                  <div className="mt-1 text-xl font-bold text-amber-700 dark:text-amber-300">
-                    {numberText(item.value, 0)}
-                  </div>
-                </div>
-              ))}
-            </section>
+          </div>
 
-            <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-300" />
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Potential Problem Routes</h3>
-              </div>
-              {data.candidates.length === 0 ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  No risky routes found for the current filters. Try expanding to all projects or a larger date range.
-                </div>
-              ) : (
-                <div className="overflow-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-500 dark:text-gray-400">
-                        <th className="py-2 pr-3">Partner</th>
-                        <th className="py-2 pr-3">Country</th>
-                        <th className="py-2 pr-3">Risk Score</th>
-                        <th className="py-2 pr-3">Estimated Leakage</th>
-                        <th className="py-2 pr-3">Leakage Rate</th>
-                        <th className="py-2 pr-3">Records</th>
-                        <th className="py-2 pr-3">Open Alerts</th>
-                        <th className="py-2 pr-3">Last Detected</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.candidates.map((row, index) => (
-                        <tr key={`${row.partner}-${row.country}-${index}`} className="border-t border-amber-100/70 dark:border-white/10">
-                          <td className="py-2 pr-3 font-medium text-gray-900 dark:text-gray-100">{row.partner}</td>
-                          <td className="py-2 pr-3">{row.country}</td>
-                          <td className="py-2 pr-3 text-amber-700 dark:text-amber-300">{numberText(row.riskScore, 1)}</td>
-                          <td className="py-2 pr-3">{numberText(row.leakage)}</td>
-                          <td className="py-2 pr-3">{row.leakagePct === null ? "-" : `${numberText(row.leakagePct, 2)}%`}</td>
-                          <td className="py-2 pr-3">{numberText(row.rows, 0)}</td>
-                          <td className="py-2 pr-3">{numberText(row.openAlerts, 0)}</td>
-                          <td className="py-2 pr-3">{formatDateTime(row.lastSeen)}</td>
-                        </tr>
+          {!hasSearched ? (
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+              Select project, file, column, value, then click Show.
+            </p>
+          ) : visibleRows.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+              No rows found for this value.
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 dark:text-gray-400">
+                      {columns.map((column) => (
+                        <th key={column} className="whitespace-nowrap py-2 pr-3">
+                          {column}
+                        </th>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Country Overview</h3>
-                {data.countryProfiles.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">No country overview data for this filter.</div>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {data.countryProfiles.map((item) => (
-                      <li key={item.country} className="rounded-xl p-3 bg-amber-50/70 dark:bg-white/5">
-                        <div className="font-medium text-gray-900 dark:text-gray-100">{item.country}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          Partners {item.partners} | Leakage {numberText(item.totalLeakage)} | Alerts {item.openAlerts}
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          Highest risk partner: {item.highestRiskPartner || "-"}
-                        </div>
-                      </li>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row, idx) => (
+                      <tr key={`row-${start + idx}`} className="border-t border-amber-100/70 dark:border-white/10">
+                        {columns.map((column) => (
+                          <td key={`${start + idx}-${column}`} className="max-w-[320px] truncate py-2 pr-3">
+                            {normalizeCellValue(row?.[column]) || "-"}
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </ul>
-                )}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Open Alerts (Latest)</h3>
-                {data.alerts.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">No open alerts in this filter window.</div>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {data.alerts.map((alert) => (
-                      <li key={alert.id} className="rounded-xl p-3 bg-amber-50/70 dark:bg-white/5">
-                        <div className="font-medium text-gray-900 dark:text-gray-100">{alert.title}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {alert.severity.toUpperCase()} | {alert.partner || "Unknown Partner"} | {formatDateTime(alert.lastDetectedAt)}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="mt-3 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage <= 1}
+                  className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:border-white/20 dark:text-amber-300"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Page {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:border-white/20 dark:text-amber-300"
+                >
+                  Next
+                </button>
               </div>
-
-              <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Recent Uploads</h3>
-                {data.recentUploads.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">No recent uploads for selected scope.</div>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {data.recentUploads.map((file) => (
-                      <li key={file.fileId} className="rounded-xl p-3 bg-amber-50/70 dark:bg-white/5">
-                        <div className="font-medium text-gray-900 dark:text-gray-100">{file.fileName}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {file.projectName} | {formatDateTime(file.uploadedAt)}
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          Rows {numberText(file.totalRows, 0)} | Partners {numberText(file.partnerCount, 0)}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">What To Do Next</h3>
-              {data.recommendations.length === 0 ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400">No recommendations generated for these filters.</div>
-              ) : (
-                <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 dark:text-gray-200">
-                  {data.recommendations.map((item, index) => (
-                    <li key={`${index}-${item}`}>{item}</li>
-                  ))}
-                </ol>
-              )}
-            </section>
-          </>
-        )}
+            </>
+          )}
+        </section>
       </div>
     </div>
   );

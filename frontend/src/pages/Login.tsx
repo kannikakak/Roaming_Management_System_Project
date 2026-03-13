@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Lock, Mail, Shield } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { apiFetch, getApiBaseUrl, setAuthToken, setRefreshToken } from '../utils/api';
 import ThemeToggle from '../components/ThemeToggle';
+import rmsLogo from '../assets/rms-logo.svg';
 
 const parseMfaChallengeFromToken = (token: string | null): string | null => {
   if (!token) return null;
@@ -162,13 +163,16 @@ const Login = () => {
         <ThemeToggle className="w-10 h-10" />
       </div>
       <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-xl p-8 space-y-8 border border-amber-100 dark:border-white/10 dark:bg-gray-900/80 dark:text-gray-100">
-        <div className="flex flex-col items-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-amber-100 rounded-xl mb-4 dark:bg-amber-500/20">
-            <Shield className="w-8 h-8 text-amber-600 dark:text-amber-300" />
+        <div className="flex flex-col items-center text-center">
+          <div className="mb-1">
+            <img
+              src={rmsLogo}
+              alt="Cellcard logo"
+              className="mx-auto h-24 w-auto select-none"
+              draggable={false}
+            />
           </div>
-          <h2 className="text-3xl font-bold text-amber-600 mb-1 dark:text-amber-300">Cellcard</h2>
-          <h3 className="text-xl font-semibold text-amber-500 mb-2 dark:text-amber-300">Roaming Analytics Platform</h3>
-          <p className="text-gray-500 text-sm mb-2 dark:text-gray-300">Sign in to manage your telecom data</p>
+          <p className="text-sm text-gray-500 dark:text-gray-300">Sign in to manage your telecom data</p>
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome Back</h1>

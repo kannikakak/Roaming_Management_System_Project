@@ -1,0 +1,108 @@
+# Roaming & Interconnect System Use Case Diagram
+
+This diagram is based on the implemented backend routes, controllers, database schema, and frontend role guards.
+
+Key reading:
+- `Viewer` represents a normal authenticated user with access to their own project scope.
+- `Analyst` inherits viewer capabilities and adds ingestion, reporting, and operational actions.
+- `Admin` inherits analyst capabilities and adds user/system administration.
+
+```plantuml
+@startuml
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "User" as User
+actor "Viewer" as Viewer
+actor "Analyst" as Analyst
+actor "Admin" as Admin
+actor "Microsoft Identity\nProvider" as Microsoft
+actor "Ingestion Agent" as Agent
+actor "Scheduler / Time Trigger" as Scheduler
+actor "Email / Teams\nDelivery Channel" as Delivery
+
+Viewer --|> User
+Analyst --|> Viewer
+Admin --|> Analyst
+
+rectangle "Roaming & Interconnect Dashboard" {
+  usecase "Authenticate" as UC_Auth
+  usecase "Use Microsoft SSO" as UC_SSO
+  usecase "Verify 2FA" as UC_2FA
+  usecase "Manage Profile\nand Password" as UC_Profile
+
+  usecase "Manage Own Projects" as UC_Project
+  usecase "Browse Files\nand Data Explorer" as UC_Files
+  usecase "View Dashboard,\nData Quality,\nPartner Scorecard,\nand Complaint Investigation" as UC_Insights
+  usecase "Use Search,\nNotifications,\nand My Activity" as UC_Self
+
+  usecase "Upload and Validate Files" as UC_Upload
+  usecase "Manage Ingestion Sources" as UC_Sources
+  usecase "Monitor Ingestion History" as UC_IngestionHistory
+  usecase "Generate Charts\nand AI Analysis" as UC_Charts
+  usecase "Manage Templates,\nReports, and Slides" as UC_Reports
+  usecase "Manage Delivery Schedules" as UC_Schedules
+  usecase "Review and Resolve Alerts" as UC_Alerts
+
+  usecase "Manage Users,\nRoles, and Status" as UC_Users
+  usecase "View Audit Logs" as UC_Audit
+  usecase "Monitor System Health\nand Security" as UC_System
+  usecase "Manage Retention,\nBackups, and Restore" as UC_Backup
+  usecase "Rotate Agent Key" as UC_AgentKey
+
+  usecase "Upload Files via Agent" as UC_AgentUpload
+  usecase "Run Scheduled Delivery" as UC_RunSchedules
+  usecase "Deliver Reports /\nNotifications" as UC_Deliver
+  usecase "Run Alert Detection" as UC_RunAlerts
+  usecase "Run Retention Policy" as UC_Retention
+  usecase "Run Automatic Backup" as UC_AutoBackup
+}
+
+User --> UC_Auth
+User --> UC_Profile
+
+Viewer --> UC_Project
+Viewer --> UC_Files
+Viewer --> UC_Insights
+Viewer --> UC_Self
+
+Analyst --> UC_Upload
+Analyst --> UC_Sources
+Analyst --> UC_IngestionHistory
+Analyst --> UC_Charts
+Analyst --> UC_Reports
+Analyst --> UC_Schedules
+Analyst --> UC_Alerts
+
+Admin --> UC_Users
+Admin --> UC_Audit
+Admin --> UC_System
+Admin --> UC_Backup
+Admin --> UC_AgentKey
+
+Microsoft --> UC_SSO
+Agent --> UC_AgentUpload
+Scheduler --> UC_RunSchedules
+Scheduler --> UC_RunAlerts
+Scheduler --> UC_Retention
+Scheduler --> UC_AutoBackup
+Delivery --> UC_Deliver
+
+UC_Auth .> UC_SSO : <<extend>>
+UC_Auth .> UC_2FA : <<extend>>
+UC_AgentUpload .> UC_Upload : <<include>>
+UC_RunSchedules .> UC_Deliver : <<include>>
+UC_RunAlerts .> UC_Alerts : <<include>>
+
+note bottom of Viewer
+  Viewer actions are limited to
+  the user's own projects/files.
+end note
+
+note bottom of Analyst
+  Analyst and Admin roles can work
+  across projects and operational flows.
+end note
+@enduml
+```

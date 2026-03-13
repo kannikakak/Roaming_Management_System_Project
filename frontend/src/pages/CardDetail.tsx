@@ -717,14 +717,14 @@ const CardDetail: React.FC = () => {
   const activeRowCount = activeFile?.rows?.length ?? 0;
 
   useEffect(() => {
-    if (!activeFile) return;
+    if (!activeFileId) return;
     const nextColumns = activeColumns || [];
     setShowAdvancedTools(false);
     setIsEditingColumns(false);
     setOriginalColumns(nextColumns);
     setColumnEdits(
       nextColumns.map((name, index) => ({
-        id: `${activeFile.id}-${index}`,
+        id: `${activeFileId}-${index}`,
         name,
         originalName: name,
         isNew: false,

@@ -99,6 +99,14 @@ export type ComplaintInvestigationResponse = {
   }>;
   recentUploads: UploadRow[];
   recommendations: string[];
+  readiness: {
+    status: "ready" | "limited" | "empty";
+    message: string;
+    filesInScope: number;
+    analyticsRows: number;
+    metricsRows: number;
+    nextSteps: string[];
+  };
 };
 
 const round = (value: number, digits = 2) => {
@@ -436,6 +444,136 @@ const buildRecommendations = (
   return recommendations.slice(0, 4);
 };
 
+type ComplaintReadinessCounts = {
+  filesInScope: number;
+  analyticsRows: number;
+  metricsRows: number;
+};
+
+const loadReadinessCounts = async (
+  dbPool: Pool,
+  input: ComplaintInvestigationInput
+): Promise<ComplaintReadinessCounts> => {
+  let filesInScope = 0;
+  let analyticsRows = 0;
+  let metricsRows = 0;
+
+  const fileWhereParts: string[] = [];
+  const fileWhereParams: any[] = [];
+  pushProjectScopeCondition(fileWhereParts, fileWhereParams, "f.project_id", input.projectIds);
+  try {
+    const [rows]: any = await dbPool.query(
+      `SELECT COUNT(*) AS total FROM files f ${fileWhereParts.length ? `WHERE ${fileWhereParts.join(" AND ")}` : ""}`,
+      fileWhereParams
+    );
+    filesInScope = Number(rows?.[0]?.total || 0);
+  } catch (error: any) {
+    if (!isRecoverableSqlError(error)) throw error;
+  }
+
+  const analyticsWhereParts: string[] = ["a.day >= DATE_SUB(CURDATE(), INTERVAL ? DAY)"];
+  const analyticsWhereParams: any[] = [input.days];
+  pushProjectScopeCondition(analyticsWhereParts, analyticsWhereParams, "a.project_id", input.projectIds);
+  try {
+    const [rows]: any = await dbPool.query(
+      `SELECT COUNT(*) AS total
+       FROM analytics_file_daily_partner a
+       WHERE ${analyticsWhereParts.join(" AND ")}`,
+      analyticsWhereParams
+    );
+    analyticsRows = Number(rows?.[0]?.total || 0);
+  } catch (error: any) {
+    if (!isRecoverableSqlError(error)) throw error;
+  }
+
+  const metricsWhereParts: string[] = ["afm.uploaded_at >= DATE_SUB(NOW(), INTERVAL ? DAY)"];
+  const metricsWhereParams: any[] = [input.days];
+  pushProjectScopeCondition(metricsWhereParts, metricsWhereParams, "afm.project_id", input.projectIds);
+  try {
+    const [rows]: any = await dbPool.query(
+      `SELECT COUNT(*) AS total
+       FROM analytics_file_metrics afm
+       WHERE ${metricsWhereParts.join(" AND ")}`,
+      metricsWhereParams
+    );
+    metricsRows = Number(rows?.[0]?.total || 0);
+  } catch (error: any) {
+    if (!isRecoverableSqlError(error)) throw error;
+  }
+
+  return {
+    filesInScope,
+    analyticsRows,
+    metricsRows,
+  };
+};
+
+const buildReadiness = (
+  counts: ComplaintReadinessCounts,
+  input: ComplaintInvestigationInput,
+  candidates: ComplaintCandidate[],
+  alerts: AlertListRow[],
+  recentUploads: UploadRow[]
+) => {
+  if (counts.filesInScope <= 0) {
+    return {
+      status: "empty" as const,
+      message: "No files are available in your current project scope yet.",
+      filesInScope: counts.filesInScope,
+      analyticsRows: counts.analyticsRows,
+      metricsRows: counts.metricsRows,
+      nextSteps: [
+        "Upload at least one roaming/interconnect file from Projects.",
+        "Confirm detected columns in Data Quality (partner, country, expected/actual or revenue).",
+        "Return to Complaint Desk and search with 30-90 days for broader coverage.",
+      ],
+    };
+  }
+
+  if (counts.analyticsRows <= 0 && counts.metricsRows <= 0) {
+    return {
+      status: "limited" as const,
+      message: "Files exist, but complaint analytics snapshots are not available yet.",
+      filesInScope: counts.filesInScope,
+      analyticsRows: counts.analyticsRows,
+      metricsRows: counts.metricsRows,
+      nextSteps: [
+        "Open Upload History and verify recent files are processed successfully.",
+        "Run analysis workflows (AI Analysis / ingestion runner) to generate analytics tables.",
+        "After processing, click Search Issues again in Complaint Desk.",
+      ],
+    };
+  }
+
+  if (candidates.length === 0 && alerts.length === 0 && recentUploads.length === 0) {
+    return {
+      status: "limited" as const,
+      message: "Data is present, but no complaint signals match your current filters.",
+      filesInScope: counts.filesInScope,
+      analyticsRows: counts.analyticsRows,
+      metricsRows: counts.metricsRows,
+      nextSteps: [
+        "Click Clear Filters, keep All Projects, and search again.",
+        `Increase time window beyond ${input.days} days for more history.`,
+        "Try partner/country keywords only after confirming baseline results.",
+      ],
+    };
+  }
+
+  return {
+    status: "ready" as const,
+    message: "Complaint Desk is ready. Review risky routes first, then validate with alerts and uploads.",
+    filesInScope: counts.filesInScope,
+    analyticsRows: counts.analyticsRows,
+    metricsRows: counts.metricsRows,
+    nextSteps: [
+      "Prioritize routes with highest risk score and leakage.",
+      "Cross-check unresolved alerts for the same partner/country.",
+      "Use recent uploads to identify when the pattern started.",
+    ],
+  };
+};
+
 export const buildComplaintInvestigation = async (
   dbPool: Pool,
   input: ComplaintInvestigationInput
@@ -456,11 +594,16 @@ export const buildComplaintInvestigation = async (
     }
   };
 
-  const [candidateRows, alertCountsByPartner, alerts, recentUploads] = await Promise.all([
+  const [candidateRows, alertCountsByPartner, alerts, recentUploads, readinessCounts] = await Promise.all([
     safeLoad("candidates", [] as CandidateRow[], () => loadCandidateRows(dbPool, normalizedInput)),
     safeLoad("alert-counts", new Map<string, number>(), () => loadAlertCountsByPartner(dbPool, normalizedInput)),
     safeLoad("alerts", [] as AlertListRow[], () => loadAlertList(dbPool, normalizedInput)),
     safeLoad("recent-uploads", [] as UploadRow[], () => loadRecentUploads(dbPool, normalizedInput)),
+    safeLoad(
+      "readiness",
+      { filesInScope: 0, analyticsRows: 0, metricsRows: 0 } as ComplaintReadinessCounts,
+      () => loadReadinessCounts(dbPool, normalizedInput)
+    ),
   ]);
 
   const candidates: ComplaintCandidate[] = candidateRows
@@ -534,6 +677,7 @@ export const buildComplaintInvestigation = async (
   const openAlerts = Array.from(alertCountsByPartner.values()).reduce((sum, value) => sum + value, 0);
 
   const recommendations = buildRecommendations(candidates, alerts);
+  const readiness = buildReadiness(readinessCounts, normalizedInput, candidates, alerts, recentUploads);
 
   return {
     filters: {
@@ -571,5 +715,6 @@ export const buildComplaintInvestigation = async (
     }),
     recentUploads,
     recommendations,
+    readiness,
   };
 };
