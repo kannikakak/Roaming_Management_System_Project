@@ -11,6 +11,7 @@ import { startIngestionRunner } from "./services/ingestionRunner";
 import { startBackupScheduler } from "./services/backupScheduler";
 import { ensureBootstrapAdmin } from "./services/bootstrapAdmin";
 import { validateSecurityCompliance } from "./utils/securityCompliance";
+import { buildCorsOptions } from "./utils/cors";
 import { ensureIngestionAgentSchema } from "./services/ingestionSchema";
 import { ensureAnalyticsSchema } from "./services/analyticsSchema";
 import { ensureAnalyticsEtlSchema, startAnalyticsEtlWorker } from "./services/analyticsEtl";
@@ -33,6 +34,7 @@ for (const envPath of envCandidates) {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const corsOptions = buildCorsOptions();
 app.set("trust proxy", 1);
 
 const {
@@ -53,7 +55,8 @@ if (securityErrors.length > 0) {
   process.exit(1);
 }
 
-app.use(cors());
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");

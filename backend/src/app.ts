@@ -6,15 +6,18 @@ import { setRoutes } from './routes/index';
 import { startBackupScheduler } from "./services/backupScheduler";
 import dotenv from 'dotenv';
 import path from 'path';
+import { buildCorsOptions } from "./utils/cors";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
+const corsOptions = buildCorsOptions();
 
 
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(json());
 app.use(urlencoded({ extended: true }));
 app.use('/uploads', express.static('uploads')); // Serve uploaded files statically
