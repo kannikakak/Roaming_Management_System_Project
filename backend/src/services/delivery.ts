@@ -75,7 +75,8 @@ async function sendEmailViaResend(
   to: string[],
   subject: string,
   text: string,
-  attachment?: DeliveryAttachment
+  attachment?: DeliveryAttachment,
+  html?: string
 ): Promise<DeliveryResult> {
   if (!resendApiKey || !resendFrom) {
     return { ok: false, reason: "Resend is not configured" };
@@ -90,6 +91,7 @@ async function sendEmailViaResend(
         to,
         subject,
         text,
+        html,
         attachments,
       },
       {
@@ -120,10 +122,11 @@ export async function sendEmail(
   to: string[],
   subject: string,
   text: string,
-  attachment?: DeliveryAttachment
+  attachment?: DeliveryAttachment,
+  html?: string
 ): Promise<DeliveryResult> {
   if (resendApiKey && resendFrom) {
-    return sendEmailViaResend(to, subject, text, attachment);
+    return sendEmailViaResend(to, subject, text, attachment, html);
   }
 
   if (!smtpHost || !smtpPort || !smtpFrom) {
@@ -172,6 +175,7 @@ export async function sendEmail(
       to: to.join(", "),
       subject,
       text,
+      html,
       attachments,
     });
     return { ok: true, delivered: to.length, failed: 0 };

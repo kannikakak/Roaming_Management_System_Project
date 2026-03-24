@@ -9,7 +9,7 @@ import speakeasy from "speakeasy";
 import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
-import { sendEmail } from "../services/delivery";
+import { isEmailReady, sendEmail } from "../services/delivery";
 import { getAuditActor, writeAuditLog } from "../utils/auditLogger";
 import { ensureBootstrapAdmin } from "../services/bootstrapAdmin";
 
@@ -791,6 +791,12 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
   if (!normalizedEmail) {
     return res.status(400).json({ message: "Email is required." });
   }
+  if (!isEmailReady) {
+    return res.status(503).json({
+      message:
+        "Password reset email is not configured on the server. On Render, set RESEND_API_KEY and RESEND_FROM, and make sure FRONTEND_URL points to your deployed frontend.",
+    });
+  }
 
   try {
     const schema = await getUserSchemaInfo(dbPool);
@@ -859,11 +865,44 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
       `This link expires in ${passwordResetTokenMinutes} minutes.`,
       "If you did not request this, you can ignore this email.",
     ].join("\n\n");
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+        <h2 style="margin: 0 0 16px; color: #d97706;">Reset your Cellcard password</h2>
+        <p>We received a request to reset your Cellcard Roaming Analytics password.</p>
+        <p>
+          <a
+            href="${resetUrl}"
+            style="display: inline-block; padding: 12px 18px; background: #d97706; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600;"
+          >
+            Reset Password
+          </a>
+        </p>
+        <p>If the button does not work, copy and paste this link into your browser:</p>
+        <p><a href="${resetUrl}">${resetUrl}</a></p>
+        <p>This link expires in ${passwordResetTokenMinutes} minutes.</p>
+        <p>If you did not request this, you can ignore this email.</p>
+      </div>
+    `;
 
-    const delivery = await sendEmail([normalizedEmail], subject, text);
+    const delivery = await sendEmail([normalizedEmail], subject, text, undefined, html);
     if (!delivery.ok) {
       console.warn(`Password reset email was not delivered to ${normalizedEmail}: ${delivery.reason || "unknown error"}`);
       console.info(`Password reset link for ${normalizedEmail}: ${resetUrl}`);
+      await writeAuditLog(dbPool, {
+        actor: normalizedEmail,
+        action: "user_password_reset_requested",
+        details: {
+          ...authContext,
+          userId: user.id,
+          delivered: false,
+          deliveryReason: delivery.reason || null,
+        },
+      });
+      return res.status(502).json({
+        message:
+          delivery.reason ||
+          "Unable to send reset email right now. Check Render email configuration and try again.",
+      });
     }
 
     await writeAuditLog(dbPool, {
