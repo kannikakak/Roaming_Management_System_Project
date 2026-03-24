@@ -129,6 +129,16 @@ export async function sendEmail(
     return sendEmailViaResend(to, subject, text, attachment, html);
   }
 
+  if (isRenderRuntime && [25, 465, 587].includes(Number(smtpPort))) {
+    return {
+      ok: false,
+      reason:
+        "Render web services usually block outbound SMTP on ports 25, 465, and 587. Configure RESEND_API_KEY and RESEND_FROM, or use a Render instance/network path that allows SMTP.",
+      delivered: 0,
+      failed: Array.isArray(to) ? to.length : 0,
+    };
+  }
+
   if (!smtpHost || !smtpPort || !smtpFrom) {
     return { ok: false, reason: "SMTP not configured" };
   }
