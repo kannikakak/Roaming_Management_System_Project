@@ -236,15 +236,6 @@ const Login = () => {
                       {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                     </button>
                   </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => navigate('/forgot-password')}
-                      className="text-sm font-medium text-amber-600 hover:text-amber-700 transition dark:text-amber-300 dark:hover:text-amber-200"
-                    >
-                      Forgot password?
-                    </button>
-                  </div>
                   <button
                     type="submit"
                     disabled={isLoading}
@@ -262,6 +253,15 @@ const Login = () => {
                     'Sign In'
                   )}
                 </button>
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/forgot-password')}
+                    className="text-sm font-semibold text-amber-600 hover:text-amber-700 transition dark:text-amber-300 dark:hover:text-amber-200"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
               </form>
             )}
           </div>
