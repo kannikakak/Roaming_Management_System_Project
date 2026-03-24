@@ -65,6 +65,31 @@ Environment variables:
 
 Operational notes:
 - Scheduler checks due jobs every minute.
+- Forgot-password emails use the same email delivery service. On Render free instances, prefer `RESEND_API_KEY` and `RESEND_FROM` instead of SMTP because outbound SMTP ports are commonly blocked.
+
+## Forgot Password on Render
+
+The app already exposes:
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/reset-password`
+- Frontend pages: `/forgot-password` and `/reset-password`
+
+Set these environment variables on your deployed backend:
+- `FRONTEND_URL=https://your-frontend-domain.onrender.com`
+- `CORS_ORIGIN=https://your-frontend-domain.onrender.com`
+- `RESEND_API_KEY=<your resend api key>`
+- `RESEND_FROM=Cellcard <no-reply@your-domain.com>`
+- Optional: `PASSWORD_RESET_TOKEN_MINUTES=30`
+
+Why this matters:
+- `FRONTEND_URL` is used to generate the reset link sent in email.
+- On Render, HTTPS email APIs such as Resend are more reliable than SMTP for password reset delivery.
+
+Reset flow:
+1. User clicks `Forgot password?` on the login page.
+2. Backend creates a token in `password_resets`.
+3. Backend emails `${FRONTEND_URL}/reset-password?token=...`.
+4. User sets a new password from the frontend reset page.
 
 ## Folder Sync Agent (Drop Zone to Render)
 
