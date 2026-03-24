@@ -152,9 +152,10 @@ export const globalSearch = (dbPool: Pool) => async (req: Request, res: Response
     const rowKeyCount = hasQ ? 2 : 1;
     const rowKeyParams = buildKeyParams(encryptionKey, rowKeyCount);
 
-    // Place JSON_SEARCH first to keep parameter ordering predictable.
+    // Search against the decrypted JSON text directly; JSON_SEARCH with recursive
+    // paths is not accepted by all MySQL variants used in deployment.
     if (hasQ) {
-      rowWhereParts.push(`JSON_SEARCH(${dataJsonExpr}, 'one', ?, NULL, '$**') IS NOT NULL`);
+      rowWhereParts.push(`${dataJsonExpr} LIKE ?`);
       rowParams.push(likeTerm);
     }
 

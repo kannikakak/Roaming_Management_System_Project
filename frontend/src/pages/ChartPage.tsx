@@ -24,6 +24,9 @@ import { apiFetch } from "../utils/api";
 
 const COLORS = ["#EACE5F", "#b89c1d", "#FFD700", "#FFB300", "#FF8C00", "#FFD580", "#F5DEB3"];
 const CHART_TYPES = ["Line", "Bar", "Stacked Bar", "Area", "Pie"];
+const ROW_NUMBER_KEY = "__row_number__";
+const COUNT_ALL_KEY = "__count_all__";
+const COUNT_PREFIX = "__count__:";
 
 interface SavedChart {
   id: string;
@@ -123,6 +126,14 @@ const ChartPage: React.FC = () => {
   }, []);
 
   const currentRowCount = Array.isArray(currentFile?.rows) ? currentFile.rows.length : 0;
+  const allFileColumns = Array.from(
+    new Set<string>([
+      ...(Array.isArray(currentSelectedCols) ? currentSelectedCols : []),
+      ...((currentFile?.rows || []).slice(0, 50).flatMap((row: any) =>
+        row && typeof row === "object" ? Object.keys(row) : []
+      )),
+    ])
+  );
 
   useEffect(() => {
     if (!currentFile?.id) return;
@@ -234,6 +245,12 @@ const ChartPage: React.FC = () => {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const hasUsableValue = (value: any) => {
+    if (value === null || value === undefined) return false;
+    const raw = String(value).trim();
+    return raw !== "" && raw !== "-";
+  };
+
   const parseDateValue = (value: any): Date | null => {
     if (value instanceof Date) {
       return Number.isNaN(value.getTime()) ? null : value;
@@ -298,32 +315,97 @@ const ChartPage: React.FC = () => {
     [currentFile?.rows, isDateLikeCol]
   );
 
-  const pickDefaultCategoryCol = useCallback(() => {
-    if (!currentSelectedCols.length) return "";
-    const dateCol = currentSelectedCols.find((col) => isDateLikeCol(col));
-    if (dateCol) return dateCol;
-    const textCol = currentSelectedCols.find((col) => !isNumericCol(col));
-    return textCol || currentSelectedCols[0];
-  }, [currentSelectedCols, isDateLikeCol, isNumericCol]);
+  const isCountSeries = (col: string) => col === COUNT_ALL_KEY || col.startsWith(COUNT_PREFIX);
+  const getCountSeriesSource = (col: string) =>
+    col.startsWith(COUNT_PREFIX) ? col.slice(COUNT_PREFIX.length) : "";
+  const getSeriesLabel = useCallback((col: string) => {
+    if (col === ROW_NUMBER_KEY) return "Row Number";
+    if (col === COUNT_ALL_KEY) return "Count";
+    if (col.startsWith(COUNT_PREFIX)) {
+      return `Count of ${getCountSeriesSource(col)}`;
+    }
+    return col;
+  }, []);
 
-  const getAvailableValueCols = useCallback(
-    (category: string) =>
-      currentSelectedCols.filter(
-        (col) => col !== category && !isDateLikeCol(col) && isNumericCol(col)
-      ),
-    [currentSelectedCols, isDateLikeCol, isNumericCol]
+  const pickCategoryFor = useCallback((cols: string[]) => {
+    if (!cols.length) return "";
+    const dateCol = cols.find((col) => isDateLikeCol(col));
+    if (dateCol) return dateCol;
+    const textCol = cols.find((col) => !isNumericCol(col));
+    if (textCol) return textCol;
+    return cols.some((col) => isNumericCol(col)) ? ROW_NUMBER_KEY : cols[0];
+  }, [isDateLikeCol, isNumericCol]);
+
+  const getAvailableValueColsFor = useCallback(
+    (cols: string[], category: string) => {
+      const measureCols = cols.filter((col) => category === ROW_NUMBER_KEY || col !== category);
+      const numericCols = measureCols.filter((col) => !isDateLikeCol(col) && isNumericCol(col));
+      const textCountCols = measureCols
+        .filter((col) => !isDateLikeCol(col) && !isNumericCol(col))
+        .map((col) => `${COUNT_PREFIX}${col}`);
+
+      const next = [...numericCols, ...textCountCols];
+      if (next.length > 0) return next;
+      return category ? [COUNT_ALL_KEY] : [];
+    },
+    [isDateLikeCol, isNumericCol]
   );
 
-  const effectiveCategoryCol = currentSelectedCols.includes(categoryCol)
+  const pickDefaultCategoryCol = useCallback(
+    () => pickCategoryFor(currentSelectedCols),
+    [currentSelectedCols, pickCategoryFor]
+  );
+
+  const getAvailableValueCols = useCallback(
+    (category: string) => getAvailableValueColsFor(currentSelectedCols, category),
+    [currentSelectedCols, getAvailableValueColsFor]
+  );
+
+  const buildSuggestedChartSetup = useCallback(
+    (preferredCols: string[]) => {
+      const unique = (cols: string[]) => Array.from(new Set(cols.filter(Boolean)));
+      const preferred = unique(preferredCols.filter((col) => allFileColumns.includes(col)));
+      const allCols = unique(allFileColumns);
+
+      const categoryCandidates = unique([
+        pickCategoryFor(preferred),
+        pickCategoryFor(allCols),
+        preferred.some((col) => isNumericCol(col)) ? ROW_NUMBER_KEY : "",
+        allCols.some((col) => isNumericCol(col)) ? ROW_NUMBER_KEY : "",
+      ]);
+
+      for (const candidate of categoryCandidates) {
+        if (!candidate) continue;
+        const nextSelectedCols =
+          candidate === ROW_NUMBER_KEY
+            ? unique(preferred.length > 0 ? preferred : allCols)
+            : unique([candidate, ...preferred.filter((col) => col !== candidate), ...allCols.filter((col) => col !== candidate)]);
+        const nextValueCols = getAvailableValueColsFor(nextSelectedCols, candidate).slice(0, 3);
+        if (nextValueCols.length > 0) {
+          return {
+            selectedCols: nextSelectedCols,
+            categoryCol: candidate,
+            valueCols: nextValueCols,
+          };
+        }
+      }
+
+      return null;
+    },
+    [allFileColumns, getAvailableValueColsFor, isNumericCol, pickCategoryFor]
+  );
+
+  const effectiveCategoryCol = categoryCol === ROW_NUMBER_KEY || currentSelectedCols.includes(categoryCol)
     ? categoryCol
     : pickDefaultCategoryCol();
   const availableValueCols = getAvailableValueCols(effectiveCategoryCol);
   const activeValueCols = valueCols.filter((col) => availableValueCols.includes(col));
-  const isCategoryDateLike = isDateLikeCol(effectiveCategoryCol);
+  const isCategoryDateLike = effectiveCategoryCol !== ROW_NUMBER_KEY && isDateLikeCol(effectiveCategoryCol);
+  const hasRawNumericSeries = activeValueCols.some((col) => !isCountSeries(col));
 
   useEffect(() => {
     if (!currentSelectedCols.length) return;
-    const nextCategory = currentSelectedCols.includes(categoryCol)
+    const nextCategory = categoryCol === ROW_NUMBER_KEY || currentSelectedCols.includes(categoryCol)
       ? categoryCol
       : pickDefaultCategoryCol();
     const nextAvailable = getAvailableValueCols(nextCategory);
@@ -338,34 +420,110 @@ const ChartPage: React.FC = () => {
     }
   }, [currentSelectedCols, categoryCol, valueCols, pickDefaultCategoryCol, getAvailableValueCols]);
 
-  const chartData = (() => {
-    if (!currentFile || currentSelectedCols.length === 0) return [];
+  useEffect(() => {
+    if (!currentFile || allFileColumns.length === 0) return;
+    if (activeValueCols.length > 0) return;
 
-    const rows = (currentFile.rows || []).map((row: any) => {
+    const fallback = buildSuggestedChartSetup(currentSelectedCols);
+    if (!fallback) return;
+
+    if (JSON.stringify(fallback.selectedCols) !== JSON.stringify(currentSelectedCols)) {
+      setCurrentSelectedCols(fallback.selectedCols);
+    }
+    if (fallback.categoryCol !== categoryCol) {
+      setCategoryCol(fallback.categoryCol);
+    }
+    if (JSON.stringify(fallback.valueCols) !== JSON.stringify(valueCols)) {
+      setValueCols(fallback.valueCols);
+    }
+  }, [
+    activeValueCols.length,
+    allFileColumns.length,
+    buildSuggestedChartSetup,
+    categoryCol,
+    currentFile,
+    currentSelectedCols,
+    valueCols,
+  ]);
+
+  const chartData = (() => {
+    if (!currentFile || activeValueCols.length === 0 || !effectiveCategoryCol) return [];
+
+    const rows = (currentFile.rows || []).map((row: any, index: number) => {
       const obj: any = {};
+      obj[ROW_NUMBER_KEY] = index + 1;
       currentSelectedCols.forEach((col: string) => {
-        if (activeValueCols.includes(col)) {
-          obj[col] = toNumericValue(row?.[col]);
-        } else {
-          obj[col] = row?.[col];
-        }
+        obj[col] = row?.[col];
       });
       return obj;
     });
 
-    let nextRows = rows.filter(
-      (row: any) =>
-        row[effectiveCategoryCol] !== undefined &&
-        row[effectiveCategoryCol] !== null &&
-        String(row[effectiveCategoryCol]).trim() !== ""
-    );
+    let nextRows: any[] = [];
 
-    if (isCategoryDateLike) {
-      nextRows = nextRows.sort((a: any, b: any) => {
-        const left = parseDateValue(a[effectiveCategoryCol])?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        const right = parseDateValue(b[effectiveCategoryCol])?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        return left - right;
+    if (effectiveCategoryCol === ROW_NUMBER_KEY && hasRawNumericSeries) {
+      nextRows = rows.map((row: any) => {
+        const nextRow: Record<string, any> = {
+          [ROW_NUMBER_KEY]: row[ROW_NUMBER_KEY],
+        };
+        activeValueCols.forEach((seriesKey) => {
+          if (seriesKey === COUNT_ALL_KEY) {
+            nextRow[seriesKey] = 1;
+          } else if (isCountSeries(seriesKey)) {
+            const sourceCol = getCountSeriesSource(seriesKey);
+            nextRow[seriesKey] = hasUsableValue(row[sourceCol]) ? 1 : 0;
+          } else {
+            nextRow[seriesKey] = toNumericValue(row[seriesKey]);
+          }
+        });
+        return nextRow;
       });
+    } else {
+      const grouped = new Map<string, Record<string, any>>();
+      rows.forEach((row: any) => {
+        const categoryValue = row[effectiveCategoryCol];
+        if (!hasUsableValue(categoryValue)) return;
+
+        const groupKey = String(categoryValue);
+        if (!grouped.has(groupKey)) {
+          const seed: Record<string, any> = {
+            [effectiveCategoryCol]: categoryValue,
+          };
+          activeValueCols.forEach((seriesKey) => {
+            seed[seriesKey] = 0;
+          });
+          grouped.set(groupKey, seed);
+        }
+
+        const target = grouped.get(groupKey)!;
+        activeValueCols.forEach((seriesKey) => {
+          if (seriesKey === COUNT_ALL_KEY) {
+            target[seriesKey] += 1;
+            return;
+          }
+          if (isCountSeries(seriesKey)) {
+            const sourceCol = getCountSeriesSource(seriesKey);
+            if (hasUsableValue(row[sourceCol])) {
+              target[seriesKey] += 1;
+            }
+            return;
+          }
+
+          const numericValue = toNumericValue(row[seriesKey]);
+          if (numericValue !== null) {
+            target[seriesKey] += numericValue;
+          }
+        });
+      });
+
+      nextRows = Array.from(grouped.values());
+
+      if (isCategoryDateLike) {
+        nextRows = nextRows.sort((a: any, b: any) => {
+          const left = parseDateValue(a[effectiveCategoryCol])?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          const right = parseDateValue(b[effectiveCategoryCol])?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          return left - right;
+        });
+      }
     }
 
     const maxPoints = chartType === "Line" ? 280 : 500;
@@ -547,7 +705,7 @@ const ChartPage: React.FC = () => {
       chartImage: pngDataUrl,
       title: currentFile?.name || "Report Slide",
       subtitle: new Date().toLocaleDateString(),
-      summary: `Chart: ${chartType} | X: ${effectiveCategoryCol} | Y: ${activeValueCols.join(", ")}`,
+      summary: `Chart: ${chartType} | X: ${getSeriesLabel(effectiveCategoryCol)} | Y: ${activeValueCols.map(getSeriesLabel).join(", ")}`,
       createdAt: new Date().toISOString(),
       chartMeta: {
         chartType,
@@ -574,7 +732,7 @@ const ChartPage: React.FC = () => {
     navigate("/slide-builder");
   };
 
-  const hasChart = !!currentFile && currentSelectedCols.length >= 2 && activeValueCols.length > 0;
+  const hasChart = !!currentFile && Boolean(effectiveCategoryCol) && activeValueCols.length > 0 && chartData.length > 0;
 
   const getChartIcon = (type: string) => {
     if (type === "Bar") return <BarChart3 className="w-4 h-4" />;
@@ -623,10 +781,10 @@ const ChartPage: React.FC = () => {
                           {chart.config.chartType} Chart
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          X: {chart.config.categoryCol}
+                          X: {getSeriesLabel(chart.config.categoryCol)}
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          Y: {chart.config.valueCols.join(", ")}
+                          Y: {chart.config.valueCols.map(getSeriesLabel).join(", ")}
                         </div>
                       </div>
                     <button
@@ -651,7 +809,7 @@ const ChartPage: React.FC = () => {
         {/* If no chart data */}
         {!hasChart ? (
           <div className="bg-white border rounded-xl p-6 text-gray-700 dark:bg-gray-900/60 dark:border-white/10 dark:text-gray-200">
-            No chart data. Select at least one numeric column for Y-axis and one category/date column for X-axis.
+            No chart data. Select one or more columns with values to build a chart.
           </div>
         ) : (
           <>
@@ -678,6 +836,7 @@ const ChartPage: React.FC = () => {
                     onChange={(e) => handleCategoryColChange(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 outline-none text-sm dark:border-white/10 dark:bg-gray-900/60 dark:text-gray-100 dark:focus:border-amber-400"
                   >
+                    <option value={ROW_NUMBER_KEY}>Row Number</option>
                     {currentSelectedCols.map((col: string) => (
                       <option key={col} value={col}>
                         {col}
@@ -749,7 +908,7 @@ const ChartPage: React.FC = () => {
               {/* Value cols */}
               <div className="mt-6 pt-6 border-t border-gray-200">
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Data Series (Y-Axis)
+                  Data Series
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {availableValueCols.map((col) => (
@@ -767,7 +926,7 @@ const ChartPage: React.FC = () => {
                         onChange={() => handleValueColChange(col)}
                         className="mr-2 accent-yellow-500"
                       />
-                      {col}
+                      {getSeriesLabel(col)}
                     </label>
                   ))}
                 </div>
@@ -802,6 +961,7 @@ const ChartPage: React.FC = () => {
                       {activeValueCols.map((col, idx) => (
                         <Line
                           key={col}
+                          name={getSeriesLabel(col)}
                           type="monotone"
                           dataKey={col}
                           stroke={COLORS[idx % COLORS.length]}
@@ -828,6 +988,7 @@ const ChartPage: React.FC = () => {
                       {activeValueCols.map((col, idx) => (
                         <Bar
                           key={col}
+                          name={getSeriesLabel(col)}
                           dataKey={col}
                           fill={COLORS[idx % COLORS.length]}
                           radius={[8, 8, 0, 0]}
@@ -851,6 +1012,7 @@ const ChartPage: React.FC = () => {
                       {activeValueCols.map((col, idx) => (
                         <Bar
                           key={col}
+                          name={getSeriesLabel(col)}
                           dataKey={col}
                           stackId="stack"
                           fill={COLORS[idx % COLORS.length]}
@@ -875,6 +1037,7 @@ const ChartPage: React.FC = () => {
                       {activeValueCols.map((col, idx) => (
                         <Area
                           key={col}
+                          name={getSeriesLabel(col)}
                           type="monotone"
                           dataKey={col}
                           stroke={COLORS[idx % COLORS.length]}
@@ -893,6 +1056,7 @@ const ChartPage: React.FC = () => {
                         data={pieData}
                         dataKey="value"
                         nameKey="name"
+                        name={getSeriesLabel(pieValueCol)}
                         outerRadius={160}
                         label
                       >

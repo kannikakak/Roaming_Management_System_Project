@@ -721,6 +721,7 @@ const CardDetail: React.FC = () => {
     const nextColumns = activeColumns || [];
     setShowAdvancedTools(false);
     setIsEditingColumns(false);
+    setSelectedChartCols(prev => prev.filter(col => nextColumns.includes(col)));
     setOriginalColumns(nextColumns);
     setColumnEdits(
       nextColumns.map((name, index) => ({
@@ -768,6 +769,22 @@ const CardDetail: React.FC = () => {
           .includes(filterValue.toLowerCase())
       )
     : searchedRows;
+
+  const handleGenerateChart = () => {
+    if (!activeFile || selectedChartCols.length === 0) return;
+    logAudit('Generate Chart', {
+      fileName: activeFile.name,
+      fileId: activeFile.id,
+      selectedCols: selectedChartCols,
+      generatedAt: new Date().toISOString(),
+    });
+    navigate('/charts', {
+      state: {
+        file: activeFile,
+        selectedCols: selectedChartCols,
+      }
+    });
+  };
 
   const getFileIcon = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase();
@@ -986,6 +1003,7 @@ const CardDetail: React.FC = () => {
               Showing <span className="font-semibold text-gray-700">{displayRows.length}</span> of{' '}
               <span className="font-semibold text-gray-700">{baseRows.length}</span> rows.
             </p>
+            <p className="mt-1 text-xs text-gray-500">Click table headers to select columns.</p>
 
             {showAdvancedTools && (
               <div className="mt-3 border-t border-amber-100 pt-3">
@@ -1012,23 +1030,10 @@ const CardDetail: React.FC = () => {
                   <button
                     className="px-3 py-2 rounded-lg font-semibold flex items-center gap-2 bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 text-sm shadow-sm"
                     disabled={selectedChartCols.length === 0}
-                    onClick={() => {
-                      logAudit('Generate Chart', {
-                        fileName: activeFile.name,
-                        fileId: activeFile.id,
-                        selectedCols: selectedChartCols,
-                        generatedAt: new Date().toISOString(),
-                      });
-                      navigate('/charts', {
-                        state: {
-                          file: activeFile,
-                          selectedCols: selectedChartCols,
-                        }
-                      });
-                    }}
+                    onClick={handleGenerateChart}
                   >
                     <BarChart3 className="w-4 h-4" />
-                    Open chart builder
+                    Generate chart
                     {selectedChartCols.length > 0 && (
                       <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
                         {selectedChartCols.length}
@@ -1304,10 +1309,47 @@ const CardDetail: React.FC = () => {
                           </div>
                         </div>
                       )}
-                    </div>
-                  )}
+                </div>
+              )}
                   {!isEditingColumns && (
                     <div className="h-full rounded-xl border border-amber-100 shadow-sm overflow-hidden bg-white">
+                      {selectedChartCols.length > 0 && (
+                        <div className="border-b border-amber-100 bg-amber-50/70 px-4 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                                Selected columns
+                              </span>
+                              {selectedChartCols.map((col) => (
+                                <span
+                                  key={col}
+                                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-900"
+                                >
+                                  {col}
+                                  <button
+                                    type="button"
+                                    className="rounded-full p-0.5 text-amber-600 hover:bg-amber-100"
+                                    onClick={() =>
+                                      setSelectedChartCols((prev) => prev.filter((item) => item !== col))
+                                    }
+                                    aria-label={`Remove ${col} from chart selection`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
+                              onClick={handleGenerateChart}
+                            >
+                              <BarChart3 className="w-4 h-4" />
+                              Generate chart
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div className="h-full overflow-auto">
                       <table className="w-full border-collapse">
                         <thead className="bg-gradient-to-r from-amber-500 to-amber-400 sticky top-0 z-10">

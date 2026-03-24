@@ -9,6 +9,7 @@ import speakeasy from "speakeasy";
 import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
+import { sendEmail } from "../services/delivery";
 import { getAuditActor, writeAuditLog } from "../utils/auditLogger";
 import { ensureBootstrapAdmin } from "../services/bootstrapAdmin";
 
@@ -28,6 +29,7 @@ const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
 const refreshTokenExpiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || "30d";
 const selfRegisterRoles = process.env.SELF_REGISTER_ROLES || "viewer";
 const mfaTokenExpiresIn = process.env.MFA_TOKEN_EXPIRES_IN || "10m";
+const passwordResetTokenMinutes = Math.max(5, Number(process.env.PASSWORD_RESET_TOKEN_MINUTES || 30));
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 const msTenantId = process.env.MS_TENANT_ID || "common";
 const msClientId = process.env.MS_CLIENT_ID || "";
@@ -64,6 +66,7 @@ type UserSchemaInfo = {
   hasMicrosoftSub: boolean;
   hasTwoFactorSecret: boolean;
   hasTwoFactorEnabled: boolean;
+  hasPasswordResetsTable: boolean;
 };
 
 const schemaCache: { info?: UserSchemaInfo } = {};
@@ -94,6 +97,7 @@ async function getUserSchemaInfo(dbPool: Pool): Promise<UserSchemaInfo> {
     hasMicrosoftSub: names.has("microsoft_sub"),
     hasTwoFactorSecret: names.has("two_factor_secret"),
     hasTwoFactorEnabled: names.has("two_factor_enabled"),
+    hasPasswordResetsTable: tableNames.has("password_resets"),
   };
 
   return schemaCache.info;
@@ -178,6 +182,10 @@ function getTokenExpiryDate(token: string) {
     return new Date(decoded.exp * 1000);
   }
   return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+}
+
+function getPasswordResetExpiryDate() {
+  return new Date(Date.now() + passwordResetTokenMinutes * 60 * 1000);
 }
 
 function getSelfRegisterRoles(): Role[] {
@@ -275,8 +283,31 @@ async function ensureRefreshTokensTable(dbPool: Pool, schema: UserSchemaInfo) {
   if (schemaCache.info) schemaCache.info.hasRefreshTokensTable = true;
 }
 
+async function ensurePasswordResetsTable(dbPool: Pool, schema: UserSchemaInfo) {
+  if (schema.hasPasswordResetsTable) return;
+  await dbPool.query(
+    `CREATE TABLE IF NOT EXISTS password_resets (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      token_hash VARCHAR(128) NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      used_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_password_resets_user (user_id),
+      INDEX idx_password_resets_expires (expires_at)
+    ) ENGINE=InnoDB`
+  );
+  schema.hasPasswordResetsTable = true;
+  if (schemaCache.info) schemaCache.info.hasPasswordResetsTable = true;
+}
+
 function getFrontendCallbackUrl() {
   return `${frontendUrl.replace(/\/$/, "")}/auth/microsoft/callback`;
+}
+
+function getPasswordResetUrl(token: string) {
+  return `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
 }
 
 let microsoftClientPromise: Promise<Client> | null = null;
@@ -749,6 +780,200 @@ export const changePassword = (dbPool: Pool) => async (req: Request, res: Respon
   ]);
 
   res.json({ ok: true });
+};
+
+export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const emailRaw = typeof req.body?.email === "string" ? req.body.email : String(req.body?.email || "");
+  const normalizedEmail = normalizeEmail(emailRaw);
+  const genericMessage = "If an account with that email exists, a reset link has been sent.";
+  const authContext = buildAuthContext(req);
+
+  if (!normalizedEmail) {
+    return res.status(400).json({ message: "Email is required." });
+  }
+
+  try {
+    const schema = await getUserSchemaInfo(dbPool);
+    if (!schema.hasPasswordResetsTable) {
+      await ensurePasswordResetsTable(dbPool, schema);
+    }
+
+    let user: any = null;
+    const selectIsActive = schema.hasIsActive ? ", is_active" : "";
+    const selectAuthProvider = schema.hasAuthProvider ? ", auth_provider" : "";
+
+    if (schema.hasFullName && schema.hasPasswordHash) {
+      const [rows]: any = await dbPool.query(
+        `SELECT id, email${selectIsActive}${selectAuthProvider}
+         FROM users
+         WHERE LOWER(TRIM(email)) = ?
+         LIMIT 1`,
+        [normalizedEmail]
+      );
+      user = rows[0] || null;
+    } else if (schema.hasName && schema.hasPassword) {
+      const [rows]: any = await dbPool.query(
+        `SELECT id, email${selectIsActive}${selectAuthProvider}
+         FROM users
+         WHERE LOWER(TRIM(email)) = ?
+         LIMIT 1`,
+        [normalizedEmail]
+      );
+      user = rows[0] || null;
+    } else {
+      return res.status(500).json({ message: "User schema is missing required columns." });
+    }
+
+    if (!user) {
+      return res.json({ message: genericMessage });
+    }
+    if (schema.hasIsActive && user.is_active === 0) {
+      return res.json({ message: genericMessage });
+    }
+
+    const provider = schema.hasAuthProvider
+      ? String(user.auth_provider || "local").trim().toLowerCase()
+      : "local";
+    if (provider && provider !== "local") {
+      return res.json({ message: genericMessage });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = getPasswordResetExpiryDate();
+    const resetUrl = getPasswordResetUrl(rawToken);
+
+    await dbPool.query(
+      "UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL",
+      [user.id]
+    );
+    await dbPool.query(
+      "INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+      [user.id, tokenHash, expiresAt]
+    );
+
+    const subject = "Reset your Cellcard password";
+    const text = [
+      "We received a request to reset your Cellcard Roaming Analytics password.",
+      `Open this link to choose a new password: ${resetUrl}`,
+      `This link expires in ${passwordResetTokenMinutes} minutes.`,
+      "If you did not request this, you can ignore this email.",
+    ].join("\n\n");
+
+    const delivery = await sendEmail([normalizedEmail], subject, text);
+    if (!delivery.ok) {
+      console.warn(`Password reset email was not delivered to ${normalizedEmail}: ${delivery.reason || "unknown error"}`);
+      console.info(`Password reset link for ${normalizedEmail}: ${resetUrl}`);
+    }
+
+    await writeAuditLog(dbPool, {
+      actor: normalizedEmail,
+      action: "user_password_reset_requested",
+      details: {
+        ...authContext,
+        userId: user.id,
+        delivered: delivery.ok,
+        deliveryReason: delivery.reason || null,
+      },
+    });
+
+    return res.json({ message: genericMessage });
+  } catch (err: any) {
+    console.error("Forgot password error:", err);
+    return res.status(500).json({ message: "Unable to process forgot password request." });
+  }
+};
+
+export const resetPassword = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const tokenRaw = typeof req.body?.token === "string" ? req.body.token : String(req.body?.token || "");
+  const newPasswordRaw =
+    typeof req.body?.newPassword === "string" ? req.body.newPassword : String(req.body?.newPassword || "");
+  const authContext = buildAuthContext(req);
+
+  if (!tokenRaw || !newPasswordRaw) {
+    return res.status(400).json({ message: "token and newPassword are required." });
+  }
+  if (newPasswordRaw.length < 8) {
+    return res.status(400).json({ message: "Password must be at least 8 characters long." });
+  }
+
+  try {
+    const schema = await getUserSchemaInfo(dbPool);
+    if (!schema.hasPasswordResetsTable) {
+      await ensurePasswordResetsTable(dbPool, schema);
+    }
+    if (!schema.hasRefreshTokensTable) {
+      await ensureRefreshTokensTable(dbPool, schema);
+    }
+
+    const tokenHash = hashToken(tokenRaw);
+    const selectIsActive = schema.hasIsActive ? ", u.is_active" : "";
+    const selectAuthProvider = schema.hasAuthProvider ? ", u.auth_provider" : "";
+    const [rows]: any = await dbPool.query(
+      `SELECT pr.id, pr.user_id, pr.expires_at, pr.used_at, u.email${selectIsActive}${selectAuthProvider}
+       FROM password_resets pr
+       INNER JOIN users u ON u.id = pr.user_id
+       WHERE pr.token_hash = ?
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (!rows.length) {
+      return res.status(400).json({ message: "Reset link is invalid or expired." });
+    }
+
+    const resetRecord = rows[0];
+    if (resetRecord.used_at || (resetRecord.expires_at && new Date(resetRecord.expires_at) <= new Date())) {
+      return res.status(400).json({ message: "Reset link is invalid or expired." });
+    }
+    if (schema.hasIsActive && resetRecord.is_active === 0) {
+      return res.status(403).json({ message: "Account disabled." });
+    }
+
+    const provider = schema.hasAuthProvider
+      ? String(resetRecord.auth_provider || "local").trim().toLowerCase()
+      : "local";
+    if (provider && provider !== "local") {
+      return res.status(400).json({ message: "This account uses single sign-on and cannot reset password here." });
+    }
+
+    const passCol = schema.hasPasswordHash ? "password_hash" : schema.hasPassword ? "password" : "";
+    if (!passCol) {
+      return res.status(500).json({ message: "User schema is missing required password columns." });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPasswordRaw, 10);
+    const conn = await dbPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(`UPDATE users SET ${passCol} = ? WHERE id = ?`, [hashedPassword, resetRecord.user_id]);
+      await conn.query("UPDATE password_resets SET used_at = NOW() WHERE id = ?", [resetRecord.id]);
+      await conn.query(
+        "UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL",
+        [resetRecord.user_id]
+      );
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    await writeAuditLog(dbPool, {
+      actor: resetRecord.email || `user:${resetRecord.user_id}`,
+      action: "user_password_reset_completed",
+      details: {
+        ...authContext,
+        userId: resetRecord.user_id,
+      },
+    });
+
+    return res.json({ message: "Password reset successful. Please sign in with your new password." });
+  } catch (err: any) {
+    console.error("Reset password error:", err);
+    return res.status(500).json({ message: "Unable to reset password." });
+  }
 };
 
 export const uploadProfileImage = (dbPool: Pool) => async (req: Request, res: Response) => {

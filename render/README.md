@@ -41,6 +41,9 @@ If Render logs show something like `Root directory " roaming-interconnect-dashbo
    - `JWT_SECRET=...` (long random string)
    - `DATA_ENCRYPTION_KEY=...` (required if `NODE_ENV=production`)
    - `CORS_ORIGIN=...` (your frontend URL; for now you can set it to `http://localhost:3000`)
+   - For email delivery on Render Free, prefer an HTTPS email API instead of SMTP:
+     - `RESEND_API_KEY=...`
+     - `RESEND_FROM=Your App <noreply@your-domain>`
    - Optional first admin user:
      - `BOOTSTRAP_ADMIN_EMAIL=admin@example.com`
      - `BOOTSTRAP_ADMIN_PASSWORD=ChangeMe123!`
@@ -48,6 +51,12 @@ If Render logs show something like `Root directory " roaming-interconnect-dashbo
 5. Don’t set `PORT` manually — Render sets `PORT` automatically.
 6. (Optional) If you want uploads to persist, add a Disk mounted at `/app/uploads`.
 7. Deploy.
+
+### Email delivery on Render
+
+- Render Free web services block outbound SMTP on ports `25`, `465`, and `587`.
+- Because of that, Microsoft 365 / Gmail SMTP will often fail from a free Render web service with timeouts or refused connections.
+- Use a paid Render instance for SMTP, or configure an HTTPS email provider such as Resend via `RESEND_API_KEY` and `RESEND_FROM`.
 
 ### 3) Test it
 - Open: `https://<your-backend>.onrender.com/api/health`

@@ -60,6 +60,7 @@ Environment variables:
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`: SMTP channel config.
 - `SMTP_SECURE`: set `true` for implicit TLS (usually port `465`), otherwise `false` for STARTTLS (usually `587`).
 - `SMTP_TLS_REJECT_UNAUTHORIZED`: keep `true` in production unless your SMTP provider requires otherwise.
+- `RESEND_API_KEY`, `RESEND_FROM`: optional HTTPS email delivery via Resend. If set, this takes precedence over SMTP and is a better fit for platforms that restrict outbound SMTP.
 - `NOTIFY_EMAIL_ENABLED`, `NOTIFY_IN_APP_ENABLED`: defaults used when global notification settings row is missing.
 
 Operational notes:

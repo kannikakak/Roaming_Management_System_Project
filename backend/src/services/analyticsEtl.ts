@@ -171,6 +171,8 @@ const pickBestKey = (buckets: Map<string, MetricBucket>, keywords: string[], ban
 
 const toDateKey = (date: Date) => date.toISOString().slice(0, 10);
 
+const toMysqlDateTime = (value: Date) => value.toISOString().slice(0, 19).replace("T", " ");
+
 const parseJsonSafe = (value: unknown): Record<string, unknown> => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -183,6 +185,14 @@ const parseJsonSafe = (value: unknown): Record<string, unknown> => {
   } catch {
     return {};
   }
+};
+
+const normalizeUploadedAt = (value: unknown) => {
+  const parsed = parseDateCandidate(value) || new Date(String(value || ""));
+  if (Number.isNaN(parsed.getTime())) {
+    return toMysqlDateTime(new Date());
+  }
+  return toMysqlDateTime(parsed);
 };
 
 const indexExists = async (dbPool: Pool, tableName: string, indexName: string) => {
@@ -279,7 +289,7 @@ const loadFileMeta = async (dbPool: Pool, fileId: number): Promise<FileMeta | nu
   return {
     fileId: Number(row.fileId),
     projectId: Number(row.projectId),
-    uploadedAt: String(row.uploadedAt),
+    uploadedAt: normalizeUploadedAt(row.uploadedAt),
   };
 };
 

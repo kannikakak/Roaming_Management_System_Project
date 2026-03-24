@@ -217,7 +217,7 @@ export function scheduleRoutes(dbPool: Pool) {
       if (!isEmailReady) {
         return res.status(400).json({
           message:
-            "Email delivery is not configured on the server. Set SMTP_HOST, SMTP_FROM, and SMTP credentials first.",
+            "Email delivery is not configured on the server. Configure either SMTP_* credentials or RESEND_API_KEY with RESEND_FROM.",
         });
       }
 

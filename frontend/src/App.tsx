@@ -4,6 +4,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import CardDetail from "./pages/CardDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import AuthCallback from "./pages/AuthCallback";
 import ChartPage from "./pages/ChartPage";
 import MainLayout from "./components/MainLayout";
@@ -75,6 +77,8 @@ const App: React.FC = () => (
       <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/auth/microsoft/callback" element={<AuthCallback />} />
 
       {/* Protected routes with sidebar */}

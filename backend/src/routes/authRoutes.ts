@@ -10,6 +10,8 @@ import {
   getMe,
   updateProfile,
   changePassword,
+  forgotPassword,
+  resetPassword,
   uploadProfileImage,
   deleteProfileImage,
   setupTwoFactor,
@@ -40,6 +42,8 @@ export const authRoutes = (dbPool: Pool) => {
   router.post('/login', authLimiter, login(dbPool));
   router.post('/refresh', authLimiter, refreshToken(dbPool));
   router.post('/logout', authLimiter, logout(dbPool));
+  router.post('/forgot-password', authLimiter, forgotPassword(dbPool));
+  router.post('/reset-password', authLimiter, resetPassword(dbPool));
   router.get('/microsoft/login', authLimiter, startMicrosoftLogin());
   router.get('/microsoft/callback', handleMicrosoftCallback(dbPool));
   router.post('/2fa/verify', authLimiter, verifyTwoFactorLogin(dbPool));
