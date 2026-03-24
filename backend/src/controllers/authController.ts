@@ -38,6 +38,7 @@ const msRedirectUri = process.env.MS_REDIRECT_URI || "";
 const msScope = process.env.MS_SCOPE || "openid profile email";
 const msDefaultRole = process.env.MS_DEFAULT_ROLE || "viewer";
 const mfaIssuer = process.env.MFA_ISSUER || "Cellcard";
+const isRenderRuntime = String(process.env.RENDER || "").trim().toLowerCase() === "true";
 const mfaNumberMatchingEnabled = !["0", "false", "off", "no"].includes(
   String(process.env.MFA_NUMBER_MATCHING || "true").trim().toLowerCase()
 );
@@ -308,6 +309,13 @@ function getFrontendCallbackUrl() {
 
 function getPasswordResetUrl(token: string) {
   return `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+}
+
+function isFrontendUrlReadyForPasswordReset() {
+  const value = String(frontendUrl || "").trim();
+  if (!value) return false;
+  if (!isRenderRuntime) return true;
+  return !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(value);
 }
 
 let microsoftClientPromise: Promise<Client> | null = null;
@@ -795,6 +803,12 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
     return res.status(503).json({
       message:
         "Password reset email is not configured on the server. On Render, set RESEND_API_KEY and RESEND_FROM, and make sure FRONTEND_URL points to your deployed frontend.",
+    });
+  }
+  if (!isFrontendUrlReadyForPasswordReset()) {
+    return res.status(503).json({
+      message:
+        "Password reset is not configured correctly on the server. Set FRONTEND_URL to your deployed frontend URL instead of localhost.",
     });
   }
 
