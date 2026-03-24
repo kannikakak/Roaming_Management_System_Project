@@ -52,11 +52,11 @@ const ForgotPassword = () => {
         <div className="flex flex-col items-center text-center">
           <img
             src={rmsLogo}
-            alt="Cellcard logo"
+            alt="RMS logo"
             className="mx-auto h-24 w-auto select-none"
             draggable={false}
           />
-          <p className="text-sm text-gray-500 dark:text-gray-300">Reset your account password</p>
+          <p className="text-sm text-gray-500 dark:text-gray-300">Reset your RMS account password</p>
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Forgot Password</h1>

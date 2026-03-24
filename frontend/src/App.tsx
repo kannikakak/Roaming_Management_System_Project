@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import CardDetail from "./pages/CardDetail";
 import Login from "./pages/Login";
@@ -70,11 +70,20 @@ const RequireRole: React.FC<{ roles: string[]; children: React.ReactNode }> = ({
   return <>{children}</>;
 };
 
+const PublicEntry: React.FC = () => {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  if (params.get("resetToken")) {
+    return <ResetPassword />;
+  }
+  return <Login />;
+};
+
 const App: React.FC = () => (
   <Router>
     <Routes>
       {/* Public routes */}
-      <Route path="/" element={<Login />} />
+      <Route path="/" element={<PublicEntry />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />

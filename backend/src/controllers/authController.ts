@@ -37,7 +37,7 @@ const msClientSecret = process.env.MS_CLIENT_SECRET || "";
 const msRedirectUri = process.env.MS_REDIRECT_URI || "";
 const msScope = process.env.MS_SCOPE || "openid profile email";
 const msDefaultRole = process.env.MS_DEFAULT_ROLE || "viewer";
-const mfaIssuer = process.env.MFA_ISSUER || "Cellcard";
+const mfaIssuer = process.env.MFA_ISSUER || "RMS";
 const isRenderRuntime = String(process.env.RENDER || "").trim().toLowerCase() === "true";
 const mfaNumberMatchingEnabled = !["0", "false", "off", "no"].includes(
   String(process.env.MFA_NUMBER_MATCHING || "true").trim().toLowerCase()
@@ -308,7 +308,7 @@ function getFrontendCallbackUrl() {
 }
 
 function getPasswordResetUrl(token: string) {
-  return `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+  return `${frontendUrl.replace(/\/$/, "")}/?resetToken=${encodeURIComponent(token)}`;
 }
 
 function isFrontendUrlReadyForPasswordReset() {
@@ -872,17 +872,17 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
       [user.id, tokenHash, expiresAt]
     );
 
-    const subject = "Reset your Cellcard password";
+    const subject = "Reset your RMS password";
     const text = [
-      "We received a request to reset your Cellcard Roaming Analytics password.",
+      "We received a request to reset your RMS (Roaming Management System) password.",
       `Open this link to choose a new password: ${resetUrl}`,
       `This link expires in ${passwordResetTokenMinutes} minutes.`,
       "If you did not request this, you can ignore this email.",
     ].join("\n\n");
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
-        <h2 style="margin: 0 0 16px; color: #d97706;">Reset your Cellcard password</h2>
-        <p>We received a request to reset your Cellcard Roaming Analytics password.</p>
+        <h2 style="margin: 0 0 16px; color: #d97706;">Reset your RMS password</h2>
+        <p>We received a request to reset your RMS (Roaming Management System) password.</p>
         <p>
           <a
             href="${resetUrl}"

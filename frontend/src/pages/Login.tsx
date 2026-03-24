@@ -167,15 +167,15 @@ const Login = () => {
           <div className="mb-1">
             <img
               src={rmsLogo}
-              alt="Cellcard logo"
+              alt="RMS logo"
               className="mx-auto h-24 w-auto select-none"
               draggable={false}
             />
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-300">Sign in to manage your telecom data</p>
+          <p className="text-sm text-gray-500 dark:text-gray-300">Sign in to manage your Roaming Management System workspace</p>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome Back</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome to Roaming Management System</h1>
           <p className="text-sm text-gray-600 text-center mb-6 dark:text-gray-300">Sign in to access your dashboard</p>
         </div>
         {error && (

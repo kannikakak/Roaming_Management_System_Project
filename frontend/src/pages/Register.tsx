@@ -75,12 +75,12 @@ const Register = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-amber-100 rounded-xl mb-4">
             <Shield className="w-8 h-8 text-amber-600" />
           </div>
-          <h2 className="text-3xl font-bold text-amber-600 mb-1 dark:text-amber-300">Cellcard</h2>
-          <h3 className="text-xl font-semibold text-amber-500 mb-2 dark:text-amber-300">Roaming Analytics Platform</h3>
-          <p className="text-gray-500 text-sm mb-2 dark:text-gray-300">Sign up to manage your telecom data</p>
+          <h2 className="text-3xl font-bold text-amber-600 mb-1 dark:text-amber-300">RMS</h2>
+          <h3 className="text-xl font-semibold text-amber-500 mb-2 dark:text-amber-300">Roaming Management System</h3>
+          <p className="text-gray-500 text-sm mb-2 dark:text-gray-300">Sign up to manage your system access</p>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome!</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome to RMS</h1>
           <p className="text-sm text-gray-600 text-center mb-6 dark:text-gray-300">Create your account to access the dashboard</p>
         </div>
         {error && (

@@ -182,7 +182,7 @@ export default function Dashboard() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-amber-600 font-semibold dark:text-amber-300">
-                Roaming Analytics
+                Roaming Management System
               </p>
               <h2 className="text-3xl font-bold text-gray-900 mt-1.5 dark:text-gray-100">
                 Live operations overview

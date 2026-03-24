@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 170" role="img" aria-labelledby="title desc">
-  <title id="title">Cellcard Logo</title>
-  <desc id="desc">Cellcard wordmark with Roaming Analytics subtitle</desc>
+  <title id="title">RMS Logo</title>
+  <desc id="desc">RMS wordmark with Roaming Management System subtitle</desc>
   <defs>
     <linearGradient id="brandFill" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#d97706" />
@@ -14,22 +14,22 @@
     x="18"
     y="78"
     font-family="Poppins, Segoe UI, Arial, sans-serif"
-    font-size="62"
+    font-size="74"
     font-weight="700"
     fill="url(#brandFill)"
   >
-    Cellcard
+    RMS
   </text>
 
   <text
     x="18"
     y="128"
     font-family="Poppins, Segoe UI, Arial, sans-serif"
-    font-size="34"
+    font-size="22"
     font-weight="500"
-    letter-spacing="4"
+    letter-spacing="2.5"
     fill="url(#brandFill)"
   >
-    ROAMING ANALYTICS
+    ROAMING MANAGEMENT SYSTEM
   </text>
 </svg>
