@@ -11,8 +11,8 @@ type Schedule = {
   time_of_day: string;
   day_of_week: number | null;
   day_of_month: number | null;
-  recipients_email: string | null;
-  recipients_telegram: string | null;
+  recipients_email: unknown;
+  recipients_telegram: unknown;
   file_format: string;
   attachment_name?: string | null;
   is_active: number;
@@ -26,14 +26,23 @@ const toList = (value: string) =>
     .map((v) => v.trim())
     .filter(Boolean);
 
-const hasChannel = (raw: string | null | undefined) => {
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.length > 0 : Boolean(parsed);
-  } catch {
-    return raw.trim().length > 0;
+const hasChannel = (raw: unknown) => {
+  if (raw === null || raw === undefined) return false;
+  if (Array.isArray(raw)) return raw.length > 0;
+  if (typeof raw === "object") return Object.keys(raw).length > 0;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return false;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.length > 0;
+      if (parsed && typeof parsed === "object") return Object.keys(parsed).length > 0;
+      return Boolean(parsed);
+    } catch {
+      return text.length > 0;
+    }
   }
+  return Boolean(raw);
 };
 
 const SchedulesPage: React.FC = () => {
