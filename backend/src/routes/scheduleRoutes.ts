@@ -7,7 +7,7 @@ import { computeNextRunAt, runDueSchedules, ScheduleFrequency } from "../service
 import { requireAuth, requireRole } from "../middleware/auth";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { writeAuditLog } from "../utils/auditLogger";
-import { isEmailReady, sendEmail } from "../services/delivery";
+import { isEmailReady, isTeamsReady, sendEmail, sendTeams } from "../services/delivery";
 import { formatDateTimeForDatabase } from "../utils/scheduleTime";
 
 type SchedulePayload = {
@@ -19,6 +19,7 @@ type SchedulePayload = {
   dayOfWeek?: number | null;
   dayOfMonth?: number | null;
   recipientsEmail?: string[] | string;
+  recipientsTelegram?: string[] | string;
   fileFormat: string;
   isActive?: boolean;
 };
@@ -54,6 +55,11 @@ function toList(input?: string[] | string) {
 function toNumber(value: unknown, fallback: number) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function toBool(value: unknown, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
 }
 
 async function createNotification(
@@ -106,6 +112,7 @@ export function scheduleRoutes(dbPool: Pool) {
     );
 
     const recipientsEmail = toList(payload.recipientsEmail);
+    const recipientsTelegram = toList(payload.recipientsTelegram);
 
     const attachmentPath = file ? file.path : null;
     const attachmentName = file ? file.originalname : null;
@@ -126,7 +133,7 @@ export function scheduleRoutes(dbPool: Pool) {
         dayOfWeek,
         dayOfMonth,
         JSON.stringify(recipientsEmail),
-        JSON.stringify([]),
+        JSON.stringify(recipientsTelegram),
         payload.fileFormat,
         attachmentPath,
         attachmentName,
@@ -212,13 +219,23 @@ export function scheduleRoutes(dbPool: Pool) {
   router.post("/send-now", requireRole(["admin", "analyst"]), upload.single("file"), async (req, res) => {
     try {
       const recipientsEmail = toList((req.body as { recipientsEmail?: string[] | string }).recipientsEmail);
-      if (recipientsEmail.length === 0) {
-        return res.status(400).json({ message: "At least one email recipient is required." });
+      const sendToEmail = toBool((req.body as { sendToEmail?: unknown }).sendToEmail, recipientsEmail.length > 0);
+      const sendToTeams = toBool((req.body as { sendToTeams?: unknown }).sendToTeams, false);
+      if (!sendToEmail && !sendToTeams) {
+        return res.status(400).json({ message: "Select at least one delivery channel." });
       }
-      if (!isEmailReady()) {
+      if (sendToEmail && recipientsEmail.length === 0) {
+        return res.status(400).json({ message: "At least one email recipient is required for email delivery." });
+      }
+      if (sendToEmail && !isEmailReady() && !sendToTeams) {
         return res.status(400).json({
           message:
             "Email delivery is not configured on the server. Configure either SMTP_* credentials or RESEND_API_KEY with RESEND_FROM.",
+        });
+      }
+      if (sendToTeams && !isTeamsReady() && !sendToEmail) {
+        return res.status(400).json({
+          message: "Microsoft Teams delivery is not configured on the server. Set TEAMS_WEBHOOK_URL.",
         });
       }
 
@@ -235,45 +252,100 @@ export function scheduleRoutes(dbPool: Pool) {
       const message =
         String((req.body as { message?: string }).message || "").trim() ||
         "Please find the requested file attached.";
+      const results: Array<{ channel: "email" | "teams"; ok: boolean; reason?: string | null }> = [];
 
-      const result = await sendEmail(recipientsEmail, subject, message, attachment);
-
-      await createNotification(
-        dbPool,
-        "schedule_delivery",
-        "email",
-        subject,
-        {
-          mode: "send_now",
-          recipients: recipientsEmail,
-          sent: result.ok,
-          reason: result.ok ? null : result.reason || "unknown",
-          attachmentName: attachment?.name || null,
+      if (sendToEmail) {
+        if (!isEmailReady()) {
+          results.push({
+            channel: "email",
+            ok: false,
+            reason:
+              "Email delivery is not configured on the server. Configure either SMTP_* credentials or RESEND_API_KEY with RESEND_FROM.",
+          });
+        } else {
+          const emailResult = await sendEmail(recipientsEmail, subject, message, attachment);
+          results.push({
+            channel: "email",
+            ok: emailResult.ok,
+            reason: emailResult.ok ? null : emailResult.reason || "unknown",
+          });
+          await createNotification(
+            dbPool,
+            emailResult.ok ? "schedule_delivery" : "schedule_error",
+            "email",
+            subject,
+            {
+              mode: "send_now",
+              recipients: recipientsEmail,
+              sent: emailResult.ok,
+              reason: emailResult.ok ? null : emailResult.reason || "unknown",
+              attachmentName: attachment?.name || null,
+            }
+          );
         }
-      );
+      }
+
+      if (sendToTeams) {
+        if (!isTeamsReady()) {
+          results.push({
+            channel: "teams",
+            ok: false,
+            reason: "Microsoft Teams delivery is not configured on the server. Set TEAMS_WEBHOOK_URL.",
+          });
+        } else {
+          const teamsResult = await sendTeams(message, attachment);
+          results.push({
+            channel: "teams",
+            ok: teamsResult.ok,
+            reason: teamsResult.ok ? null : teamsResult.reason || "unknown",
+          });
+          await createNotification(
+            dbPool,
+            teamsResult.ok ? "schedule_delivery" : "schedule_error",
+            "teams",
+            subject,
+            {
+              mode: "send_now",
+              sent: teamsResult.ok,
+              reason: teamsResult.ok ? null : teamsResult.reason || "unknown",
+              attachmentName: attachment?.name || null,
+            }
+          );
+        }
+      }
 
       await writeAuditLog(dbPool, {
         req,
         action: "schedule_send_now",
         details: {
-          recipientsEmailCount: recipientsEmail.length,
+          recipientsEmailCount: sendToEmail ? recipientsEmail.length : 0,
+          sendToEmail,
+          sendToTeams,
           subject,
-          sent: result.ok,
-          reason: result.reason || null,
+          results,
           attachmentName: attachment?.name || null,
         },
       });
 
-      if (!result.ok) {
+      const successfulChannels = results.filter((result) => result.ok).map((result) => result.channel);
+      const failedChannels = results.filter((result) => !result.ok);
+      if (successfulChannels.length === 0) {
         return res.status(502).json({
           ok: false,
-          message: result.reason || "Email delivery failed.",
+          message:
+            failedChannels.map((result) => result.reason).filter(Boolean).join(" | ") ||
+            "Delivery failed.",
         });
       }
 
       return res.json({
         ok: true,
-        message: `Sent to ${recipientsEmail.length} recipient(s).`,
+        message:
+          failedChannels.length === 0
+            ? `Sent via ${successfulChannels.join(" and ")}.`
+            : `Sent via ${successfulChannels.join(" and ")}. Some channels failed: ${failedChannels
+                .map((result) => `${result.channel}: ${result.reason || "unknown"}`)
+                .join(" | ")}`,
       });
     } catch (err: any) {
       return res.status(500).json({ message: err.message || "Failed to send email now." });
@@ -371,7 +443,7 @@ export function scheduleRoutes(dbPool: Pool) {
           payload.dayOfWeek ?? null,
           payload.dayOfMonth ?? null,
           JSON.stringify(toList(payload.recipientsEmail)),
-          JSON.stringify([]),
+          JSON.stringify(toList(payload.recipientsTelegram)),
           payload.fileFormat,
           payload.isActive === false ? 0 : 1,
           formatDateTimeForDatabase(nextRun),

@@ -170,6 +170,7 @@ export async function runDueSchedules(dbPool: Pool) {
     try {
       const runStartedAt = new Date();
       const recipientsEmail = parseRecipients(schedule.recipients_email);
+      const recipientsTeams = parseRecipients(schedule.recipients_telegram);
 
       const message = `Scheduled delivery: ${schedule.name} (${schedule.frequency})`;
       const subject = `Schedule: ${schedule.name}`;
@@ -229,6 +230,11 @@ export async function runDueSchedules(dbPool: Pool) {
           "Email recipients are configured for this schedule, but the server email channel is not configured. Set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM (plus SMTP_USER and SMTP_PASS if your provider requires auth)."
         );
       }
+      if (!isTeamsReady() && recipientsTeams.length > 0) {
+        channelWarnings.push(
+          "Microsoft Teams is enabled for this schedule, but the server Teams channel is not configured. Set TEAMS_WEBHOOK_URL."
+        );
+      }
       if (channelWarnings.length > 0 && settings.in_app_enabled) {
         await createNotification(
           dbPool,
@@ -239,6 +245,7 @@ export async function runDueSchedules(dbPool: Pool) {
             scheduleId: schedule.id,
             scheduleName: schedule.name,
             recipientsEmailCount: recipientsEmail.length,
+            recipientsTeamsCount: recipientsTeams.length,
           }
         );
       }
@@ -292,7 +299,7 @@ export async function runDueSchedules(dbPool: Pool) {
         }
       }
 
-      if (isTeamsReady()) {
+      if (isTeamsReady() && recipientsTeams.length > 0) {
         deliveryAttempts += 1;
         const teamsResult = await sendTeams(message, attachment || undefined);
         deliveryResults.push({
@@ -364,6 +371,7 @@ export async function runDueSchedules(dbPool: Pool) {
           format: schedule.file_format,
           deliveryAttempts,
           recipientsEmailCount: recipientsEmail.length,
+          recipientsTeamsCount: recipientsTeams.length,
           successes: successfulDeliveries.map((result) => result.channel),
           failures: failedDeliveries.map((result) => result.channel),
           reason: failedReasons.length > 0 ? failedReasons.join(" | ") : null,
@@ -392,6 +400,7 @@ export async function runDueSchedules(dbPool: Pool) {
           frequency: schedule.frequency,
           format: schedule.file_format,
           recipientsEmailCount: recipientsEmail.length,
+          recipientsTeamsCount: recipientsTeams.length,
           deliveryAttempts,
           nextRunAt: nextRun,
         },
