@@ -27,8 +27,8 @@ const toOptionalBool = (value: string | undefined) => {
 };
 
 const getDefaultSettings = () => ({
-  email_enabled: toBool(process.env.NOTIFY_EMAIL_ENABLED, isEmailReady) ? 1 : 0,
-  telegram_enabled: toBool(process.env.NOTIFY_TELEGRAM_ENABLED, isTelegramReady) ? 1 : 0,
+  email_enabled: toBool(process.env.NOTIFY_EMAIL_ENABLED, isEmailReady()) ? 1 : 0,
+  telegram_enabled: toBool(process.env.NOTIFY_TELEGRAM_ENABLED, isTelegramReady()) ? 1 : 0,
   in_app_enabled: toBool(process.env.NOTIFY_IN_APP_ENABLED, true) ? 1 : 0,
 });
 

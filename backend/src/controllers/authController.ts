@@ -799,7 +799,7 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
   if (!normalizedEmail) {
     return res.status(400).json({ message: "Email is required." });
   }
-  if (!isEmailReady) {
+  if (!isEmailReady()) {
     return res.status(503).json({
       message:
         "Password reset email is not configured on the server. On Render, set RESEND_API_KEY and RESEND_FROM, and make sure FRONTEND_URL points to your deployed frontend.",

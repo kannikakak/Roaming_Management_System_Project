@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Bell, Search } from "lucide-react";
 import { apiFetch } from "../utils/api";
 import ThemeToggle from "./ThemeToggle";
+import { formatCambodiaDateTime } from "../utils/dateTime";
 
 type PageMeta = {
   path: string;
@@ -174,7 +175,7 @@ const HeaderBar: React.FC = () => {
                       <div className="text-sm text-gray-800 dark:text-gray-100">{n.message}</div>
                       <div className="mt-2 flex items-center justify-between">
                         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                          {new Date(n.created_at).toLocaleString()}
+                          {formatCambodiaDateTime(n.created_at)}
                         </span>
                         {!n.read_at && (
                           <button

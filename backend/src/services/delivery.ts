@@ -11,45 +11,81 @@ export type DeliveryAttachment = {
   size: number;
 };
 
-const smtpHost = process.env.SMTP_HOST;
-const smtpPort = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASS;
-const smtpFrom = process.env.SMTP_FROM;
-const smtpSecure = ["1", "true", "yes", "on"].includes(
-  String(process.env.SMTP_SECURE || "").trim().toLowerCase()
-)
-  ? true
-  : smtpPort === 465;
-const smtpTlsRejectUnauthorized = !["0", "false", "no", "off"].includes(
-  String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || "true").trim().toLowerCase()
-);
-const smtpConnectionTimeoutMs = process.env.SMTP_CONNECTION_TIMEOUT_MS
-  ? Number(process.env.SMTP_CONNECTION_TIMEOUT_MS)
-  : 15000;
-const smtpGreetingTimeoutMs = process.env.SMTP_GREETING_TIMEOUT_MS
-  ? Number(process.env.SMTP_GREETING_TIMEOUT_MS)
-  : 15000;
-const smtpSocketTimeoutMs = process.env.SMTP_SOCKET_TIMEOUT_MS
-  ? Number(process.env.SMTP_SOCKET_TIMEOUT_MS)
-  : 20000;
+function getSmtpConfig() {
+  const host = String(process.env.SMTP_HOST || "").trim();
+  const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
+  const user = String(process.env.SMTP_USER || "").trim();
+  const pass = String(process.env.SMTP_PASS || "").trim();
+  const from = String(process.env.SMTP_FROM || "").trim();
+  const secure = ["1", "true", "yes", "on"].includes(
+    String(process.env.SMTP_SECURE || "").trim().toLowerCase()
+  )
+    ? true
+    : port === 465;
+  const tlsRejectUnauthorized = !["0", "false", "no", "off"].includes(
+    String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || "true").trim().toLowerCase()
+  );
+  const connectionTimeoutMs = process.env.SMTP_CONNECTION_TIMEOUT_MS
+    ? Number(process.env.SMTP_CONNECTION_TIMEOUT_MS)
+    : 15000;
+  const greetingTimeoutMs = process.env.SMTP_GREETING_TIMEOUT_MS
+    ? Number(process.env.SMTP_GREETING_TIMEOUT_MS)
+    : 15000;
+  const socketTimeoutMs = process.env.SMTP_SOCKET_TIMEOUT_MS
+    ? Number(process.env.SMTP_SOCKET_TIMEOUT_MS)
+    : 20000;
 
-const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-const teamsWebhook = process.env.TEAMS_WEBHOOK_URL;
-const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
-const resendFrom = String(process.env.RESEND_FROM || process.env.SMTP_FROM || "").trim();
-const resendBaseUrl = String(process.env.RESEND_BASE_URL || "https://api.resend.com").trim().replace(/\/$/, "");
-const isRenderRuntime = String(process.env.RENDER || "").trim().toLowerCase() === "true";
+  return {
+    host,
+    port,
+    user,
+    pass,
+    from,
+    secure,
+    tlsRejectUnauthorized,
+    connectionTimeoutMs,
+    greetingTimeoutMs,
+    socketTimeoutMs,
+  };
+}
 
-export const isEmailReady = !!(
-  (resendApiKey && resendFrom) ||
-  (smtpHost && smtpPort && smtpFrom)
-);
-export const isTelegramReady = !!telegramToken;
-export const isTeamsReady = !!teamsWebhook;
+function getResendConfig() {
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  const from = String(process.env.RESEND_FROM || process.env.SMTP_FROM || "").trim();
+  const baseUrl = String(process.env.RESEND_BASE_URL || "https://api.resend.com")
+    .trim()
+    .replace(/\/$/, "");
+  return { apiKey, from, baseUrl };
+}
+
+function getTelegramToken() {
+  return String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+}
+
+function getTeamsWebhook() {
+  return String(process.env.TEAMS_WEBHOOK_URL || "").trim();
+}
+
+function isRenderRuntime() {
+  return String(process.env.RENDER || "").trim().toLowerCase() === "true";
+}
+
+export function isEmailReady() {
+  const resend = getResendConfig();
+  const smtp = getSmtpConfig();
+  return Boolean((resend.apiKey && resend.from) || (smtp.host && smtp.port && smtp.from));
+}
+
+export function isTelegramReady() {
+  return Boolean(getTelegramToken());
+}
+
+export function isTeamsReady() {
+  return Boolean(getTeamsWebhook());
+}
 
 export function isRealDeliveryEnabled() {
-  return isEmailReady || isTelegramReady || isTeamsReady;
+  return isEmailReady() || isTelegramReady() || isTeamsReady();
 }
 
 export type DeliveryResult = {
@@ -78,16 +114,17 @@ async function sendEmailViaResend(
   attachment?: DeliveryAttachment,
   html?: string
 ): Promise<DeliveryResult> {
-  if (!resendApiKey || !resendFrom) {
+  const resend = getResendConfig();
+  if (!resend.apiKey || !resend.from) {
     return { ok: false, reason: "Resend is not configured" };
   }
 
   try {
     const attachments = await buildResendAttachments(attachment);
     await axios.post(
-      `${resendBaseUrl}/emails`,
+      `${resend.baseUrl}/emails`,
       {
-        from: resendFrom,
+        from: resend.from,
         to,
         subject,
         text,
@@ -96,7 +133,7 @@ async function sendEmailViaResend(
       },
       {
         headers: {
-          Authorization: `Bearer ${resendApiKey}`,
+          Authorization: `Bearer ${resend.apiKey}`,
           "Content-Type": "application/json",
         },
         timeout: 20000,
@@ -125,11 +162,14 @@ export async function sendEmail(
   attachment?: DeliveryAttachment,
   html?: string
 ): Promise<DeliveryResult> {
-  if (resendApiKey && resendFrom) {
+  const resend = getResendConfig();
+  const smtp = getSmtpConfig();
+
+  if (resend.apiKey && resend.from) {
     return sendEmailViaResend(to, subject, text, attachment, html);
   }
 
-  if (isRenderRuntime && [25, 465, 587].includes(Number(smtpPort))) {
+  if (isRenderRuntime() && [25, 465, 587].includes(Number(smtp.port))) {
     return {
       ok: false,
       reason:
@@ -139,13 +179,17 @@ export async function sendEmail(
     };
   }
 
-  if (!smtpHost || !smtpPort || !smtpFrom) {
-    return { ok: false, reason: "SMTP not configured" };
+  if (!smtp.host || !smtp.port || !smtp.from) {
+    return {
+      ok: false,
+      reason:
+        "Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM.",
+    };
   }
   if (!Array.isArray(to) || to.length === 0) {
     return { ok: false, reason: "No email recipients provided" };
   }
-  if ((smtpUser && !smtpPass) || (!smtpUser && smtpPass)) {
+  if ((smtp.user && !smtp.pass) || (!smtp.user && smtp.pass)) {
     return {
       ok: false,
       reason: "SMTP auth is incomplete. Set both SMTP_USER and SMTP_PASS, or neither.",
@@ -153,18 +197,18 @@ export async function sendEmail(
   }
 
   const transportConfig: any = {
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpSecure,
-    tls: { rejectUnauthorized: smtpTlsRejectUnauthorized },
-    connectionTimeout: smtpConnectionTimeoutMs,
-    greetingTimeout: smtpGreetingTimeoutMs,
-    socketTimeout: smtpSocketTimeoutMs,
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    tls: { rejectUnauthorized: smtp.tlsRejectUnauthorized },
+    connectionTimeout: smtp.connectionTimeoutMs,
+    greetingTimeout: smtp.greetingTimeoutMs,
+    socketTimeout: smtp.socketTimeoutMs,
   };
-  if (smtpUser && smtpPass) {
+  if (smtp.user && smtp.pass) {
     transportConfig.auth = {
-      user: smtpUser,
-      pass: smtpPass,
+      user: smtp.user,
+      pass: smtp.pass,
     };
   }
 
@@ -181,7 +225,7 @@ export async function sendEmail(
   try {
     const transporter = nodemailer.createTransport(transportConfig);
     await transporter.sendMail({
-      from: smtpFrom,
+      from: smtp.from,
       to: to.join(", "),
       subject,
       text,
@@ -195,15 +239,15 @@ export async function sendEmail(
 
     let reason = err?.message || "SMTP delivery failed";
     if (code === "ETIMEDOUT" || /timed out/i.test(reason)) {
-      reason = `SMTP connection timed out while connecting to ${smtpHost}:${smtpPort}. Check SMTP host/port, provider firewall rules, and whether your hosting platform allows outbound SMTP.`;
+      reason = `SMTP connection timed out while connecting to ${smtp.host}:${smtp.port}. Check SMTP host/port, provider firewall rules, and whether your hosting platform allows outbound SMTP.`;
     } else if (code === "ECONNREFUSED") {
-      reason = `SMTP connection was refused by ${smtpHost}:${smtpPort}. Check SMTP host, port, and whether STARTTLS/SSL settings match your provider.`;
+      reason = `SMTP connection was refused by ${smtp.host}:${smtp.port}. Check SMTP host, port, and whether STARTTLS/SSL settings match your provider.`;
     } else if (responseCode === 535 || /auth/i.test(reason)) {
       reason = "SMTP authentication failed. Check SMTP_USER, SMTP_PASS, and whether SMTP AUTH or an app password is required for this mailbox.";
     }
     if (
-      isRenderRuntime &&
-      [25, 465, 587].includes(Number(smtpPort)) &&
+      isRenderRuntime() &&
+      [25, 465, 587].includes(Number(smtp.port)) &&
       (code === "ETIMEDOUT" || code === "ECONNREFUSED" || /timed out|refused/i.test(reason))
     ) {
       reason = `${reason} Render free web services block outbound SMTP on ports 25, 465, and 587. Use a paid Render instance or configure an HTTPS email API such as Resend via RESEND_API_KEY and RESEND_FROM.`;
@@ -218,7 +262,8 @@ export async function sendTelegram(
   text: string,
   attachment?: DeliveryAttachment
 ): Promise<DeliveryResult> {
-  if (!isTelegramReady) {
+  const telegramToken = getTelegramToken();
+  if (!telegramToken) {
     return { ok: false, reason: "Telegram not configured" };
   }
   if (!Array.isArray(chatIds) || chatIds.length === 0) {
@@ -285,7 +330,8 @@ export async function sendTelegram(
 }
 
 export async function sendTeams(text: string, attachment?: DeliveryAttachment): Promise<DeliveryResult> {
-  if (!isTeamsReady) {
+  const teamsWebhook = getTeamsWebhook();
+  if (!teamsWebhook) {
     return { ok: false, reason: "Teams not configured" };
   }
 
@@ -295,7 +341,7 @@ export async function sendTeams(text: string, attachment?: DeliveryAttachment): 
 
   try {
     await axios.post(
-      teamsWebhook as string,
+      teamsWebhook,
       {
         text: message,
       },

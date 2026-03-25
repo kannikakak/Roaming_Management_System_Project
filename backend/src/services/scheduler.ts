@@ -10,6 +10,11 @@ import {
 } from "./delivery";
 import { writeAuditLog } from "../utils/auditLogger";
 import { runAlertDetections, upsertAlert } from "./alerts";
+import {
+  formatDateTimeForDatabase,
+  fromScheduleWallClock,
+  toScheduleWallClock,
+} from "../utils/scheduleTime";
 
 export type ScheduleFrequency = "daily" | "weekly" | "monthly";
 
@@ -34,9 +39,15 @@ export type ScheduleRow = {
   next_run_at: string;
 };
 
+type DeliveryAttemptSummary = {
+  channel: "email" | "teams";
+  ok: boolean;
+  reason?: string | null;
+};
+
 function clampDayToMonth(date: Date, day: number) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
   const lastDay = new Date(year, month + 1, 0).getDate();
   return Math.min(day, lastDay);
 }
@@ -79,33 +90,34 @@ export function computeNextRunAt(
   dayOfMonth?: number | null
 ) {
   const [h, m, s] = timeOfDay.split(":").map((v) => Number(v));
-  const base = new Date(from);
-  base.setSeconds(Number.isFinite(s) ? s : 0, 0);
-  base.setMinutes(Number.isFinite(m) ? m : 0);
-  base.setHours(Number.isFinite(h) ? h : 0);
+  const localFrom = toScheduleWallClock(from);
+  const base = new Date(localFrom);
+  base.setUTCSeconds(Number.isFinite(s) ? s : 0, 0);
+  base.setUTCMinutes(Number.isFinite(m) ? m : 0);
+  base.setUTCHours(Number.isFinite(h) ? h : 0);
 
   if (frequency === "daily") {
-    if (base <= from) base.setDate(base.getDate() + 1);
-    return base;
+    if (base <= localFrom) base.setUTCDate(base.getUTCDate() + 1);
+    return fromScheduleWallClock(base);
   }
 
   if (frequency === "weekly") {
     const targetDow = typeof dayOfWeek === "number" ? dayOfWeek : 0;
-    const currentDow = base.getDay();
+    const currentDow = base.getUTCDay();
     let diff = targetDow - currentDow;
-    if (diff < 0 || (diff === 0 && base <= from)) diff += 7;
-    base.setDate(base.getDate() + diff);
-    return base;
+    if (diff < 0 || (diff === 0 && base <= localFrom)) diff += 7;
+    base.setUTCDate(base.getUTCDate() + diff);
+    return fromScheduleWallClock(base);
   }
 
   const targetDom = typeof dayOfMonth === "number" && dayOfMonth > 0 ? dayOfMonth : 1;
   const clamped = clampDayToMonth(base, targetDom);
-  base.setDate(clamped);
-  if (base <= from) {
-    base.setMonth(base.getMonth() + 1);
-    base.setDate(clampDayToMonth(base, targetDom));
+  base.setUTCDate(clamped);
+  if (base <= localFrom) {
+    base.setUTCMonth(base.getUTCMonth() + 1);
+    base.setUTCDate(clampDayToMonth(base, targetDom));
   }
-  return base;
+  return fromScheduleWallClock(base);
 }
 
 async function createNotification(
@@ -146,14 +158,17 @@ async function createFailedScheduleAlert(
 }
 
 export async function runDueSchedules(dbPool: Pool) {
+  const tickStartedAt = new Date();
   const [rows]: any = await dbPool.query(
-    "SELECT * FROM report_schedules WHERE is_active = 1 AND next_run_at <= NOW()"
+    "SELECT * FROM report_schedules WHERE is_active = 1 AND next_run_at <= ?",
+    [formatDateTimeForDatabase(tickStartedAt)]
   );
   const settings = await getNotificationSettings(dbPool);
 
   const schedules: ScheduleRow[] = Array.isArray(rows) ? rows : [];
   for (const schedule of schedules) {
     try {
+      const runStartedAt = new Date();
       const recipientsEmail = parseRecipients(schedule.recipients_email);
 
       const message = `Scheduled delivery: ${schedule.name} (${schedule.frequency})`;
@@ -180,13 +195,17 @@ export async function runDueSchedules(dbPool: Pool) {
         const nextRunOnMissingAttachment = computeNextRunAt(
           schedule.frequency,
           schedule.time_of_day,
-          new Date(),
+          runStartedAt,
           schedule.day_of_week,
           schedule.day_of_month
         );
         await dbPool.execute(
-          "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
-          [nextRunOnMissingAttachment, schedule.id]
+          "UPDATE report_schedules SET last_run_at = ?, next_run_at = ? WHERE id = ?",
+          [
+            formatDateTimeForDatabase(runStartedAt),
+            formatDateTimeForDatabase(nextRunOnMissingAttachment),
+            schedule.id,
+          ]
         );
         await writeAuditLog(dbPool, {
           actor: "system",
@@ -202,11 +221,12 @@ export async function runDueSchedules(dbPool: Pool) {
       }
 
       let deliveryAttempts = 0;
+      const deliveryResults: DeliveryAttemptSummary[] = [];
       const channelWarnings: string[] = [];
 
-      if (!isEmailReady && recipientsEmail.length > 0) {
+      if (!isEmailReady() && recipientsEmail.length > 0) {
         channelWarnings.push(
-          "Email delivery is enabled but SMTP is not configured. Set SMTP_HOST and SMTP_FROM (plus SMTP_USER/SMTP_PASS if your provider requires auth)."
+          "Email recipients are configured for this schedule, but the server email channel is not configured. Set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM (plus SMTP_USER and SMTP_PASS if your provider requires auth)."
         );
       }
       if (channelWarnings.length > 0 && settings.in_app_enabled) {
@@ -225,9 +245,14 @@ export async function runDueSchedules(dbPool: Pool) {
 
       // Schedule channel recipients are explicit; do not block delivery using
       // notification preference toggles meant for in-app alerts.
-      if (isEmailReady && recipientsEmail.length > 0) {
+      if (isEmailReady() && recipientsEmail.length > 0) {
         deliveryAttempts += 1;
         const result = await sendEmail(recipientsEmail, subject, message, attachment || undefined);
+        deliveryResults.push({
+          channel: "email",
+          ok: result.ok,
+          reason: result.ok ? null : result.reason || null,
+        });
         if (!result.ok) {
           await createFailedScheduleAlert(
             dbPool,
@@ -241,19 +266,40 @@ export async function runDueSchedules(dbPool: Pool) {
               reason: result.reason || null,
             }
           );
+          if (settings.in_app_enabled) {
+            await createNotification(
+              dbPool,
+              "schedule_error",
+              "email",
+              `Scheduled delivery failed: ${schedule.name} (${schedule.frequency})`,
+              {
+                scheduleId: schedule.id,
+                recipients: recipientsEmail,
+                format: schedule.file_format,
+                sent: false,
+                reason: result.reason || "unknown error",
+              }
+            );
+          }
+        } else {
+          await createNotification(dbPool, "schedule_delivery", "email", message, {
+            scheduleId: schedule.id,
+            recipients: recipientsEmail,
+            format: schedule.file_format,
+            sent: true,
+            reason: null,
+          });
         }
-        await createNotification(dbPool, "schedule_delivery", "email", message, {
-          scheduleId: schedule.id,
-          recipients: recipientsEmail,
-          format: schedule.file_format,
-          sent: result.ok,
-          reason: result.ok ? null : result.reason,
-        });
       }
 
-      if (isTeamsReady) {
+      if (isTeamsReady()) {
         deliveryAttempts += 1;
         const teamsResult = await sendTeams(message, attachment || undefined);
+        deliveryResults.push({
+          channel: "teams",
+          ok: teamsResult.ok,
+          reason: teamsResult.ok ? null : teamsResult.reason || null,
+        });
         if (!teamsResult.ok) {
           await createFailedScheduleAlert(
             dbPool,
@@ -266,35 +312,76 @@ export async function runDueSchedules(dbPool: Pool) {
               reason: teamsResult.reason || null,
             }
           );
+          if (settings.in_app_enabled) {
+            await createNotification(
+              dbPool,
+              "schedule_error",
+              "teams",
+              `Scheduled delivery failed: ${schedule.name} (${schedule.frequency})`,
+              {
+                scheduleId: schedule.id,
+                format: schedule.file_format,
+                sent: false,
+                reason: teamsResult.reason || "unknown error",
+              }
+            );
+          }
+        } else {
+          await createNotification(dbPool, "schedule_delivery", "teams", message, {
+            scheduleId: schedule.id,
+            format: schedule.file_format,
+            sent: true,
+            reason: null,
+          });
         }
-        await createNotification(dbPool, "schedule_delivery", "teams", message, {
-          scheduleId: schedule.id,
-          format: schedule.file_format,
-          sent: teamsResult.ok,
-          reason: teamsResult.ok ? null : teamsResult.reason,
-        });
       }
 
       if (settings.in_app_enabled) {
-        await createNotification(dbPool, "schedule_delivery", "system", message, {
+        const successfulDeliveries = deliveryResults.filter((result) => result.ok);
+        const failedDeliveries = deliveryResults.filter((result) => !result.ok);
+        const failedReasons = failedDeliveries
+          .map((result) => `${result.channel}: ${result.reason || "unknown error"}`)
+          .filter(Boolean);
+
+        let systemType = "schedule_delivery";
+        let systemMessage = message;
+        if (deliveryAttempts === 0) {
+          systemType = channelWarnings.length > 0 ? "schedule_warning" : "schedule_error";
+          systemMessage =
+            channelWarnings.length > 0
+              ? `Scheduled delivery not attempted: ${schedule.name} (${schedule.frequency})`
+              : `Scheduled delivery has no configured channels: ${schedule.name} (${schedule.frequency})`;
+        } else if (successfulDeliveries.length === 0) {
+          systemType = "schedule_error";
+          systemMessage = `Scheduled delivery failed: ${schedule.name} (${schedule.frequency})`;
+        } else if (failedDeliveries.length > 0) {
+          systemType = "schedule_warning";
+          systemMessage = `Scheduled delivery partially completed: ${schedule.name} (${schedule.frequency})`;
+        }
+
+        await createNotification(dbPool, systemType, "system", systemMessage, {
           scheduleId: schedule.id,
           format: schedule.file_format,
           deliveryAttempts,
           recipientsEmailCount: recipientsEmail.length,
+          successes: successfulDeliveries.map((result) => result.channel),
+          failures: failedDeliveries.map((result) => result.channel),
+          reason: failedReasons.length > 0 ? failedReasons.join(" | ") : null,
+          warnings: channelWarnings,
         });
       }
 
       const nextRun = computeNextRunAt(
         schedule.frequency,
         schedule.time_of_day,
-        new Date(),
+        runStartedAt,
         schedule.day_of_week,
         schedule.day_of_month
       );
 
       await dbPool.execute(
-        "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
-        [nextRun, schedule.id]
+        "UPDATE report_schedules SET last_run_at = ?, next_run_at = ? WHERE id = ?",
+        [formatDateTimeForDatabase(runStartedAt), formatDateTimeForDatabase(nextRun), schedule.id]
       );
       await writeAuditLog(dbPool, {
         actor: "system",
@@ -321,8 +408,12 @@ export async function runDueSchedules(dbPool: Pool) {
           schedule.day_of_month
         );
         await dbPool.execute(
-          "UPDATE report_schedules SET last_run_at = NOW(), next_run_at = ? WHERE id = ?",
-          [nextRunOnError, schedule.id]
+          "UPDATE report_schedules SET last_run_at = ?, next_run_at = ? WHERE id = ?",
+          [
+            formatDateTimeForDatabase(new Date()),
+            formatDateTimeForDatabase(nextRunOnError),
+            schedule.id,
+          ]
         );
       } catch (updateErr) {
         console.error("Failed to advance schedule after error:", updateErr);

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiFetch } from "../utils/api";
+import { CAMBODIA_TIME_ZONE, formatCambodiaDateTime } from "../utils/dateTime";
 
 type Notification = {
   id: number;
@@ -94,7 +95,7 @@ const NotificationsPage: React.FC = () => {
           <div>
             <h2 className="text-3xl font-bold text-amber-800">Notifications</h2>
             <p className="text-sm text-amber-700/80">
-              Track uploads, schedule deliveries, and system alerts.
+              Track uploads, schedule deliveries, and system alerts in {CAMBODIA_TIME_ZONE}.
             </p>
           </div>
           <button
@@ -168,7 +169,7 @@ const NotificationsPage: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div className="font-semibold text-gray-900">{n.type}</div>
                     <div className="text-xs text-gray-500">
-                      {new Date(n.created_at).toLocaleString()}
+                      {formatCambodiaDateTime(n.created_at)}
                     </div>
                   </div>
                   <div className="text-gray-700 mt-1">{n.message}</div>

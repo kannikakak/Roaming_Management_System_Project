@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiFetch } from "../utils/api";
+import { CAMBODIA_TIME_ZONE, formatCambodiaDateTime } from "../utils/dateTime";
 
 type Schedule = {
   id: number;
@@ -499,7 +500,7 @@ const SchedulesPage: React.FC = () => {
                 <div className="text-[11px] text-gray-500 mt-2">
                   {deliveryMode === "send"
                     ? "Quick Send uses the server email settings and sends immediately to the addresses you enter."
-                    : "Attachments are sent with email (and noted in Teams) when delivery credentials are configured on the server."}
+                    : `Attachments are sent with email (and noted in Teams) when delivery credentials are configured on the server. Schedule times use ${CAMBODIA_TIME_ZONE}.`}
                 </div>
               </div>
             </form>
@@ -551,7 +552,7 @@ const SchedulesPage: React.FC = () => {
                       </div>
                     )}
                     <div className="text-xs text-gray-500">
-                      Next run: {s.next_run_at ? new Date(s.next_run_at).toLocaleString() : "-"}
+                      Next run: {formatCambodiaDateTime(s.next_run_at)}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">

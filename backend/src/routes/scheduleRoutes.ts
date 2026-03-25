@@ -8,6 +8,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { writeAuditLog } from "../utils/auditLogger";
 import { isEmailReady, sendEmail } from "../services/delivery";
+import { formatDateTimeForDatabase } from "../utils/scheduleTime";
 
 type SchedulePayload = {
   name: string;
@@ -132,7 +133,7 @@ export function scheduleRoutes(dbPool: Pool) {
         attachmentMime,
         attachmentSize,
         payload.isActive === false ? 0 : 1,
-        nextRun,
+        formatDateTimeForDatabase(nextRun),
       ]
     );
 
@@ -214,7 +215,7 @@ export function scheduleRoutes(dbPool: Pool) {
       if (recipientsEmail.length === 0) {
         return res.status(400).json({ message: "At least one email recipient is required." });
       }
-      if (!isEmailReady) {
+      if (!isEmailReady()) {
         return res.status(400).json({
           message:
             "Email delivery is not configured on the server. Configure either SMTP_* credentials or RESEND_API_KEY with RESEND_FROM.",
@@ -298,7 +299,10 @@ export function scheduleRoutes(dbPool: Pool) {
       );
       const beforeNotificationId = Number(markerRows?.[0]?.maxId || 0);
 
-      await dbPool.execute("UPDATE report_schedules SET next_run_at = NOW() WHERE id = ?", [id]);
+      await dbPool.execute("UPDATE report_schedules SET next_run_at = ? WHERE id = ?", [
+        formatDateTimeForDatabase(new Date()),
+        id,
+      ]);
       await runDueSchedules(dbPool);
 
       const [recentRows]: any = await dbPool.query(
@@ -370,7 +374,7 @@ export function scheduleRoutes(dbPool: Pool) {
           JSON.stringify([]),
           payload.fileFormat,
           payload.isActive === false ? 0 : 1,
-          nextRun,
+          formatDateTimeForDatabase(nextRun),
           id,
         ]
       );
