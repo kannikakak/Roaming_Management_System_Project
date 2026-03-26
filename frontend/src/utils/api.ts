@@ -3,13 +3,29 @@
 // - Backend API typically runs on :3001 (also matches frontend/package.json "proxy")
 const DEFAULT_DEV_BACKEND = "http://localhost:3001";
 const DEFAULT_DEV_BACKEND_PORT = new URL(DEFAULT_DEV_BACKEND).port;
+const API_BASE_STORAGE_KEY = "apiBaseUrl";
+const RENDER_HOST_API_OVERRIDES: Record<string, string> = {
+  "roaming-management-system-project-3.onrender.com":
+    "https://roaming-management-system-project-2.onrender.com",
+};
+
+function normalizeBaseUrl(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.replace(/\/$/, "");
+}
 
 export function getApiBaseUrl() {
-  const envBase = process.env.REACT_APP_API_URL;
-  if (envBase) return envBase.replace(/\/$/, "");
+  const envBase = normalizeBaseUrl(process.env.REACT_APP_API_URL);
+  if (envBase) return envBase;
   if (typeof window === "undefined") return "";
 
   const { hostname, port, origin } = window.location;
+  const runtimeBase = normalizeBaseUrl(window.localStorage.getItem(API_BASE_STORAGE_KEY));
+  if (runtimeBase) return runtimeBase;
+
+  const hostOverride = normalizeBaseUrl(RENDER_HOST_API_OVERRIDES[hostname]);
+  if (hostOverride) return hostOverride;
 
   // When running the containerized build (e.g., :80 via nginx), we want same-origin
   // so that `/api/*` can be reverse-proxied by nginx without CORS issues.
@@ -20,6 +36,16 @@ export function getApiBaseUrl() {
   }
 
   return origin;
+}
+
+export function setApiBaseUrlOverride(baseUrl: string) {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (!normalized) {
+    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
 }
 
 function resolveApiUrl(input: RequestInfo) {

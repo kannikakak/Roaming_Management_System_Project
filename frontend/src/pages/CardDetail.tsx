@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download, Filter, Eye, FileText, CheckSquare, Square, GripVertical, Plus, Pencil, X, ChevronDown, ChevronUp } from 'lucide-react';
 import axios from 'axios';
@@ -73,6 +73,19 @@ const suggestChartSelection = (columns: string[], rows: any[]) => {
   };
 };
 
+const normalizeIncomingFiles = (data: any): FileData[] => {
+  const items = Array.isArray(data?.files) ? data.files : [];
+  return items.map((f: any) => ({
+    id: f.id,
+    name: f.name,
+    fileType: f.fileType,
+    columns: [],
+    rows: [],
+    uploadedAt: f.uploadedAt,
+    dataLoaded: false,
+  }));
+};
+
 const CardDetail: React.FC = () => {
   const { cardId } = useParams();
   const [files, setFiles] = useState<FileData[]>([]);
@@ -107,61 +120,58 @@ const CardDetail: React.FC = () => {
   const location = useLocation();
   const resizingRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
   const allowedExtensions = ['.csv', '.xlsx', '.xls'];
+  const preferredFileId =
+    typeof location.state?.activeFileId === 'number' ? location.state.activeFileId : null;
+
+  const refreshFiles = useCallback(
+    async (projectId: string, signal?: AbortSignal) => {
+      const res = await apiFetch(`/api/files?projectId=${projectId}`, { signal });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        throw new Error(data?.message || `Failed to load files (HTTP ${res.status})`);
+      }
+
+      const incoming = normalizeIncomingFiles(data);
+      setFiles((prev) => {
+        const byId = new Map(prev.map((file) => [file.id, file]));
+        return incoming.map((file) => {
+          const existing = byId.get(file.id);
+          if (!existing) return file;
+          return {
+            ...existing,
+            name: file.name,
+            fileType: file.fileType,
+            uploadedAt: file.uploadedAt,
+          };
+        });
+      });
+
+      setActiveFileId((current) => {
+        if (current && incoming.some((f) => f.id === current)) return current;
+        if (preferredFileId && incoming.some((f) => f.id === preferredFileId)) return preferredFileId;
+        return incoming.length > 0 ? incoming[0].id : null;
+      });
+
+      if (location.state?.selectedChartCols) {
+        setSelectedChartCols(location.state.selectedChartCols);
+      }
+
+      return incoming;
+    },
+    [location.state?.selectedChartCols, preferredFileId]
+  );
 
   useEffect(() => {
     if (!cardId) return;
     const controller = new AbortController();
     setError(null);
-    const preferredFileId =
-      typeof location.state?.activeFileId === 'number' ? location.state.activeFileId : null;
 
     const loadFiles = async (signal?: AbortSignal, silent = false) => {
       try {
-        const res = await apiFetch(`/api/files?projectId=${cardId}`, { signal });
-        const data = await res.json().catch(() => ({} as any));
-        if (!res.ok) {
-          throw new Error(data?.message || `Failed to load files (HTTP ${res.status})`);
-        }
-        const incoming = (data.files || []).map((f: any) => ({
-          id: f.id,
-          name: f.name,
-          fileType: f.fileType,
-          uploadedAt: f.uploadedAt,
-        }));
-
-        setFiles((prev) => {
-          const byId = new Map(prev.map((file) => [file.id, file]));
-          return incoming.map((file: any) => {
-            const existing = byId.get(file.id);
-            if (!existing) {
-              return {
-                ...file,
-                columns: [],
-                rows: [],
-                dataLoaded: false,
-              };
-            }
-            return {
-              ...existing,
-              name: file.name,
-              fileType: file.fileType,
-              uploadedAt: file.uploadedAt,
-            };
-          });
-        });
-
-        setActiveFileId((current) => {
-          if (current && incoming.some((f: any) => f.id === current)) return current;
-          if (preferredFileId && incoming.some((f: any) => f.id === preferredFileId)) return preferredFileId;
-          return incoming.length > 0 ? incoming[0].id : null;
-        });
-
-        if (location.state?.selectedChartCols) {
-          setSelectedChartCols(location.state.selectedChartCols);
-        }
+        await refreshFiles(cardId, signal);
       } catch (err: any) {
         if (err?.name !== 'AbortError' && !silent) {
-          setError('Failed to load files');
+          setError(err?.message || 'Failed to load files');
         }
       }
     };
@@ -176,7 +186,7 @@ const CardDetail: React.FC = () => {
       controller.abort();
       window.clearInterval(pollTimer);
     };
-  }, [cardId, location.state?.activeFileId, location.state?.selectedChartCols]);
+  }, [cardId, refreshFiles]);
 
   useEffect(() => {
     if (!activeFileId) return;
@@ -272,6 +282,7 @@ const CardDetail: React.FC = () => {
 
     const formData = new FormData();
     formData.append('projectId', cardId);
+    formData.append('cardId', cardId);
     Array.from(fileList).forEach(file => formData.append('files', file));
 
     try {
@@ -287,20 +298,19 @@ const CardDetail: React.FC = () => {
         },
       });
       const data = response.data || {};
+      let created = normalizeIncomingFiles(data);
 
-      const created = (data.files || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        fileType: f.fileType,
-        columns: [],
-        rows: [],
-        uploadedAt: f.uploadedAt,
-        dataLoaded: false,
-      }));
-
-      setFiles(prev => [...created, ...prev]);
       if (created.length > 0) {
+        setFiles(prev => {
+          const createdIds = new Set(created.map(file => file.id));
+          return [...created, ...prev.filter(file => !createdIds.has(file.id))];
+        });
         setActiveFileId(created[0].id);
+      } else {
+        created = await refreshFiles(cardId);
+        if (created.length === 0) {
+          throw new Error('Upload completed but no file record was returned. Check the frontend API base URL and backend deployment.');
+        }
       }
 
       created.forEach((f: FileData) => {
