@@ -1,0 +1,18 @@
+
+> roaming-interconnect-dashboard-backend@1.0.0 sync-agent
+> node scripts/folder-sync-agent.js
+
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[sync-agent] 2026-03-26T04:54:27.510Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[sync-agent] 2026-03-26T04:54:27.520Z Uploading 05_alerts_and_job_logs.xlsx
+[sync-agent] 2026-03-26T04:54:44.632Z Uploaded 05_alerts_and_job_logs.xlsx { rowsImported: 1300, ingestionJobId: 22 }
+[sync-agent] 2026-03-26T04:54:44.635Z Uploading roaming_settlement.xlsx
+[sync-agent] 2026-03-26T04:54:52.953Z Uploaded roaming_settlement.xlsx { rowsImported: 30, ingestionJobId: 23 }

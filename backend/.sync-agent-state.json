@@ -71,12 +71,21 @@
     "C:\\RoamingDropZone\\Reports\\05_alerts_and_job_logs.xlsx": {
       "fingerprint": "102882:1770785752529",
       "lastHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86",
-      "lastStatus": "DELETED",
-      "lastUploadedAt": "2026-02-13T07:56:44.382Z",
-      "lastSeenAt": "2026-02-15T03:03:30.085Z",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-03-26T04:54:44.632Z",
+      "lastSeenAt": "2026-03-26T04:54:44.632Z",
       "failCount": 0,
       "nextAttemptAt": null,
-      "lastResult": {},
+      "lastResult": {
+        "ok": true,
+        "sourceId": 8,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 22,
+        "ingestionFileId": 14,
+        "importedFileId": 24,
+        "rowsImported": 1300,
+        "fileHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86"
+      },
       "lastError": null,
       "originalPath": "05_alerts_and_job_logs.xlsx",
       "lastDeletedAt": "2026-02-15T03:03:30.085Z"
@@ -182,6 +191,27 @@
         "fileHash": "f5638c6300f3dc85515cb6d9adddb0ca9724cd49bf3a43300ea5888f3c4362d0"
       },
       "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reports\\roaming_settlement.xlsx": {
+      "originalPath": "roaming_settlement.xlsx",
+      "fingerprint": "6816:1767336364484",
+      "lastHash": "dff17be140803c8a7876ab3017b23b8a4ab522c9ec2f69b07231dba3b2e1d67c",
+      "lastStatus": "SUCCESS",
+      "lastSeenAt": "2026-03-26T04:54:52.953Z",
+      "lastError": null,
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastUploadedAt": "2026-03-26T04:54:52.953Z",
+      "lastResult": {
+        "ok": true,
+        "sourceId": 8,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 23,
+        "ingestionFileId": 15,
+        "importedFileId": 25,
+        "rowsImported": 30,
+        "fileHash": "dff17be140803c8a7876ab3017b23b8a4ab522c9ec2f69b07231dba3b2e1d67c"
+      }
     }
   }
 }
