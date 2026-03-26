@@ -1,0 +1,28 @@
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[sync-agent] 2026-03-26T07:47:20.179Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[sync-agent] 2026-03-26T07:47:20.181Z Syncing deletion 05_alerts_and_job_logs.xlsx
+[sync-agent] 2026-03-26T07:47:23.003Z Deletion synced 05_alerts_and_job_logs.xlsx { deletedImportedCount: 1, ingestionJobId: 24 }
+[sync-agent] 2026-03-26T07:47:23.004Z Syncing deletion 03_settlement_summary.xlsx
+[sync-agent] 2026-03-26T07:47:25.213Z Deletion synced 03_settlement_summary.xlsx { deletedImportedCount: 1, ingestionJobId: 25 }
+[sync-agent] 2026-03-26T07:47:25.214Z Syncing deletion 02_tap_inbound_records.xlsx
+[sync-agent] 2026-03-26T07:47:27.648Z Deletion synced 02_tap_inbound_records.xlsx { deletedImportedCount: 0, ingestionJobId: 26 }
+[sync-agent] 2026-03-26T07:47:27.649Z Syncing deletion agent-test-20260215-100249.csv
+[sync-agent] 2026-03-26T07:47:29.601Z Deletion synced agent-test-20260215-100249.csv { deletedImportedCount: 0, ingestionJobId: 27 }
+[sync-agent] 2026-03-26T07:47:29.602Z Syncing deletion agent-test-20260215-103315.csv
+[sync-agent] 2026-03-26T07:47:31.808Z Deletion synced agent-test-20260215-103315.csv { deletedImportedCount: 1, ingestionJobId: 28 }
+[sync-agent] 2026-03-26T07:47:31.808Z Syncing deletion cdr_sample.xlsx
+[sync-agent] 2026-03-26T07:47:34.056Z Deletion synced cdr_sample.xlsx { deletedImportedCount: 1, ingestionJobId: 29 }
+[sync-agent] 2026-03-26T07:47:34.057Z Syncing deletion roaming_settlement.xlsx
+[sync-agent] 2026-03-26T07:47:36.258Z Deletion synced roaming_settlement.xlsx { deletedImportedCount: 1, ingestionJobId: 30 }
+[sync-agent] 2026-03-26T07:50:06.316Z Uploading codex-sync-test-20260326.csv
+[sync-agent] 2026-03-26T07:50:12.448Z Uploaded codex-sync-test-20260326.csv { rowsImported: 2, ingestionJobId: 31 }
+[sync-agent] 2026-03-26T07:51:06.328Z Syncing deletion codex-sync-test-20260326.csv
+[sync-agent] 2026-03-26T07:51:08.667Z Deletion synced codex-sync-test-20260326.csv { deletedImportedCount: 1, ingestionJobId: 32 }
