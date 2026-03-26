@@ -58,12 +58,21 @@
     "C:\\RoamingDropZone\\Reports\\04_partner_reference_rates.xlsx": {
       "fingerprint": "73539:1770785749276",
       "lastHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928",
-      "lastStatus": "DELETED",
-      "lastUploadedAt": "2026-02-15T03:02:57.641Z",
-      "lastSeenAt": "2026-02-15T03:03:29.871Z",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-03-26T09:26:23.206Z",
+      "lastSeenAt": "2026-03-26T09:26:23.206Z",
       "failCount": 0,
       "nextAttemptAt": null,
-      "lastResult": {},
+      "lastResult": {
+        "ok": true,
+        "sourceId": 8,
+        "sourceName": "Roaming Drop Zone",
+        "ingestionJobId": 34,
+        "ingestionFileId": 20,
+        "importedFileId": 29,
+        "rowsImported": 1200,
+        "fileHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928"
+      },
       "lastError": null,
       "originalPath": "04_partner_reference_rates.xlsx",
       "lastDeletedAt": "2026-02-15T03:03:29.871Z"

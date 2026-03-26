@@ -28,3 +28,5 @@
 [sync-agent] 2026-03-26T07:51:08.667Z Deletion synced codex-sync-test-20260326.csv { deletedImportedCount: 1, ingestionJobId: 32 }
 [sync-agent] 2026-03-26T08:05:06.551Z Uploading 05_alerts_and_job_logs.xlsx
 [sync-agent] 2026-03-26T08:05:23.650Z Uploaded 05_alerts_and_job_logs.xlsx { rowsImported: 1300, ingestionJobId: 33 }
+[sync-agent] 2026-03-26T09:26:07.917Z Uploading 04_partner_reference_rates.xlsx
+[sync-agent] 2026-03-26T09:26:23.206Z Uploaded 04_partner_reference_rates.xlsx { rowsImported: 1200, ingestionJobId: 34 }
