@@ -11,6 +11,8 @@ export type DeliveryAttachment = {
   size: number;
 };
 
+type EmailProviderPreference = "auto" | "resend" | "smtp";
+
 function getSmtpConfig() {
   const host = String(process.env.SMTP_HOST || "").trim();
   const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
@@ -58,6 +60,57 @@ function getResendConfig() {
   return { apiKey, from, baseUrl };
 }
 
+function getEmailProviderPreference(): EmailProviderPreference {
+  const value = String(process.env.EMAIL_PROVIDER || "auto").trim().toLowerCase();
+  if (value === "resend" || value === "smtp") return value;
+  return "auto";
+}
+
+function hasResendConfig() {
+  const resend = getResendConfig();
+  return Boolean(resend.apiKey && resend.from);
+}
+
+function hasSmtpConfig() {
+  const smtp = getSmtpConfig();
+  return Boolean(smtp.host && smtp.port && smtp.from);
+}
+
+function getEmailConfigError(provider: EmailProviderPreference) {
+  if (provider === "resend") {
+    return "Email delivery is set to Resend only. Set RESEND_API_KEY and RESEND_FROM, or change EMAIL_PROVIDER to auto or smtp.";
+  }
+  if (provider === "smtp") {
+    return "Email delivery is set to SMTP only. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM, or change EMAIL_PROVIDER to auto or resend.";
+  }
+  return "Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM.";
+}
+
+export function getEmailConfigHint() {
+  return getEmailConfigError(getEmailProviderPreference());
+}
+
+function isResendSandboxRestriction(message: string) {
+  return /only send testing emails to your own email address/i.test(message);
+}
+
+function formatResendFailureReason(message: string, from: string) {
+  if (!isResendSandboxRestriction(message)) {
+    return `Resend API delivery failed: ${message}`;
+  }
+
+  const trimmedFrom = String(from || "").trim();
+  const fromHint = trimmedFrom
+    ? ` Current RESEND_FROM is "${trimmedFrom}".`
+    : "";
+
+  return (
+    `Resend sandbox restriction: ${message}` +
+    `${fromHint} Verify a domain in Resend and set RESEND_FROM to an address on that domain, ` +
+    `or configure SMTP and set EMAIL_PROVIDER=smtp to bypass Resend.`
+  );
+}
+
 function getTelegramToken() {
   return String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
 }
@@ -71,9 +124,10 @@ function isRenderRuntime() {
 }
 
 export function isEmailReady() {
-  const resend = getResendConfig();
-  const smtp = getSmtpConfig();
-  return Boolean((resend.apiKey && resend.from) || (smtp.host && smtp.port && smtp.from));
+  const provider = getEmailProviderPreference();
+  if (provider === "resend") return hasResendConfig();
+  if (provider === "smtp") return hasSmtpConfig();
+  return hasResendConfig() || hasSmtpConfig();
 }
 
 export function isTelegramReady() {
@@ -115,7 +169,7 @@ async function sendEmailViaResend(
   html?: string
 ): Promise<DeliveryResult> {
   const resend = getResendConfig();
-  if (!resend.apiKey || !resend.from) {
+  if (!hasResendConfig()) {
     return { ok: false, reason: "Resend is not configured" };
   }
 
@@ -148,26 +202,21 @@ async function sendEmailViaResend(
       "Resend delivery failed";
     return {
       ok: false,
-      reason: `Resend API delivery failed: ${message}`,
+      reason: formatResendFailureReason(message, resend.from),
       delivered: 0,
       failed: to.length,
     };
   }
 }
 
-export async function sendEmail(
+async function sendEmailViaSmtp(
   to: string[],
   subject: string,
   text: string,
   attachment?: DeliveryAttachment,
   html?: string
 ): Promise<DeliveryResult> {
-  const resend = getResendConfig();
   const smtp = getSmtpConfig();
-
-  if (resend.apiKey && resend.from) {
-    return sendEmailViaResend(to, subject, text, attachment, html);
-  }
 
   if (isRenderRuntime() && [25, 465, 587].includes(Number(smtp.port))) {
     return {
@@ -179,15 +228,11 @@ export async function sendEmail(
     };
   }
 
-  if (!smtp.host || !smtp.port || !smtp.from) {
+  if (!hasSmtpConfig()) {
     return {
       ok: false,
-      reason:
-        "Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM.",
+      reason: "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, and SMTP_FROM.",
     };
-  }
-  if (!Array.isArray(to) || to.length === 0) {
-    return { ok: false, reason: "No email recipients provided" };
   }
   if ((smtp.user && !smtp.pass) || (!smtp.user && smtp.pass)) {
     return {
@@ -255,6 +300,59 @@ export async function sendEmail(
 
     return { ok: false, reason, delivered: 0, failed: to.length };
   }
+}
+
+export async function sendEmail(
+  to: string[],
+  subject: string,
+  text: string,
+  attachment?: DeliveryAttachment,
+  html?: string
+): Promise<DeliveryResult> {
+  const provider = getEmailProviderPreference();
+
+  if (!Array.isArray(to) || to.length === 0) {
+    return { ok: false, reason: "No email recipients provided" };
+  }
+
+  if (provider === "resend") {
+    return sendEmailViaResend(to, subject, text, attachment, html);
+  }
+
+  if (provider === "smtp") {
+    return sendEmailViaSmtp(to, subject, text, attachment, html);
+  }
+
+  if (hasResendConfig()) {
+    const resendResult = await sendEmailViaResend(to, subject, text, attachment, html);
+    if (resendResult.ok) {
+      return resendResult;
+    }
+    if (!isResendSandboxRestriction(String(resendResult.reason || "")) || !hasSmtpConfig()) {
+      return resendResult;
+    }
+
+    const smtpFallbackResult = await sendEmailViaSmtp(to, subject, text, attachment, html);
+    if (smtpFallbackResult.ok) {
+      return smtpFallbackResult;
+    }
+
+    return {
+      ok: false,
+      reason: `${resendResult.reason} SMTP fallback also failed: ${smtpFallbackResult.reason || "unknown error"}`,
+      delivered: 0,
+      failed: to.length,
+    };
+  }
+
+  if (hasSmtpConfig()) {
+    return sendEmailViaSmtp(to, subject, text, attachment, html);
+  }
+
+  return {
+    ok: false,
+    reason: getEmailConfigError(provider),
+  };
 }
 
 export async function sendTelegram(

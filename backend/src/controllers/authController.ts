@@ -9,7 +9,7 @@ import speakeasy from "speakeasy";
 import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
-import { isEmailReady, sendEmail } from "../services/delivery";
+import { getEmailConfigHint, isEmailReady, sendEmail } from "../services/delivery";
 import { getAuditActor, writeAuditLog } from "../utils/auditLogger";
 import { ensureBootstrapAdmin } from "../services/bootstrapAdmin";
 
@@ -802,7 +802,7 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
   if (!isEmailReady()) {
     return res.status(503).json({
       message:
-        "Password reset email is not configured on the server. On Render, set RESEND_API_KEY and RESEND_FROM, and make sure FRONTEND_URL points to your deployed frontend.",
+        `Password reset email is not configured on the server. ${getEmailConfigHint()} Also make sure FRONTEND_URL points to your deployed frontend.`,
     });
   }
   if (!isFrontendUrlReadyForPasswordReset()) {

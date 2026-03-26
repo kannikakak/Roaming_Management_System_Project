@@ -2,6 +2,7 @@ import { Pool } from "mysql2/promise";
 import { getNotificationSettings } from "./notificationSettings";
 import { loadRetentionConfig, runDataRetention } from "./dataRetention";
 import {
+  getEmailConfigHint,
   isEmailReady,
   isTeamsReady,
   loadAttachmentFromSchedule,
@@ -227,7 +228,7 @@ export async function runDueSchedules(dbPool: Pool) {
 
       if (!isEmailReady() && recipientsEmail.length > 0) {
         channelWarnings.push(
-          "Email recipients are configured for this schedule, but the server email channel is not configured. Set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM (plus SMTP_USER and SMTP_PASS if your provider requires auth)."
+          `Email recipients are configured for this schedule, but the server email channel is not configured. ${getEmailConfigHint()}`
         );
       }
       if (!isTeamsReady() && recipientsTeams.length > 0) {

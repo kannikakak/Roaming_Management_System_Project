@@ -7,7 +7,7 @@ import { computeNextRunAt, runDueSchedules, ScheduleFrequency } from "../service
 import { requireAuth, requireRole } from "../middleware/auth";
 import { getNotificationSettings } from "../services/notificationSettings";
 import { writeAuditLog } from "../utils/auditLogger";
-import { isEmailReady, isTeamsReady, sendEmail, sendTeams } from "../services/delivery";
+import { getEmailConfigHint, isEmailReady, isTeamsReady, sendEmail, sendTeams } from "../services/delivery";
 import { formatDateTimeForDatabase } from "../utils/scheduleTime";
 
 type SchedulePayload = {
@@ -229,8 +229,7 @@ export function scheduleRoutes(dbPool: Pool) {
       }
       if (sendToEmail && !isEmailReady() && !sendToTeams) {
         return res.status(400).json({
-          message:
-            "Email delivery is not configured on the server. Configure either SMTP_* credentials or RESEND_API_KEY with RESEND_FROM.",
+          message: getEmailConfigHint(),
         });
       }
       if (sendToTeams && !isTeamsReady() && !sendToEmail) {
@@ -259,8 +258,7 @@ export function scheduleRoutes(dbPool: Pool) {
           results.push({
             channel: "email",
             ok: false,
-            reason:
-              "Email delivery is not configured on the server. Configure either SMTP_* credentials or RESEND_API_KEY with RESEND_FROM.",
+            reason: getEmailConfigHint(),
           });
         } else {
           const emailResult = await sendEmail(recipientsEmail, subject, message, attachment);

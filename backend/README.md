@@ -57,15 +57,17 @@ Admin compliance endpoints:
 Scheduler deliveries use `report_schedules` and `notification_settings`.
 
 Environment variables:
+- `EMAIL_PROVIDER`: `auto` (default), `resend`, or `smtp`. `auto` tries Resend first, then falls back to SMTP if Resend rejects sandbox recipients and SMTP is configured.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`: SMTP channel config.
 - `SMTP_SECURE`: set `true` for implicit TLS (usually port `465`), otherwise `false` for STARTTLS (usually `587`).
 - `SMTP_TLS_REJECT_UNAUTHORIZED`: keep `true` in production unless your SMTP provider requires otherwise.
-- `RESEND_API_KEY`, `RESEND_FROM`: optional HTTPS email delivery via Resend. If set, this takes precedence over SMTP and is a better fit for platforms that restrict outbound SMTP.
+- `RESEND_API_KEY`, `RESEND_FROM`: optional HTTPS email delivery via Resend. With `EMAIL_PROVIDER=auto`, the app prefers Resend and can fall back to SMTP for sandbox-recipient failures when SMTP is also configured.
 - `NOTIFY_EMAIL_ENABLED`, `NOTIFY_IN_APP_ENABLED`: defaults used when global notification settings row is missing.
 
 Operational notes:
 - Scheduler checks due jobs every minute.
 - Forgot-password emails use the same email delivery service. On Render free instances, prefer `RESEND_API_KEY` and `RESEND_FROM` instead of SMTP because outbound SMTP ports are commonly blocked.
+- Resend test-mode accounts can only deliver to the account owner's email. To send to other recipients, verify a domain in Resend and use a `RESEND_FROM` address on that domain, or switch to `EMAIL_PROVIDER=smtp`.
 
 ## Forgot Password on Render
 
