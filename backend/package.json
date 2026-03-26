@@ -10,6 +10,10 @@
     "sync-agent:setup-run": "powershell -ExecutionPolicy Bypass -File scripts/setup-sync-agent.ps1 -RunAfterSetup",
     "sync-agent:test-file": "powershell -ExecutionPolicy Bypass -File scripts/drop-test-file.ps1",
     "sync-agent": "node scripts/folder-sync-agent.js",
+    "sync-agent:start-bg": "powershell -ExecutionPolicy Bypass -File scripts/start-sync-agent-background.ps1",
+    "sync-agent:stop-bg": "powershell -ExecutionPolicy Bypass -File scripts/stop-sync-agent-background.ps1",
+    "sync-agent:status": "powershell -ExecutionPolicy Bypass -File scripts/sync-agent-status.ps1",
+    "sync-agent:start-hidden": "wscript.exe scripts/run-sync-agent-hidden.vbs",
     "encrypt-rows": "ts-node scripts/encrypt-existing-rows.ts",
     "ingest-watch": "ts-node --files src/workers/ingestionWatcher.ts",
     "test:schema-changes": "ts-node scripts/test-schema-changes.ts"

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, KeyRound, RefreshCw, RotateCcw, Play, Activity, Upload } from "lucide-react";
+import { Copy, KeyRound, RefreshCw, RotateCcw, Play, Activity } from "lucide-react";
 import Surface from "../components/Surface";
 import { apiFetch } from "../utils/api";
 import type {
@@ -18,9 +18,6 @@ const DataSourcesPage: React.FC = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [manualFiles, setManualFiles] = useState<File[]>([]);
-  const [manualUploading, setManualUploading] = useState(false);
-  const [manualUploadResetToken, setManualUploadResetToken] = useState(0);
   const [createdKey, setCreatedKey] = useState<{
     sourceId: number;
     sourceName: string;
@@ -359,52 +356,6 @@ npm run sync-agent`,
     []
   );
 
-  const handleManualUpload = useCallback(async () => {
-    clearNotice();
-    if (!form.projectId) {
-      setError("Select a project before uploading.");
-      return;
-    }
-    if (manualFiles.length === 0) {
-      setError("Choose at least one CSV or Excel file.");
-      return;
-    }
-
-    const projectId = Number(form.projectId);
-    if (!Number.isFinite(projectId) || projectId <= 0) {
-      setError("Invalid project.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("projectId", String(projectId));
-    for (const file of manualFiles) {
-      formData.append("files", file);
-    }
-
-    setManualUploading(true);
-    try {
-      const response = await apiFetch("/api/files/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await requestJson<{ files?: Array<{ id: number }> }>(
-        response,
-        "Failed to upload files."
-      );
-      const uploadedCount = Array.isArray(payload?.files) ? payload.files.length : manualFiles.length;
-      setMessage(
-        `Uploaded ${uploadedCount} file${uploadedCount === 1 ? "" : "s"} from this computer.`
-      );
-      setManualFiles([]);
-      setManualUploadResetToken((prev) => prev + 1);
-    } catch (err: any) {
-      setError(err?.message || "Failed to upload files.");
-    } finally {
-      setManualUploading(false);
-    }
-  }, [clearNotice, form.projectId, manualFiles]);
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-amber-50/30 to-white dark:from-gray-950 dark:via-gray-900 dark:to-gray-900">
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
@@ -437,217 +388,139 @@ npm run sync-agent`,
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
         ) : null}
 
-        <Surface className="p-5 border border-amber-200 bg-amber-50/60 space-y-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">How C:\\ drive upload works</h2>
-          <p className="text-sm text-gray-700 dark:text-gray-300">
-            Your Render backend cannot read folders on your Windows PC directly. A path like
-            <span className="font-mono"> C:\RoamingDropZone\Reports</span> only works in two cases:
-            `Folder Sync (Agent)` when you run the local sync agent on that PC, or `Local Path`
-            when the backend itself is running on the same machine instead of Render.
-          </p>
-          <p className="text-sm text-gray-700 dark:text-gray-300">
-            If you want the simplest workflow right now, use the quick upload box below to browse
-            files from your computer and send them through the browser.
-          </p>
-        </Surface>
-
         <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-          <div className="space-y-6">
-            <Surface className="p-5 border border-amber-100 space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create data source</h2>
+          <Surface className="p-5 border border-amber-100 space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create data source</h2>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Source name
-                </label>
-                <input
-                  value={form.name}
-                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-                  placeholder="Roaming Drop Zone"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Source type
-                </label>
-                <select
-                  value={form.type}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      type: event.target.value === "local" ? "local" : "folder_sync",
-                    }))
-                  }
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:border-amber-400 focus:outline-none"
-                >
-                  <option value="folder_sync">Folder Sync (Agent)</option>
-                  <option value="local">Local Path (Server Scan)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Project
-                </label>
-                <select
-                  value={form.projectId}
-                  onChange={(event) => setForm((prev) => ({ ...prev, projectId: event.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:border-amber-400 focus:outline-none"
-                >
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                  {projects.length === 0 ? <option value="">(No projects)</option> : null}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Folder path {form.type === "folder_sync" ? "(hint)" : ""}
-                </label>
-                <input
-                  value={form.localPath}
-                  onChange={(event) => setForm((prev) => ({ ...prev, localPath: event.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-                  placeholder="C:\\RoamingDropZone\\Reports"
-                />
-                {form.type === "folder_sync" ? (
-                  <p className="mt-1 text-xs text-gray-500">
-                    For `folder_sync` this is only a hint shown in UI and agent setup docs.
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs text-gray-500">
-                    `Local Path` scans the backend server disk. It will not read files from your own
-                    PC when the backend is deployed on Render.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                    File pattern
-                  </label>
-                  <input
-                    value={form.filePattern}
-                    onChange={(event) => setForm((prev) => ({ ...prev, filePattern: event.target.value }))}
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-                    placeholder="*.csv;*.xlsx"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                    Poll (minutes)
-                  </label>
-                  <input
-                    value={form.pollIntervalMinutes}
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, pollIntervalMinutes: event.target.value }))
-                    }
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-                    placeholder="1"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Template rule (optional JSON or wildcard)
-                </label>
-                <textarea
-                  value={form.templateRule}
-                  onChange={(event) => setForm((prev) => ({ ...prev, templateRule: event.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none min-h-20"
-                  placeholder='{"fileNamePattern":"*Revenue*","requiredColumns":["Partner","Revenue"]}'
-                />
-              </div>
-
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                <input
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={(event) => setForm((prev) => ({ ...prev, enabled: event.target.checked }))}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                Active source
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                Source name
               </label>
+              <input
+                value={form.name}
+                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                placeholder="Roaming Drop Zone"
+              />
+            </div>
 
-              <button
-                type="button"
-                disabled={creating}
-                onClick={() => void handleCreateSource()}
-                className="w-full rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                Source type
+              </label>
+              <select
+                value={form.type}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    type: event.target.value === "local" ? "local" : "folder_sync",
+                  }))
+                }
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:border-amber-400 focus:outline-none"
               >
-                {creating ? "Creating..." : "Create source"}
-              </button>
-            </Surface>
+                <option value="folder_sync">Folder Sync (Agent)</option>
+                <option value="local">Local Path (Server Scan)</option>
+              </select>
+            </div>
 
-            <Surface className="p-5 border border-amber-100 space-y-4">
-              <div className="flex items-center gap-2">
-                <Upload size={18} className="text-amber-600" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Quick upload from this computer
-                </h2>
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-300">
-                Use this when your files are on `C:\...` and you want to upload them now through the browser.
-              </p>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                Project
+              </label>
+              <select
+                value={form.projectId}
+                onChange={(event) => setForm((prev) => ({ ...prev, projectId: event.target.value }))}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:border-amber-400 focus:outline-none"
+              >
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+                {projects.length === 0 ? <option value="">(No projects)</option> : null}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                Folder path {form.type === "folder_sync" ? "(hint)" : ""}
+              </label>
+              <input
+                value={form.localPath}
+                onChange={(event) => setForm((prev) => ({ ...prev, localPath: event.target.value }))}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                placeholder="C:\\RoamingDropZone\\Reports"
+              />
+              {form.type === "folder_sync" ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  For `folder_sync` this is only a hint shown in UI and agent setup docs.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">
+                  `Local Path` scans the backend server disk. It will not read files from your own
+                  PC when the backend is deployed on Render.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Target project
-                </label>
-                <select
-                  value={form.projectId}
-                  onChange={(event) => setForm((prev) => ({ ...prev, projectId: event.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:border-amber-400 focus:outline-none"
-                >
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                  {projects.length === 0 ? <option value="">(No projects)</option> : null}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
-                  Files
+                  File pattern
                 </label>
                 <input
-                  key={manualUploadResetToken}
-                  type="file"
-                  multiple
-                  accept=".csv,.xlsx,.xls"
+                  value={form.filePattern}
+                  onChange={(event) => setForm((prev) => ({ ...prev, filePattern: event.target.value }))}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                  placeholder="*.csv;*.xlsx"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                  Poll (minutes)
+                </label>
+                <input
+                  value={form.pollIntervalMinutes}
                   onChange={(event) =>
-                    setManualFiles(Array.from(event.target.files || []))
+                    setForm((prev) => ({ ...prev, pollIntervalMinutes: event.target.value }))
                   }
                   className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
+                  placeholder="1"
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  Supported formats: CSV, XLSX, XLS. You can browse any folder on your PC, including `C:\`.
-                </p>
               </div>
-              {manualFiles.length > 0 ? (
-                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-                  {manualFiles.length} file{manualFiles.length === 1 ? "" : "s"} selected:
-                  {" "}
-                  {manualFiles.map((file) => file.name).join(", ")}
-                </div>
-              ) : null}
-              <button
-                type="button"
-                disabled={manualUploading || manualFiles.length === 0}
-                onClick={() => void handleManualUpload()}
-                className="w-full rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
-              >
-                {manualUploading ? "Uploading..." : "Upload selected files"}
-              </button>
-            </Surface>
-          </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">
+                Template rule (optional JSON or wildcard)
+              </label>
+              <textarea
+                value={form.templateRule}
+                onChange={(event) => setForm((prev) => ({ ...prev, templateRule: event.target.value }))}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none min-h-20"
+                placeholder='{"fileNamePattern":"*Revenue*","requiredColumns":["Partner","Revenue"]}'
+              />
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, enabled: event.target.checked }))}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Active source
+            </label>
+
+            <button
+              type="button"
+              disabled={creating}
+              onClick={() => void handleCreateSource()}
+              className="w-full rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+            >
+              {creating ? "Creating..." : "Create source"}
+            </button>
+          </Surface>
 
           <Surface className="p-5 border border-amber-100">
             <div className="flex items-center justify-between mb-4">
