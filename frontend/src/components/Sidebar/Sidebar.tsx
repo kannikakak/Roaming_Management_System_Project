@@ -23,6 +23,7 @@ import {
   Search,
 } from 'lucide-react';
 import SidebarItem from './SidebarItem';
+import branding from '../../config/branding';
 
 type NavItem = {
   label: string;
@@ -109,9 +110,9 @@ const Sidebar: React.FC = () => {
   return (
     <aside className="flex flex-col w-72 min-h-screen border-r border-amber-100 shadow-sm bg-gradient-to-b from-white via-amber-50/40 to-white dark:border-white/10 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
       <div className="px-6 py-8">
-        <div className="text-3xl font-bold text-amber-600 mb-1 tracking-tight dark:text-amber-400">RMS</div>
+        <div className="text-3xl font-bold text-amber-600 mb-1 tracking-tight dark:text-amber-400">{branding.appShortName}</div>
         <div className="text-xs uppercase tracking-widest text-amber-500/80 font-semibold dark:text-amber-300/80">
-          Roaming Management System
+          {branding.appName}
         </div>
       </div>
       <nav className="flex-1 px-2 overflow-y-auto">

@@ -1,38 +1,40 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
-import CardDetail from "./pages/CardDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import AuthCallback from "./pages/AuthCallback";
-import ChartPage from "./pages/ChartPage";
 import MainLayout from "./components/MainLayout";
-import Projects from "./pages/Projects";
-import AuditLogViewer from "./pages/AuditLogViewer";
-import SlideBuilderPage from "./pages/SlideBuilderPage";
-import SchedulesPage from "./pages/SchedulesPage";
-import AiChartsPage from "./pages/AiChartsPage";
-import AccountSettingsPage from "./pages/AccountSettingsPage";
-import ReportsLibraryPage from "./pages/ReportsLibraryPage";
-import DataExplorerPage from "./pages/DataExplorerPage";
-import DeliveryHistoryPage from "./pages/DeliveryHistoryPage";
-import MyActivityPage from "./pages/MyActivityPage";
-import TemplateManagerPage from "./pages/TemplateManagerPage";
-import PartnerScorecardPage from "./pages/PartnerScorecardPage";
-import DataSourcesPage from "./pages/DataSourcesPage";
-import IngestionHistoryPage from "./pages/IngestionHistoryPage";
-import UserManagementPage from "./pages/UserManagementPage";
-import SystemHealthPage from "./pages/SystemHealthPage";
-import SystemSecurityPage from "./pages/SystemSecurityPage";
-import AlertCenterPage from "./pages/AlertCenterPage";
-import BackupRestorePage from "./pages/BackupRestorePage";
 import { getAuthToken } from "./utils/api";
-import GlobalSearchPage from "./pages/GlobalSearchPage";
-import DashboardAnalyticsPage from "./pages/DashboardAnalyticsPage";
-import DataQualityPage from "./pages/DataQualityPage";
-import ComplaintInvestigationPage from "./pages/ComplaintInvestigationPage";
+
+// Lazy load heavy components
+const CardDetail = React.lazy(() => import("./pages/CardDetail"));
+const ChartPage = React.lazy(() => import("./pages/ChartPage"));
+const Projects = React.lazy(() => import("./pages/Projects"));
+const AuditLogViewer = React.lazy(() => import("./pages/AuditLogViewer"));
+const SlideBuilderPage = React.lazy(() => import("./pages/SlideBuilderPage"));
+const SchedulesPage = React.lazy(() => import("./pages/SchedulesPage"));
+const AiChartsPage = React.lazy(() => import("./pages/AiChartsPage"));
+const AccountSettingsPage = React.lazy(() => import("./pages/AccountSettingsPage"));
+const ReportsLibraryPage = React.lazy(() => import("./pages/ReportsLibraryPage"));
+const DataExplorerPage = React.lazy(() => import("./pages/DataExplorerPage"));
+const DeliveryHistoryPage = React.lazy(() => import("./pages/DeliveryHistoryPage"));
+const MyActivityPage = React.lazy(() => import("./pages/MyActivityPage"));
+const TemplateManagerPage = React.lazy(() => import("./pages/TemplateManagerPage"));
+const PartnerScorecardPage = React.lazy(() => import("./pages/PartnerScorecardPage"));
+const DataSourcesPage = React.lazy(() => import("./pages/DataSourcesPage"));
+const IngestionHistoryPage = React.lazy(() => import("./pages/IngestionHistoryPage"));
+const UserManagementPage = React.lazy(() => import("./pages/UserManagementPage"));
+const SystemHealthPage = React.lazy(() => import("./pages/SystemHealthPage"));
+const SystemSecurityPage = React.lazy(() => import("./pages/SystemSecurityPage"));
+const AlertCenterPage = React.lazy(() => import("./pages/AlertCenterPage"));
+const BackupRestorePage = React.lazy(() => import("./pages/BackupRestorePage"));
+const GlobalSearchPage = React.lazy(() => import("./pages/GlobalSearchPage"));
+const DashboardAnalyticsPage = React.lazy(() => import("./pages/DashboardAnalyticsPage"));
+const DataQualityPage = React.lazy(() => import("./pages/DataQualityPage"));
+const ComplaintInvestigationPage = React.lazy(() => import("./pages/ComplaintInvestigationPage"));
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = getAuthToken();

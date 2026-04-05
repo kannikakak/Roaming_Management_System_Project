@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import compression from "compression";
 import path from "path";
 import fs from "fs";
 
@@ -54,6 +55,15 @@ if (securityErrors.length > 0) {
   console.error("[security] Startup aborted due to security compliance errors.");
   process.exit(1);
 }
+
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+  level: 6,
+  threshold: 1024
+}));
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));

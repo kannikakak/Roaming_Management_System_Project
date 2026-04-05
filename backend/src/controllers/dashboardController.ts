@@ -72,7 +72,7 @@ export const getDashboards = (dbPool: Pool) => async (req: Request, res: Respons
   const targetUserId = requestedUserId || authUserId;
   try {
     const [rows] = await dbPool.query(
-      "SELECT * FROM dashboards WHERE user_id = ? ORDER BY created_at DESC",
+      "SELECT id, user_id, title, description, created_at, updated_at FROM dashboards WHERE user_id = ? ORDER BY created_at DESC",
       [targetUserId]
     );
     res.json(rows);
@@ -98,7 +98,7 @@ export const createDashboard = (dbPool: Pool) => async (req: Request, res: Respo
       "INSERT INTO dashboards (user_id, title, description) VALUES (?, ?, ?)",
       [authUserId, title, description]
     );
-    const [dashboardRows] = await dbPool.query("SELECT * FROM dashboards WHERE id = ?", [result.insertId]);
+    const [dashboardRows] = await dbPool.query("SELECT id, user_id, title, description, created_at, updated_at FROM dashboards WHERE id = ?", [result.insertId]);
     res.json((dashboardRows as Dashboard[])[0]);
   } catch {
     res.status(500).json({ message: "Database error." });
@@ -140,7 +140,7 @@ export const updateDashboard = (dbPool: Pool) => async (req: Request, res: Respo
     values.push(id);
 
     await dbPool.query(`UPDATE dashboards SET ${fields.join(", ")} WHERE id = ?`, values);
-    const [dashboardRows] = await dbPool.query("SELECT * FROM dashboards WHERE id = ?", [id]);
+    const [dashboardRows] = await dbPool.query("SELECT id, user_id, title, description, created_at, updated_at FROM dashboards WHERE id = ?", [id]);
     res.json((dashboardRows as Dashboard[])[0]);
   } catch {
     res.status(500).json({ message: "Database error." });

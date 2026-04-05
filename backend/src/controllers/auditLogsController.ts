@@ -21,7 +21,7 @@ export const createAuditLog = async (req: Request, res: Response) => {
 
 export const getAuditLogs = async (_req: Request, res: Response) => {
   try {
-    const [rows] = await dbPool.query('SELECT * FROM audit_logs ORDER BY timestamp DESC');
+    const [rows] = await dbPool.query('SELECT id, timestamp, user, action, details FROM audit_logs ORDER BY timestamp DESC LIMIT 500');
     res.json(rows);
   } catch (err: any) {
     console.error('Audit log fetch error:', err);

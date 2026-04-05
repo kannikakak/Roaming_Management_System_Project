@@ -4,6 +4,7 @@ import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { apiFetch, getApiBaseUrl, setAuthToken, setRefreshToken } from '../utils/api';
 import ThemeToggle from '../components/ThemeToggle';
 import rmsLogo from '../assets/rms-logo.svg';
+import branding from '../config/branding';
 
 const parseMfaChallengeFromToken = (token: string | null): string | null => {
   if (!token) return null;
@@ -167,16 +168,16 @@ const Login = () => {
           <div className="mb-1">
             <img
               src={rmsLogo}
-              alt="RMS logo"
+              alt={`${branding.appShortName} logo`}
               className="mx-auto h-24 w-auto select-none"
               draggable={false}
             />
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-300">Sign in to manage your Roaming Management System workspace</p>
+          <p className="text-sm text-gray-500 dark:text-gray-300">{branding.appTagline}</p>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome to Roaming Management System</h1>
-          <p className="text-sm text-gray-600 text-center mb-6 dark:text-gray-300">Sign in to access your dashboard</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center dark:text-white">Welcome Back</h1>
+          <p className="text-sm text-gray-600 text-center mb-6 dark:text-gray-300">{branding.loginSubtitle}</p>
         </div>
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 p-3 mb-2 text-center dark:bg-red-900/60 dark:border-red-400/50">

@@ -95,9 +95,9 @@ const toBoundedPositiveInt = (
   return Math.max(min, Math.min(max, Math.floor(n)));
 };
 
-const DEFAULT_ROW_LIMIT = 3500;
-const MIN_ROW_LIMIT = 300;
-const MAX_ROW_LIMIT = 15000;
+const DEFAULT_ROW_LIMIT = 500;
+const MIN_ROW_LIMIT = 100;
+const MAX_ROW_LIMIT = 2000;
 const DASHBOARD_INSIGHTS_CACHE_TTL_MS = toBoundedPositiveInt(
   process.env.DASHBOARD_INSIGHTS_CACHE_TTL_MS,
   45000,

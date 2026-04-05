@@ -49,7 +49,7 @@ export const getProjects = (dbPool: Pool) => async (req: Request, res: Response)
     }
 
     const [rows] = await dbPool.query<ProjectRow[]>(
-      "SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC",
+      "SELECT id, name, description, user_id, created_at, updated_at FROM projects WHERE user_id = ? ORDER BY updated_at DESC",
       [userId]
     );
 
