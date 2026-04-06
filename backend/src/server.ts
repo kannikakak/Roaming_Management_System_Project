@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import compression from "compression";
@@ -57,7 +57,7 @@ if (securityErrors.length > 0) {
 }
 
 app.use(compression({
-  filter: (req, res) => {
+  filter: (req: Request, res: Response) => {
     if (req.headers['x-no-compression']) return false;
     return compression.filter(req, res);
   },

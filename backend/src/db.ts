@@ -82,7 +82,6 @@ export const dbPool = mysql.createPool({
     connectionLimit: Number(process.env.DB_POOL_CONNECTION_LIMIT) || 30,
     queueLimit: Number(process.env.DB_POOL_QUEUE_LIMIT) || 10,
     connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT) || 30000,
-    acquireTimeout: 30000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
     ssl: buildSslConfig(),

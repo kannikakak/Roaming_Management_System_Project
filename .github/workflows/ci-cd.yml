@@ -18,19 +18,20 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
-      postgres:
-        image: postgres:15
+      mysql:
+        image: mysql:8.4
         env:
-          POSTGRES_DB: test_db
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_pass
+          MYSQL_ROOT_PASSWORD: root_pass
+          MYSQL_DATABASE: test_db
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_pass
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
         ports:
-          - 5432:5432
+          - 3306:3306
 
     steps:
       - name: Checkout code
@@ -59,11 +60,14 @@ jobs:
         working-directory: ./backend
         run: npm test --if-present || echo "No tests configured yet"
         env:
-          DB_HOST: localhost
-          DB_PORT: 5432
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
           DB_NAME: test_db
           DB_USER: test_user
           DB_PASSWORD: test_pass
+          JWT_SECRET: test_jwt_secret_key_for_ci
+          REFRESH_TOKEN_SECRET: test_refresh_secret_key_for_ci
+          ENCRYPTION_KEY: test_encryption_key_32_chars_!!
 
   # Frontend Tests
   frontend-test:
