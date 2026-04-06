@@ -48,9 +48,9 @@ jobs:
         working-directory: ./backend
         run: npm ci
 
-      - name: Lint backend code
+      - name: Check TypeScript compilation
         working-directory: ./backend
-        run: npm run lint --if-present || echo "No lint script found"
+        run: npx tsc --noEmit
 
       - name: Build backend
         working-directory: ./backend
@@ -58,7 +58,13 @@ jobs:
 
       - name: Run backend tests
         working-directory: ./backend
-        run: npm test --if-present || echo "No tests configured yet"
+        run: |
+          if [ -f "package.json" ] && grep -q '"test"' package.json; then
+            npm test
+          else
+            echo "⚠️  No tests configured for backend yet - skipping test step"
+            exit 0
+          fi
         env:
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
@@ -91,15 +97,20 @@ jobs:
 
       - name: Lint frontend code
         working-directory: ./frontend
-        run: npm run lint --if-present || echo "No lint script found"
+        run: npm run lint --if-present || echo "⚠️  No lint script found - skipping"
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: npm test -- --watchAll=false --passWithNoTests --ci
+        env:
+          CI: true
+          GENERATE_SOURCEMAP: false
 
       - name: Build frontend
         working-directory: ./frontend
         run: npm run build
-
-      - name: Run frontend tests
-        working-directory: ./frontend
-        run: npm test -- --watchAll=false --passWithNoTests
+        env:
+          GENERATE_SOURCEMAP: false
 
   # Build and Push Docker Images
   docker-build:
