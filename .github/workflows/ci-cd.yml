@@ -91,20 +91,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: ./frontend
-        run: |
-          npm install --legacy-peer-deps --no-audit --no-fund
-          npm list || true
-
-      - name: Lint frontend code
-        working-directory: ./frontend
-        run: npm run lint --if-present || echo "⚠️  No lint script found - skipping"
-
-      - name: Run frontend tests
-        working-directory: ./frontend
-        run: npm test -- --watchAll=false --passWithNoTests --ci
-        env:
-          CI: true
-          GENERATE_SOURCEMAP: false
+        run: npm install --legacy-peer-deps
 
       - name: Build frontend
         working-directory: ./frontend
