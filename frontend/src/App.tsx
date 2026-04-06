@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import Login from "./pages/Login";
