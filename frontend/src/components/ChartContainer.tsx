@@ -49,7 +49,14 @@ const ChartContainer: React.FC<ChartContainerProps> = ({
         <ResponsiveContainer width="100%" height="100%">
           {children}
         </ResponsiveContainer>
-      ) : null}
+      ) : (
+        <div className="flex h-full min-h-[220px] items-center justify-center rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 text-sm text-amber-700 dark:border-white/10 dark:bg-white/5 dark:text-amber-300">
+          <div className="flex items-center gap-3">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-amber-500" />
+            Loading chart...
+          </div>
+        </div>
+      )}
     </div>
   );
 };

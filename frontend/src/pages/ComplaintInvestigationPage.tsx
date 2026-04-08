@@ -249,9 +249,9 @@ const ComplaintInvestigationPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900">
       <div className="mx-auto max-w-7xl space-y-5">
         <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Column Filter Search</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Complaint lookup</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Select one column and one value. The table shows rows that match exactly.
+            Pick a column and one value to find exact matches.
           </p>
 
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -344,7 +344,7 @@ const ComplaintInvestigationPage: React.FC = () => {
                 className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
               >
                 <Search className="h-4 w-4" />
-                Show
+                Find
               </button>
             </div>
 
@@ -364,7 +364,7 @@ const ComplaintInvestigationPage: React.FC = () => {
           {valueOptions.length > 0 && (
             <div className="mt-3">
               <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-                Quick values for <span className="font-semibold text-gray-700 dark:text-gray-200">{selectedColumn}</span>
+                Quick pick for <span className="font-semibold text-gray-700 dark:text-gray-200">{selectedColumn}</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 {valueOptions.map((value) => (
@@ -402,19 +402,34 @@ const ComplaintInvestigationPage: React.FC = () => {
 
         <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Result Rows</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Results</h3>
             <div className="text-sm text-gray-600 dark:text-gray-300">
               Matched: <span className="font-semibold text-gray-900 dark:text-gray-100">{totalRows}</span>
             </div>
           </div>
 
+          {hasSearched && (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              {selectedColumn && (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800 dark:border-white/10 dark:bg-white/5 dark:text-amber-300">
+                  Column: {selectedColumn}
+                </span>
+              )}
+              {activeValue && (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800 dark:border-white/10 dark:bg-white/5 dark:text-amber-300">
+                  Value: {activeValue}
+                </span>
+              )}
+            </div>
+          )}
+
           {!hasSearched ? (
             <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-              Select project, file, column, value, then click Show.
+              Select project, file, column, and value.
             </p>
           ) : visibleRows.length === 0 ? (
             <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-              No rows found for this value.
+              No rows found.
             </p>
           ) : (
             <>

@@ -64,6 +64,13 @@ type PartnerScorecardResponse = {
 const MONTH_OPTIONS = [3, 6, 12, 18, 24];
 const LIMIT_OPTIONS = [10, 20, 30, 50, 100];
 const TREND_COLORS = ["#B45309", "#2563EB", "#0D9488", "#DB2777", "#7C3AED"];
+const CHART_GRID = "#F3E8D2";
+const CHART_TOOLTIP_STYLE = {
+  borderRadius: 14,
+  border: "1px solid #FDE68A",
+  backgroundColor: "#FFFDF8",
+  boxShadow: "0 12px 30px rgba(180, 83, 9, 0.12)",
+};
 
 const formatMonthLabel = (value: string) => {
   const parsed = new Date(`${value}-01T00:00:00Z`);
@@ -74,6 +81,11 @@ const formatMonthLabel = (value: string) => {
 const formatNumber = (value: number | null | undefined, digits = 2) => {
   if (value === null || value === undefined || !Number.isFinite(value)) return "-";
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
+};
+
+const formatCompact = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
+  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(Number(value));
 };
 
 const formatQuality = (value: number | null) => {
@@ -209,15 +221,51 @@ const PartnerScorecardPage: React.FC = () => {
     }));
   }, [selectedPartnerData]);
 
+  const summaryCards = [
+    {
+      label: "Partners",
+      value: formatNumber(scorecard?.summary.partnerCount || 0, 0),
+      note: "Tracked",
+    },
+    {
+      label: "Revenue",
+      value: formatCompact(scorecard?.summary.totalRevenue || 0),
+      note: "Total",
+    },
+    {
+      label: "Usage",
+      value: formatCompact(scorecard?.summary.totalUsage || 0),
+      note: "Total",
+    },
+    {
+      label: "Quality",
+      value: formatQuality(scorecard?.summary.avgQualityScore ?? null),
+      note: "Avg",
+    },
+    {
+      label: "Disputes",
+      value: formatNumber(scorecard?.summary.totalDisputes || 0, 0),
+      note: "Open",
+    },
+    {
+      label: "Delay",
+      value:
+        scorecard?.summary.avgPaymentDelayDays === null
+          ? "-"
+          : `${formatNumber(scorecard?.summary.avgPaymentDelayDays, 2)}d`,
+      note: "Avg",
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="bg-white border rounded-2xl p-5 dark:bg-gray-900/70 dark:border-white/10">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-3xl font-bold text-amber-800 dark:text-amber-300">Partner Performance Scorecard</h2>
+              <h2 className="text-3xl font-bold text-amber-800 dark:text-amber-300">Partner scorecard</h2>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                Revenue, usage, quality, dispute pressure, payment delay, and monthly trends by roaming partner.
+                Revenue, usage, quality, disputes, and delay by partner.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -294,7 +342,7 @@ const PartnerScorecardPage: React.FC = () => {
 
           {scorecard && (
             <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-              Metrics detected:
+              Metrics:
               {" Revenue: "}
               <span className="font-semibold">{scorecard.metricKeys.revenue || "-"}</span>
               {" | Usage: "}
@@ -318,76 +366,61 @@ const PartnerScorecardPage: React.FC = () => {
 
         {loading ? (
           <div className="bg-white border rounded-2xl p-6 text-sm text-gray-500 dark:bg-gray-900/70 dark:border-white/10 dark:text-gray-300">
-            Loading partner scorecard...
+            Loading scorecard...
           </div>
         ) : (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <div className="text-xs text-gray-500 dark:text-gray-400">Partners</div>
-                <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {formatNumber(scorecard?.summary.partnerCount || 0, 0)}
+              {summaryCards.map((card) => (
+                <div
+                  key={card.label}
+                  className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm dark:bg-gray-900/70 dark:border-white/10"
+                >
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-amber-600 dark:text-amber-300">
+                    {card.label}
+                  </div>
+                  <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {card.value}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{card.note}</div>
                 </div>
-              </div>
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <div className="text-xs text-gray-500 dark:text-gray-400">Total Revenue</div>
-                <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {formatNumber(scorecard?.summary.totalRevenue || 0)}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <div className="text-xs text-gray-500 dark:text-gray-400">Total Usage</div>
-                <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {formatNumber(scorecard?.summary.totalUsage || 0)}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <div className="text-xs text-gray-500 dark:text-gray-400">Avg Quality</div>
-                <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {formatQuality(scorecard?.summary.avgQualityScore ?? null)}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <div className="text-xs text-gray-500 dark:text-gray-400">Active Disputes</div>
-                <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {formatNumber(scorecard?.summary.totalDisputes || 0, 0)}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <div className="text-xs text-gray-500 dark:text-gray-400">Avg Payment Delay</div>
-                <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {scorecard?.summary.avgPaymentDelayDays === null
-                    ? "-"
-                    : `${formatNumber(scorecard?.summary.avgPaymentDelayDays, 2)}d`}
-                </div>
-              </div>
+              ))}
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                  Revenue Trend (Top Partners)
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  Compare monthly revenue trajectories for top-ranked partners.
-                </p>
+              <div className="rounded-[24px] border border-amber-100 bg-white p-4 shadow-sm dark:bg-gray-900/70 dark:border-white/10">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                      Top revenue trend
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Top 5 partners by month
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700 dark:border-white/10 dark:bg-white/5 dark:text-amber-300">
+                    {topTrendSeries.length} lines
+                  </div>
+                </div>
                 <div className="h-72">
                   <ChartContainer>
                     <LineChart data={topTrendData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F3E8D2" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
                       <XAxis
                         dataKey="month"
                         tickFormatter={formatMonthLabel}
                         tickLine={false}
                         axisLine={false}
                         fontSize={12}
+                        stroke="#9CA3AF"
                       />
-                      <YAxis tickLine={false} axisLine={false} fontSize={12} width={64} />
+                      <YAxis tickLine={false} axisLine={false} fontSize={12} width={64} stroke="#9CA3AF" />
                       <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
                         formatter={(value: number | string | undefined) => formatNumber(Number(value))}
                         labelFormatter={(label) => formatMonthLabel(String(label))}
                       />
-                      <Legend />
+                      <Legend wrapperStyle={{ paddingTop: 16 }} />
                       {topTrendSeries.map((series) => (
                         <Line
                           key={series.key}
@@ -395,9 +428,9 @@ const PartnerScorecardPage: React.FC = () => {
                           name={series.name}
                           type="monotone"
                           stroke={series.color}
-                          strokeWidth={2.5}
+                          strokeWidth={3}
                           dot={false}
-                          activeDot={{ r: 5 }}
+                          activeDot={{ r: 5, strokeWidth: 0 }}
                         />
                       ))}
                     </LineChart>
@@ -405,60 +438,102 @@ const PartnerScorecardPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                  Selected Partner Trend
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  Monthly revenue and usage for{" "}
-                  <span className="font-semibold">{selectedPartnerData?.partner || "no partner selected"}</span>.
-                </p>
+              <div className="rounded-[24px] border border-amber-100 bg-white p-4 shadow-sm dark:bg-gray-900/70 dark:border-white/10">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                      Selected partner
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Revenue and usage for{" "}
+                      <span className="font-semibold">{selectedPartnerData?.partner || "no partner"}</span>
+                    </p>
+                  </div>
+                  {selectedPartnerData && (
+                    <div
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                        selectedPartnerData.score >= 80
+                          ? "bg-emerald-100 text-emerald-700"
+                          : selectedPartnerData.score >= 60
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-rose-100 text-rose-700"
+                      }`}
+                    >
+                      Score {formatNumber(selectedPartnerData.score, 1)}
+                    </div>
+                  )}
+                </div>
                 <div className="h-72">
                   <ChartContainer>
                     <LineChart data={selectedTrendData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F3E8D2" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
                       <XAxis
                         dataKey="month"
                         tickFormatter={formatMonthLabel}
                         tickLine={false}
                         axisLine={false}
                         fontSize={12}
+                        stroke="#9CA3AF"
                       />
-                      <YAxis tickLine={false} axisLine={false} fontSize={12} width={64} />
+                      <YAxis tickLine={false} axisLine={false} fontSize={12} width={64} stroke="#9CA3AF" />
                       <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
                         formatter={(value: number | string | undefined) => formatNumber(Number(value))}
                         labelFormatter={(label) => formatMonthLabel(String(label))}
                       />
-                      <Legend />
+                      <Legend wrapperStyle={{ paddingTop: 16 }} />
                       <Line
                         dataKey="revenue"
                         name="Revenue"
                         type="monotone"
                         stroke="#B45309"
-                        strokeWidth={2.8}
+                        strokeWidth={3}
                         dot={false}
-                        activeDot={{ r: 5 }}
+                        activeDot={{ r: 5, strokeWidth: 0 }}
                       />
                       <Line
                         dataKey="usage"
                         name="Usage"
                         type="monotone"
                         stroke="#2563EB"
-                        strokeWidth={2.8}
+                        strokeWidth={3}
                         strokeDasharray="6 4"
                         dot={false}
-                        activeDot={{ r: 5 }}
+                        activeDot={{ r: 5, strokeWidth: 0 }}
                       />
                     </LineChart>
                   </ChartContainer>
                 </div>
+                {filteredPartners.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {filteredPartners.slice(0, 8).map((item) => (
+                      <button
+                        key={item.partner}
+                        type="button"
+                        onClick={() => setSelectedPartner(item.partner)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          selectedPartner === item.partner
+                            ? "border-amber-400 bg-amber-100 text-amber-800 dark:border-amber-300 dark:bg-amber-500/15 dark:text-amber-200"
+                            : "border-amber-200 bg-white text-gray-700 hover:bg-amber-50 dark:border-white/10 dark:bg-white/5 dark:text-gray-200 dark:hover:bg-white/10"
+                        }`}
+                      >
+                        {item.partner}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="rounded-2xl border border-amber-100 bg-white p-4 dark:bg-gray-900/70 dark:border-white/10">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Partner Ranking</h3>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Partner ranking</h3>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Click a row to update the chart
+                </div>
+              </div>
               {filteredPartners.length === 0 ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400">No partner data found for this filter.</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">No partner data for this filter.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
