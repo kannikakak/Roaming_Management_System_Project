@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import Login from "./pages/Login";
@@ -81,9 +81,18 @@ const PublicEntry: React.FC = () => {
   return <Login />;
 };
 
+const PageLoader: React.FC = () => (
+  <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-amber-50 via-white to-orange-50 px-6 dark:from-gray-950 dark:via-gray-950 dark:to-gray-900">
+    <div className="rounded-2xl border border-amber-100 bg-white/85 px-6 py-4 text-sm font-medium text-amber-700 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-amber-300">
+      Loading page...
+    </div>
+  </div>
+);
+
 const App: React.FC = () => (
   <Router>
-    <Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
       {/* Public routes */}
       <Route path="/" element={<PublicEntry />} />
       <Route path="/login" element={<Login />} />
@@ -372,8 +381,9 @@ const App: React.FC = () => (
       />
 
       {/* Fallback route */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Suspense>
   </Router>
 );
 

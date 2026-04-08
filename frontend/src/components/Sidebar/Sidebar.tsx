@@ -43,18 +43,18 @@ const navSections: NavSection[] = [
     items: [
       { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/dashboard' },
       { label: 'Projects', icon: <Layers size={20} />, path: '/projects' },
-      { label: 'Complaint Desk', icon: <Search size={20} />, path: '/complaint-desk' },
-      { label: 'Data Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
-      { label: 'Partner Scorecard', icon: <LineChartIcon size={20} />, path: '/partner-scorecard' },
+      { label: 'Complaints', icon: <Search size={20} />, path: '/complaint-desk' },
+      { label: 'Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
+      { label: 'Scorecard', icon: <LineChartIcon size={20} />, path: '/partner-scorecard' },
       { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
-      { label: 'AI Analysis', icon: <Sparkles size={20} />, path: '/ai-studio' },
+      { label: 'AI Studio', icon: <Sparkles size={20} />, path: '/ai-studio' },
     ],
   },
   {
     title: 'Data',
     items: [
       { label: 'Data Sources', icon: <Database size={20} />, path: '/data-sources', roles: ['admin', 'analyst'] },
-      { label: 'Upload History', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
+      { label: 'Imports', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
       { label: 'Data Explorer', icon: <LayoutList size={20} />, path: '/data-explorer' },
     ],
   },
@@ -64,7 +64,7 @@ const navSections: NavSection[] = [
       { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
       { label: 'Reports', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
       { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
-      { label: 'Notification History', icon: <History size={20} />, path: '/delivery-history' },
+      { label: 'Delivery Log', icon: <History size={20} />, path: '/delivery-history' },
     ],
   },
   {
@@ -72,19 +72,28 @@ const navSections: NavSection[] = [
     items: [
       { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
       { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
-      { label: 'System Status', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
-      { label: 'Backup & Restore', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
+      { label: 'Status', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
+      { label: 'Backup', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
       { label: 'Security', icon: <Shield size={20} />, path: '/security-center', roles: ['admin'] },
       { label: 'Account', icon: <User size={20} />, path: '/account' },
     ],
   },
 ];
 
+const getStoredUser = () => {
+  const raw = localStorage.getItem("authUser");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 const Sidebar: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const storedUser = localStorage.getItem("authUser");
-  const user = storedUser ? JSON.parse(storedUser) : null;
+  const user = getStoredUser();
   const avatar = user?.profileImageUrl || null;
   const userRoles = Array.isArray(user?.roles)
     ? user.roles
@@ -111,8 +120,8 @@ const Sidebar: React.FC = () => {
     <aside className="flex flex-col w-72 min-h-screen border-r border-amber-100 shadow-sm bg-gradient-to-b from-white via-amber-50/40 to-white dark:border-white/10 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
       <div className="px-6 py-8">
         <div className="text-3xl font-bold text-amber-600 mb-1 tracking-tight dark:text-amber-400">{branding.appShortName}</div>
-        <div className="text-xs uppercase tracking-widest text-amber-500/80 font-semibold dark:text-amber-300/80">
-          {branding.appName}
+        <div className="text-xs uppercase tracking-[0.25em] text-amber-500/80 font-semibold dark:text-amber-300/80">
+          Roaming Ops
         </div>
       </div>
       <nav className="flex-1 px-2 overflow-y-auto">
@@ -135,7 +144,7 @@ const Sidebar: React.FC = () => {
                     label={item.label}
                     active={canAccess && location.pathname.startsWith(item.path)}
                     disabled={!canAccess}
-                    hint={!canAccess ? "Access restricted for your role" : undefined}
+                    hint={!canAccess ? "Restricted" : undefined}
                     onClick={() => {
                       if (!canAccess) return;
                       navigate(item.path);
@@ -165,7 +174,7 @@ const Sidebar: React.FC = () => {
               <div className="font-semibold text-gray-800 text-sm dark:text-gray-100">
                 {user?.name || "User"}
               </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">{user?.email || "unknown"}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{user?.email || "No email"}</div>
             </div>
           </div>
           <button
@@ -173,7 +182,7 @@ const Sidebar: React.FC = () => {
             className="mt-3 w-full text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg py-2 flex items-center justify-center gap-2 hover:bg-amber-100 dark:bg-amber-500/10 dark:border-amber-400/20 dark:text-amber-300 dark:hover:bg-amber-500/20"
           >
             <LogOut className="w-4 h-4" />
-            Logout
+            Sign out
           </button>
         </div>
       </div>

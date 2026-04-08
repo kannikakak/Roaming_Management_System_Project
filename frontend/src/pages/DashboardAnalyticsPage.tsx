@@ -383,22 +383,22 @@ const DashboardAnalyticsPage: React.FC = () => {
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-600 shadow-sm dark:border-amber-400/20 dark:bg-white/5 dark:text-amber-300">
                 <Sparkles className="h-3.5 w-3.5" />
-                Unified Dashboard
+                Overview
               </div>
               <h2 className="text-3xl md:text-[32px] font-bold text-gray-900 mt-3 dark:text-gray-100">
-                Roaming analytics studio
+                Roaming analytics
               </h2>
               <p className="text-sm text-gray-500 mt-2 max-w-2xl dark:text-gray-400">
-                Track uploads, partner performance, and roaming volume in a single, focused command center.
+                Uploads, partners, and traffic in one view.
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                 <span className="inline-flex items-center gap-2 rounded-full border border-amber-100 bg-amber-50 px-3 py-1 dark:border-white/10 dark:bg-white/5">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Live overview
+                  Live
                 </span>
                 {analytics && (
                   <span>
-                    Rows matched: {formatNumber(analytics.totals.rowsMatched)} / {formatNumber(analytics.totals.rowsScanned)}
+                    Matched {formatNumber(analytics.totals.rowsMatched)} / {formatNumber(analytics.totals.rowsScanned)}
                   </span>
                 )}
               </div>
@@ -409,21 +409,21 @@ const DashboardAnalyticsPage: React.FC = () => {
                 <div className="text-2xl font-bold text-gray-900 mt-1 dark:text-gray-100">
                   {formatCompact(summary.uploadsTotal)}
                 </div>
-                <div className="text-[11px]">Files processed</div>
+                <div className="text-[11px]">Files</div>
               </div>
               <div className="rounded-2xl border border-amber-100 bg-white/70 p-3 text-xs text-gray-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500">Partners</div>
                 <div className="text-2xl font-bold text-gray-900 mt-1 dark:text-gray-100">
                   {formatNumber(summary.partners)}
                 </div>
-                <div className="text-[11px]">Active partners</div>
+                <div className="text-[11px]">Active</div>
               </div>
               <div className="rounded-2xl border border-amber-100 bg-white/70 p-3 text-xs text-gray-500 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500">Coverage</div>
                 <div className="text-2xl font-bold text-gray-900 mt-1 dark:text-gray-100">
                   {formatNumber(summary.countries)}
                 </div>
-                <div className="text-[11px]">Countries active</div>
+                <div className="text-[11px]">Markets</div>
               </div>
             </div>
           </div>
@@ -434,9 +434,9 @@ const DashboardAnalyticsPage: React.FC = () => {
             <div className="flex items-center gap-2">
               <Filter className="w-5 h-5 text-amber-700 dark:text-amber-300" />
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filters & Exports</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filters</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Scope the data and export with applied filters.
+                  Filter and export the current view.
                 </p>
               </div>
             </div>
@@ -532,16 +532,16 @@ const DashboardAnalyticsPage: React.FC = () => {
           )}
 
           {analyticsLoading && !analytics ? (
-            <div className="text-sm text-gray-500 dark:text-gray-400">Loading analytics...</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
           ) : !analytics ? (
-            <div className="text-sm text-gray-500 dark:text-gray-400">No analytics data yet.</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">No data yet.</div>
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               <div className="xl:col-span-2 rounded-2xl border border-amber-100 p-4 bg-amber-50/40 dark:bg-white/5 dark:border-white/10">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Roaming Trend (Rows)</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Line chart with date drill-down</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Rows by day</p>
                   </div>
                   <TrendingUp className="w-5 h-5 text-amber-700 dark:text-amber-300" />
                 </div>
@@ -569,7 +569,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Partner Share</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Pie chart with partner drill-down</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Click a slice to filter</p>
                   </div>
                   <PieChartIcon className="w-5 h-5 text-amber-700 dark:text-amber-300" />
                 </div>
@@ -605,7 +605,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 )}
                 {drilldownPartner && (
                   <div className="text-xs text-amber-700 dark:text-amber-300 mt-2">
-                    Drill-down partner: {drilldownPartner}
+                    Filter: {drilldownPartner}
                   </div>
                 )}
               </div>
@@ -614,7 +614,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Upload Trend</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Files uploaded over time</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Files by day</p>
                   </div>
                   <Database className="w-5 h-5 text-amber-700 dark:text-amber-300" />
                 </div>
@@ -642,7 +642,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Project Performance</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Row counts by project</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Rows and files by project</p>
                   </div>
                   <FolderOpen className="w-5 h-5 text-amber-700 dark:text-amber-300" />
                 </div>
@@ -678,7 +678,7 @@ const DashboardAnalyticsPage: React.FC = () => {
                       {drilldownPartner ? "Country Drill-down" : "Country Share"}
                     </h4>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {drilldownPartner ? `Top countries for ${drilldownPartner}` : "Countries by roaming activity"}
+                      {drilldownPartner ? `Top countries for ${drilldownPartner}` : "By roaming activity"}
                     </p>
                   </div>
                   <TrendingUp className="w-5 h-5 text-amber-700 dark:text-amber-300" />

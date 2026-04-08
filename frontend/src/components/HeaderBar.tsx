@@ -12,31 +12,31 @@ type PageMeta = {
 };
 
 const pageMetaList: PageMeta[] = [
-  { path: "/dashboard", title: "Dashboard", subtitle: "View key metrics, alerts, and activity in one place." },
-  { path: "/projects", title: "Projects", subtitle: "Create and manage project workspaces and files." },
-  { path: "/complaint-desk", title: "Complaint Desk", subtitle: "Search complaint patterns and identify risky routes." },
-  { path: "/data-quality", title: "Data Quality", subtitle: "Track data completeness and quality checks." },
-  { path: "/partner-scorecard", title: "Partner Scorecard", subtitle: "Compare partner performance over time." },
-  { path: "/charts", title: "Charts", subtitle: "Build visual charts from your selected columns." },
-  { path: "/chart", title: "Charts", subtitle: "Build visual charts from your selected columns." },
-  { path: "/ai-studio", title: "AI Analysis", subtitle: "Generate AI-assisted charts and insights." },
-  { path: "/reports-library", title: "Reports", subtitle: "Open and manage generated reports." },
-  { path: "/slide-builder", title: "Slide Builder", subtitle: "Create presentation slides from system data." },
-  { path: "/data-explorer", title: "Data Explorer", subtitle: "Browse and inspect raw table data quickly." },
-  { path: "/data-sources", title: "Data Sources", subtitle: "Configure data ingestion locations and rules." },
-  { path: "/ingestion-history", title: "Upload History", subtitle: "Review ingestion runs and file processing results." },
-  { path: "/schedules", title: "Schedules", subtitle: "Automate report and data workflows." },
-  { path: "/delivery-history", title: "Notification History", subtitle: "Review delivery and notification events." },
-  { path: "/alert-center", title: "Alert Center", subtitle: "Monitor active alerts and take action." },
-  { path: "/my-activity", title: "My Activity", subtitle: "See your recent actions in the system." },
-  { path: "/templates", title: "Templates", subtitle: "Manage reusable report and slide templates." },
-  { path: "/users", title: "User Management", subtitle: "Manage users, roles, and access rights." },
-  { path: "/system-health", title: "System Status", subtitle: "Check service health and runtime status." },
-  { path: "/backup-restore", title: "Backup & Restore", subtitle: "Create backups and recover system data." },
-  { path: "/security-center", title: "Security", subtitle: "Review security settings and hardening controls." },
-  { path: "/audit-log", title: "Audit Log", subtitle: "Inspect detailed activity and compliance records." },
-  { path: "/account", title: "Account Settings", subtitle: "Update your personal profile and preferences." },
-  { path: "/search", title: "Global Search", subtitle: "Search across projects, files, alerts, and events." },
+  { path: "/dashboard", title: "Dashboard", subtitle: "Key metrics and activity." },
+  { path: "/projects", title: "Projects", subtitle: "Workspaces and files." },
+  { path: "/complaint-desk", title: "Complaint Desk", subtitle: "Complaint trends and risky routes." },
+  { path: "/data-quality", title: "Data Quality", subtitle: "Quality checks and gaps." },
+  { path: "/partner-scorecard", title: "Partner Scorecard", subtitle: "Partner performance." },
+  { path: "/charts", title: "Charts", subtitle: "Build charts from selected data." },
+  { path: "/chart", title: "Charts", subtitle: "Build charts from selected data." },
+  { path: "/ai-studio", title: "AI Analysis", subtitle: "AI charts and insights." },
+  { path: "/reports-library", title: "Reports", subtitle: "Saved reports." },
+  { path: "/slide-builder", title: "Slide Builder", subtitle: "Slides from system data." },
+  { path: "/data-explorer", title: "Data Explorer", subtitle: "Browse raw data." },
+  { path: "/data-sources", title: "Data Sources", subtitle: "Ingestion sources and rules." },
+  { path: "/ingestion-history", title: "Upload History", subtitle: "Import runs and results." },
+  { path: "/schedules", title: "Schedules", subtitle: "Automated workflows." },
+  { path: "/delivery-history", title: "Notification History", subtitle: "Delivery events." },
+  { path: "/alert-center", title: "Alert Center", subtitle: "Active alerts." },
+  { path: "/my-activity", title: "My Activity", subtitle: "Recent actions." },
+  { path: "/templates", title: "Templates", subtitle: "Reusable templates." },
+  { path: "/users", title: "User Management", subtitle: "Users and roles." },
+  { path: "/system-health", title: "System Status", subtitle: "Service health." },
+  { path: "/backup-restore", title: "Backup & Restore", subtitle: "Backups and recovery." },
+  { path: "/security-center", title: "Security", subtitle: "Security controls." },
+  { path: "/audit-log", title: "Audit Log", subtitle: "Activity records." },
+  { path: "/account", title: "Account Settings", subtitle: "Profile and preferences." },
+  { path: "/search", title: "Global Search", subtitle: "Search files, alerts, and more." },
 ];
 
 type NotificationItem = {
@@ -62,7 +62,7 @@ const HeaderBar: React.FC = () => {
       pageMetaList.find((item) => path === item.path || path.startsWith(`${item.path}/`)) || {
         path: "/dashboard",
         title: "Dashboard",
-        subtitle: "View key metrics, alerts, and activity in one place.",
+        subtitle: "Key metrics and activity.",
       }
     );
   }, [location.pathname]);
@@ -127,7 +127,7 @@ const HeaderBar: React.FC = () => {
               <input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search partner, country, project, file, alert..."
+                placeholder="Search partner, file, alert..."
                 className="w-96 max-w-[40vw] pl-9 pr-3 py-2 rounded-xl border border-amber-100 bg-white text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
             </label>
@@ -157,7 +157,7 @@ const HeaderBar: React.FC = () => {
                   onClick={markAllRead}
                   className="text-xs text-amber-700 hover:text-amber-800 dark:text-amber-300"
                 >
-                  Mark all read
+                  Mark all
                 </button>
               </div>
               <div className="max-h-80 overflow-auto">
@@ -194,7 +194,7 @@ const HeaderBar: React.FC = () => {
                 onClick={() => navigate("/delivery-history")}
                 className="w-full text-xs text-amber-700 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
               >
-                View delivery history
+                View history
               </button>
             </div>
           )}
