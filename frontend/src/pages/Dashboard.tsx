@@ -391,7 +391,17 @@ export default function Dashboard() {
               <span className="text-xs text-gray-400 dark:text-gray-500">Unread alerts: {unreadCount}</span>
             </div>
             {loading ? (
-              <div className="text-sm text-gray-500 dark:text-gray-400">Loading activity...</div>
+              <div className="space-y-3 animate-pulse">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-2xl bg-amber-50 dark:bg-white/5 shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 bg-amber-50 dark:bg-white/5 rounded w-3/4" />
+                      <div className="h-2 bg-gray-100 dark:bg-white/5 rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : activity.length === 0 ? (
               <div className="text-sm text-gray-500 dark:text-gray-400">No activity yet.</div>
             ) : (

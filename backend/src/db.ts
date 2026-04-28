@@ -72,6 +72,8 @@ if (sslModeRaw && !process.env.DB_SSL_REJECT_UNAUTHORIZED) {
     process.env.DB_SSL_REJECT_UNAUTHORIZED = strictSsl ? 'true' : 'false';
 }
 
+const SLOW_QUERY_THRESHOLD_MS = Number(process.env.DB_SLOW_QUERY_THRESHOLD_MS) || 500;
+
 export const dbPool = mysql.createPool({
     host: dbHost,
     user: dbUser,
@@ -79,13 +81,35 @@ export const dbPool = mysql.createPool({
     database: dbName,
     port: normalizePort(dbPortRaw, 3306),
     waitForConnections: true,
-    connectionLimit: Number(process.env.DB_POOL_CONNECTION_LIMIT) || 30,
-    queueLimit: Number(process.env.DB_POOL_QUEUE_LIMIT) || 10,
+    connectionLimit: Number(process.env.DB_POOL_CONNECTION_LIMIT) || (process.env.NODE_ENV === "production" ? 5 : 20),
+    queueLimit: Number(process.env.DB_POOL_QUEUE_LIMIT) || 50,
     connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT) || 30000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
     ssl: buildSslConfig(),
 });
+
+// Wrap pool.query to log queries that exceed the slow query threshold.
+const rawPool: any = (dbPool as any).pool;
+if (rawPool && typeof rawPool.on === "function") {
+    rawPool.on("connection", (connection: any) => {
+        const originalQuery = connection.query.bind(connection);
+        connection.query = function slowQueryWrapper(sql: any, values: any, cb: any) {
+            const start = Date.now();
+            const done = (err: any, results: any, fields: any) => {
+                const elapsed = Date.now() - start;
+                if (elapsed >= SLOW_QUERY_THRESHOLD_MS) {
+                    const preview = typeof sql === "string"
+                        ? sql.replace(/\s+/g, " ").slice(0, 120)
+                        : "[prepared statement]";
+                    console.warn(`[db] slow query (${elapsed}ms): ${preview}`);
+                }
+                if (typeof cb === "function") cb(err, results, fields);
+            };
+            return originalQuery(sql, values, done);
+        };
+    });
+}
 
 const encryptionRequired =
     String(process.env.DATA_ENCRYPTION_REQUIRED || "").trim().toLowerCase() === "true" ||

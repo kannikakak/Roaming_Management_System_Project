@@ -25,13 +25,13 @@ const DataSourcesPage: React.FC = () => {
     apiKeyHint?: string;
   } | null>(null);
   const [form, setForm] = useState<CreateForm>({
-    name: "Roaming Drop Zone",
+    name: "",
     type: "folder_sync",
     projectId: "",
     filePattern: "*.csv;*.xlsx;*.xls",
     templateRule: "",
-    pollIntervalMinutes: "1",
-    localPath: "C:\\RoamingDropZone\\Reports",
+    pollIntervalMinutes: "5",
+    localPath: "",
     enabled: true,
   });
 

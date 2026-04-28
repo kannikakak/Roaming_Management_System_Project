@@ -20,9 +20,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!jwtSecret) {
     return res.status(500).json({ message: "JWT secret is not configured" });
   }
-  const header = req.headers.authorization || "";
-  const [type, token] = header.split(" ");
-  if (type !== "Bearer" || !token) {
+
+  // Accept token from httpOnly cookie first, then fall back to Authorization header.
+  let token: string | undefined = req.cookies?.authToken;
+  if (!token) {
+    const header = req.headers.authorization || "";
+    const [type, raw] = header.split(" ");
+    if (type === "Bearer" && raw) token = raw;
+  }
+
+  if (!token) {
     return res.status(401).json({ message: "Unauthorized" });
   }
   try {

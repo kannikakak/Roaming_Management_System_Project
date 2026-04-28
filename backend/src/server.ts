@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs";
 
@@ -16,6 +17,7 @@ import { buildCorsOptions } from "./utils/cors";
 import { ensureIngestionAgentSchema } from "./services/ingestionSchema";
 import { ensureAnalyticsSchema } from "./services/analyticsSchema";
 import { ensureAnalyticsEtlSchema, startAnalyticsEtlWorker } from "./services/analyticsEtl";
+import { runMigrations } from "./utils/migrate";
 
 import projectRoutes from "./routes/projectRoutes";
 import exportPptxRoute from "./routes/exportPptx";
@@ -31,6 +33,19 @@ for (const envPath of envCandidates) {
   if (fs.existsSync(envPath)) {
     dotenv.config({ path: envPath });
   }
+}
+
+// Fail fast if any critical environment variable is missing.
+const REQUIRED_ENV_VARS = ["JWT_SECRET", "DB_HOST", "DB_USER", "DB_NAME", "DB_PASSWORD"];
+const missingEnvVars = REQUIRED_ENV_VARS.filter(
+  (key) => !String(process.env[key] || "").trim()
+);
+if (missingEnvVars.length > 0) {
+  console.error(
+    `[startup] Missing required environment variables: ${missingEnvVars.join(", ")}`
+  );
+  console.error("[startup] Set these in your .env file or deployment environment and restart.");
+  process.exit(1);
 }
 
 const app = express();
@@ -70,13 +85,32 @@ app.options(/.*/, cors(corsOptions));
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-DNS-Prefetch-Control", "off");
+  res.setHeader("X-Download-Options", "noopen");
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self'",
+      "connect-src 'self'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "base-uri 'self'",
+    ].join("; ")
+  );
   if (securitySnapshot.https.enforced) {
-    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
   }
   next();
 });
 
+app.use(cookieParser());
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
@@ -91,8 +125,19 @@ if (securitySnapshot.https.enforced) {
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+const HEALTH_PAYLOAD = {
+  ok: true,
+  service: "roaming-interconnect-backend",
+  version: process.env.npm_package_version || "1.0.0",
+  env: process.env.NODE_ENV || "development",
+  uptime: () => Math.floor(process.uptime()),
+};
+app.get("/health", (_req, res) =>
+  res.json({ ...HEALTH_PAYLOAD, uptime: HEALTH_PAYLOAD.uptime() })
+);
+app.get("/api/health", (_req, res) =>
+  res.json({ ...HEALTH_PAYLOAD, uptime: HEALTH_PAYLOAD.uptime() })
+);
 
 const testDatabase = async () => {
   try {
@@ -137,10 +182,13 @@ const startServer = async () => {
     process.exit(1);
   }
 
-  await ensureIngestionAgentSchema(dbPool);
-  await ensureAnalyticsSchema(dbPool);
-  await ensureAnalyticsEtlSchema(dbPool);
-  await ensureBootstrapAdmin(dbPool);
+  await runMigrations(dbPool);
+  await Promise.all([
+    ensureIngestionAgentSchema(dbPool),
+    ensureAnalyticsSchema(dbPool),
+    ensureAnalyticsEtlSchema(dbPool),
+    ensureBootstrapAdmin(dbPool),
+  ]);
 
   setRoutes(app, dbPool);
   startScheduler(dbPool);

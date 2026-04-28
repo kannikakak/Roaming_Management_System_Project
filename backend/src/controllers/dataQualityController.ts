@@ -69,8 +69,9 @@ type DataQualitySummary = {
     missingRate: number;
     partnerMissingRate: number;
     negativeRevenueRate: number;
-    missingDateRate: number;
+    zeroRevenueRate: number;
     invalidRevenueRate: number;
+    missingDateRate: number;
     timeCoverage: number;
     partnerCoverage: number;
     rowCount: number;
@@ -145,6 +146,7 @@ const buildRecommendations = (input: {
   missingRate: number;
   partnerMissingRate: number;
   negativeRevenueRate: number;
+  zeroRevenueRate: number;
   invalidRevenueRate: number;
   missingDateRate: number;
   timeCoverage: number;
@@ -200,18 +202,30 @@ const buildRecommendations = (input: {
     });
   }
 
-  const revenueProblemRate = Math.min(1, input.negativeRevenueRate + input.invalidRevenueRate);
+  const revenueProblemRate = Math.min(1, input.negativeRevenueRate + input.zeroRevenueRate + input.invalidRevenueRate);
   if (!input.revenueColumn) {
     items.push({
       priority: "medium",
       action: "Add a revenue amount column for financial quality controls.",
       rationale: "Revenue sanity checks are currently limited without a detected revenue field.",
     });
+  } else if (input.negativeRevenueRate > 0.02) {
+    items.push({
+      priority: input.negativeRevenueRate > 0.1 ? "high" : "medium",
+      action: "Validate negative revenue rows — confirm they are intentional credits or reversals.",
+      rationale: `Negative revenue detected in ${(input.negativeRevenueRate * 100).toFixed(1)}% of rows; unexpected negatives distort roaming settlement totals.`,
+    });
+  } else if (input.zeroRevenueRate > 0.05) {
+    items.push({
+      priority: "medium",
+      action: "Investigate zero-revenue records and exclude test or non-billable entries before ingestion.",
+      rationale: `Zero-revenue rows account for ${(input.zeroRevenueRate * 100).toFixed(1)}% of records, which may indicate test data or missing billing values.`,
+    });
   } else if (revenueProblemRate > 0.05) {
     items.push({
       priority: revenueProblemRate > 0.2 ? "high" : "medium",
       action: "Apply numeric/currency formatting rules before ingestion.",
-      rationale: `Revenue issues affect ${(revenueProblemRate * 100).toFixed(1)}% of rows.`,
+      rationale: `Revenue issues (negative, zero, or unparsable) affect ${(revenueProblemRate * 100).toFixed(1)}% of rows.`,
     });
   }
 
@@ -295,6 +309,7 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
     let missingCells = 0;
     let partnerMissing = 0;
     let negativeRevenue = 0;
+    let zeroRevenue = 0;
     let missingDates = 0;
     let invalidRevenue = 0;
     const partnerValues = new Set<string>();
@@ -325,8 +340,10 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
           : parseFloat(String(revenueValue || "").replace(/[^0-9.-]/g, ""));
         if (Number.isNaN(revenueNum)) {
           invalidRevenue += 1;
-        } else if (revenueNum <= 0) {
+        } else if (revenueNum < 0) {
           negativeRevenue += 1;
+        } else if (revenueNum === 0) {
+          zeroRevenue += 1;
         }
       }
       if (dateColumn) {
@@ -346,10 +363,11 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
     const missingRate = totalRows ? missingCells / totalCells : 1;
     const partnerMissingRate = totalRows ? partnerMissing / totalRows : 0;
     const negativeRevenueRate = totalRows ? negativeRevenue / totalRows : 0;
+    const zeroRevenueRate = totalRows ? zeroRevenue / totalRows : 0;
     const invalidRevenueRate = totalRows ? invalidRevenue / totalRows : 0;
     const missingDateRate = dateColumn ? (totalRows ? missingDates / totalRows : 0) : 0;
     const partnerCoverage = totalRows ? partnerValues.size / totalRows : 0;
-    const revenueProblemRate = Math.min(1, negativeRevenueRate + invalidRevenueRate);
+    const revenueProblemRate = Math.min(1, negativeRevenueRate + zeroRevenueRate + invalidRevenueRate);
 
     const timeSpanDays = (() => {
       if (!dateColumn || !minDate || !maxDate) return 0;
@@ -394,10 +412,13 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
       issues.push(`Partners unspecified for ${(partnerMissingRate * 100).toFixed(1)}% of rows.`);
     }
     if (negativeRevenueRate > 0.02) {
-      issues.push(`Non-positive revenue reported in ${(negativeRevenueRate * 100).toFixed(1)}% of rows.`);
+      issues.push(`Negative revenue (credit/reversal) detected in ${(negativeRevenueRate * 100).toFixed(1)}% of rows — verify these are intentional adjustments.`);
+    }
+    if (zeroRevenueRate > 0.05) {
+      issues.push(`Zero-revenue records found in ${(zeroRevenueRate * 100).toFixed(1)}% of rows — may indicate test records or missing billing data.`);
     }
     if (invalidRevenueRate > 0.01) {
-      issues.push(`Revenue values cannot be parsed for ${(invalidRevenueRate * 100).toFixed(1)}% of rows.`);
+      issues.push(`Revenue values cannot be parsed for ${(invalidRevenueRate * 100).toFixed(1)}% of rows — check currency formatting in the source file.`);
     }
     if (dateColumn && missingDateRate > 0.03) {
       issues.push(`Dates missing or invalid in ${(missingDateRate * 100).toFixed(1)}% of rows.`);
@@ -447,8 +468,8 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
       {
         label: "Revenue sanity",
         value: `${Math.round((1 - revenueProblemRate) * 100)}% valid`,
-        detail: `Negative/zero or unparsable revenue in ${(revenueProblemRate * 100).toFixed(1)}% of rows.`,
-        severity: revenueProblemRate > 0.1 ? "critical" : "info",
+        detail: `${(negativeRevenueRate * 100).toFixed(1)}% negative, ${(zeroRevenueRate * 100).toFixed(1)}% zero, ${(invalidRevenueRate * 100).toFixed(1)}% unparsable.`,
+        severity: revenueProblemRate > 0.1 ? "critical" : revenueProblemRate > 0.02 ? "warning" : "info",
       },
     ];
 
@@ -466,6 +487,7 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
         missingRate,
         partnerMissingRate,
         negativeRevenueRate,
+        zeroRevenueRate,
         invalidRevenueRate,
         missingDateRate,
         timeCoverage,
@@ -479,8 +501,9 @@ export const getFileQualitySummary = (dbPool: Pool) => async (req: Request, res:
         missingRate,
         partnerMissingRate,
         negativeRevenueRate,
-        missingDateRate,
+        zeroRevenueRate,
         invalidRevenueRate,
+        missingDateRate,
         timeCoverage,
         partnerCoverage,
         rowCount: totalRows,

@@ -1,3 +1,4 @@
+
 import { Pool } from "mysql2/promise";
 import { getNotificationSettings } from "./notificationSettings";
 import { loadRetentionConfig, runDataRetention } from "./dataRetention";

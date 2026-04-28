@@ -39,22 +39,22 @@ type NavSection = {
 
 const navSections: NavSection[] = [
   {
-    title: 'Core',
+    title: 'Operations',
     items: [
       { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/dashboard' },
       { label: 'Projects', icon: <Layers size={20} />, path: '/projects' },
-      { label: 'Complaints', icon: <Search size={20} />, path: '/complaint-desk' },
-      { label: 'Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
-      { label: 'Scorecard', icon: <LineChartIcon size={20} />, path: '/partner-scorecard' },
+      { label: 'Disputes & Complaints', icon: <Search size={20} />, path: '/complaint-desk' },
+      { label: 'Data Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
+      { label: 'Partner Scorecard', icon: <LineChartIcon size={20} />, path: '/partner-scorecard' },
       { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
       { label: 'AI Studio', icon: <Sparkles size={20} />, path: '/ai-studio' },
     ],
   },
   {
-    title: 'Data',
+    title: 'Roaming Data',
     items: [
       { label: 'Data Sources', icon: <Database size={20} />, path: '/data-sources', roles: ['admin', 'analyst'] },
-      { label: 'Imports', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
+      { label: 'Import History', icon: <History size={20} />, path: '/ingestion-history', roles: ['admin', 'analyst'] },
       { label: 'Data Explorer', icon: <LayoutList size={20} />, path: '/data-explorer' },
     ],
   },
@@ -62,18 +62,18 @@ const navSections: NavSection[] = [
     title: 'Reporting',
     items: [
       { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
-      { label: 'Reports', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
+      { label: 'Reports Library', icon: <FolderOpen size={20} />, path: '/reports-library', roles: ['admin', 'analyst'] },
       { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
       { label: 'Delivery Log', icon: <History size={20} />, path: '/delivery-history' },
     ],
   },
   {
-    title: 'System',
+    title: 'Administration',
     items: [
       { label: 'My Activity', icon: <Activity size={20} />, path: '/my-activity' },
-      { label: 'Users', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
-      { label: 'Status', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
-      { label: 'Backup', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
+      { label: 'User Management', icon: <Users size={20} />, path: '/users', roles: ['admin'] },
+      { label: 'System Health', icon: <ShieldCheck size={20} />, path: '/system-health', roles: ['admin'] },
+      { label: 'Backup & Restore', icon: <DatabaseBackup size={20} />, path: '/backup-restore', roles: ['admin'] },
       { label: 'Security', icon: <Shield size={20} />, path: '/security-center', roles: ['admin'] },
       { label: 'Account', icon: <User size={20} />, path: '/account' },
     ],
@@ -120,9 +120,6 @@ const Sidebar: React.FC = () => {
     <aside className="flex flex-col w-72 min-h-screen border-r border-amber-100 shadow-sm bg-gradient-to-b from-white via-amber-50/40 to-white dark:border-white/10 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
       <div className="px-6 py-8">
         <div className="text-3xl font-bold text-amber-600 mb-1 tracking-tight dark:text-amber-400">{branding.appShortName}</div>
-        <div className="text-xs uppercase tracking-[0.25em] text-amber-500/80 font-semibold dark:text-amber-300/80">
-          Roaming Ops
-        </div>
       </div>
       <nav className="flex-1 px-2 overflow-y-auto">
         {navSections.map((section) => (

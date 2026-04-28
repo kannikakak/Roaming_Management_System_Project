@@ -83,20 +83,7 @@ const safeScore = (value?: number | null) => {
 const badgeFromScore = (score: number): DataQualitySummary["badge"] =>
   score >= 90 ? "good" : score >= 75 ? "warning" : "poor";
 
-const formatDateString = (value?: string) => {
-  if (!value) return "N/A";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
-};
 
-const highlightTone = (severity: HighlightSeverity | undefined) => {
-  if (severity === "critical") return "text-rose-600 bg-rose-50 border-rose-100";
-  if (severity === "warning") return "text-amber-700 bg-amber-50 border-amber-100";
-  return "text-slate-700 bg-white border-slate-100 dark:bg-gray-900 dark:border-gray-800 dark:text-slate-200";
-};
 
 const DataQualityPage: React.FC = () => {
   const storedUser = localStorage.getItem("authUser");
@@ -290,216 +277,196 @@ const DataQualityPage: React.FC = () => {
               const displayScore = safeScore(cardScoreValue);
               const badgeKey = cachedSummary?.badge ?? badgeFromScore(displayScore);
               const badgeInfo = badgeStyles[badgeKey];
-              const hasCachedEntry = Object.prototype.hasOwnProperty.call(qualityCache, file.id);
-              const statusText =
-                cachedSummary && cachedSummary.status
-                  ? cachedSummary.status
-                  : hasCachedEntry
-                    ? "Quality check failed"
-                    : "Analyzing data quality...";
+              const ringR = 36;
+              const ringC = 2 * Math.PI * ringR;
+              const ringColor = badgeKey === "good" ? "#10b981" : badgeKey === "warning" ? "#f59e0b" : "#ef4444";
+
               return (
                 <Surface
                   key={file.id}
                   onClick={() => setSelectedFileId(file.id)}
-                  className={`cursor-pointer border ${selectedFileId === file.id ? "border-amber-400" : "border-transparent"} p-4 space-y-2 transition-shadow hover:shadow-md`}
+                  className={`cursor-pointer border-2 ${selectedFileId === file.id ? "border-amber-400" : "border-transparent"} p-5 flex flex-col items-center gap-3 transition-shadow hover:shadow-md`}
                 >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{file.name}</p>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${badgeInfo.className}`}>
-                      {badgeInfo.label}
-                    </span>
+                  <div className="relative flex items-center justify-center">
+                    <svg width="96" height="96" viewBox="0 0 96 96">
+                      <circle cx="48" cy="48" r={ringR} fill="none" stroke="#f3f4f6" strokeWidth="8" />
+                      <circle
+                        cx="48" cy="48" r={ringR}
+                        fill="none"
+                        stroke={ringColor}
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={ringC}
+                        strokeDashoffset={ringC * (1 - displayScore / 100)}
+                        transform="rotate(-90 48 48)"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-xl font-bold text-gray-900 dark:text-white leading-none">{displayScore.toFixed(0)}</span>
+                      <span className="text-[0.6rem] text-gray-400">/ 100</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-500">{new Date(file.uploadedAt).toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">{statusText}</p>
-                  <div className="text-3xl font-bold text-gray-900 dark:text-white">{displayScore.toFixed(1)}</div>
-                  <p className="text-xs uppercase tracking-[0.4em] text-gray-400">quality score</p>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white text-center w-full truncate">{file.name}</p>
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${badgeInfo.className}`}>
+                    {badgeInfo.label}
+                  </span>
                 </Surface>
               );
             })
           )}
         </div>
 
-        <Surface className="p-6 border border-amber-100 space-y-4">
-          <div className="flex items-center gap-3">
-            <Shield className="w-5 h-5 text-amber-500" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.4em] text-gray-500">What matters</p>
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Trust the file</h2>
+        <Surface className="p-6 border border-gray-100">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-amber-500" />
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">File Analysis</h2>
             </div>
             <button
               onClick={() => selectedFileId && fetchQuality(selectedFileId)}
               disabled={!selectedFileId || loadingQuality}
-              className="ml-auto flex items-center gap-2 rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+              className="rounded-full border border-gray-200 px-3 py-1 text-xs text-gray-500 hover:border-amber-300 hover:text-amber-700 disabled:opacity-40 transition-colors"
             >
-              Refresh badge
+              Refresh
             </button>
           </div>
 
           {loadingQuality ? (
-            <p className="text-sm text-gray-500">Refreshing quality summary…</p>
+            <p className="text-sm text-gray-400">Loading…</p>
           ) : qualityError ? (
-            <p className="text-sm text-red-600">{qualityError}</p>
+            <p className="text-sm text-red-500">{qualityError}</p>
           ) : !quality ? (
-            <p className="text-sm text-gray-500">Select a file to review its quality issues.</p>
+            <p className="text-sm text-gray-400">Select a file above to see its analysis.</p>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-              <div className="space-y-4 rounded-2xl border border-amber-50 bg-gradient-to-br from-amber-50 via-white to-white p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Quality score</p>
-                <div className="flex items-baseline gap-3">
-                  <span className="text-5xl font-extrabold text-gray-900 dark:text-white">
-                    {safeScore(quality.score).toFixed(1)}
-                  </span>
-                  <span className="text-sm text-gray-500">/ 100</span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-white/50">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all"
-                    style={{ width: `${Math.min(100, safeScore(quality.score))}%` }}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className={`px-2 py-1 rounded-full ${badgeStyles[quality.badge].className}`}>
-                    {badgeStyles[quality.badge].label}
-                  </span>
-                  <span className="rounded-full border border-gray-200 px-2 py-1 text-amber-700">
-                    Confidence {quality.confidence}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500">{quality.status}</p>
-                <div className="flex flex-wrap gap-2 text-[0.65rem] text-gray-600">
-                  <span className="rounded-full border border-gray-200 px-2 py-1 bg-white dark:bg-slate-900">
-                    {quality.metrics.rowCount} rows
-                  </span>
-                  <span className="rounded-full border border-gray-200 px-2 py-1 bg-white dark:bg-slate-900">
-                    {quality.metrics.columnCount} columns
-                  </span>
-                  <span className="rounded-full border border-gray-200 px-2 py-1 bg-white dark:bg-slate-900">
-                    {quality.metrics.uniquePartners} partners
-                  </span>
-                  <span className="rounded-full border border-gray-200 px-2 py-1 bg-white dark:bg-slate-900">
-                    {quality.metrics.uniqueDates} dates
-                  </span>
-                </div>
-              </div>
+            <div className="grid gap-8 lg:grid-cols-[200px_1fr]">
 
-              <div className="space-y-5">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Highlights</p>
-                    <p className="text-xs text-gray-400">Sample preview</p>
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {quality.highlights.map((highlight, index) => (
-                      <div
-                        key={`${highlight.label}-${index}`}
-                        className={`rounded-2xl border p-3 text-sm ${highlightTone(highlight.severity)}`}
-                      >
-                        <p className="text-[0.65rem] uppercase tracking-[0.3em]">{highlight.label}</p>
-                        <p className="text-lg font-semibold text-slate-900 dark:text-white">{highlight.value}</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{highlight.detail}</p>
+              {/* Left — score ring */}
+              {(() => {
+                const detailR = 44;
+                const detailC = 2 * Math.PI * detailR;
+                const detailScore = safeScore(quality.score);
+                const detailColor = quality.badge === "good" ? "#10b981" : quality.badge === "warning" ? "#f59e0b" : "#ef4444";
+                return (
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="relative flex items-center justify-center">
+                      <svg width="120" height="120" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r={detailR} fill="none" stroke="#f3f4f6" strokeWidth="9" />
+                        <circle
+                          cx="60" cy="60" r={detailR}
+                          fill="none"
+                          stroke={detailColor}
+                          strokeWidth="9"
+                          strokeLinecap="round"
+                          strokeDasharray={detailC}
+                          strokeDashoffset={detailC * (1 - detailScore / 100)}
+                          transform="rotate(-90 60 60)"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{detailScore.toFixed(1)}</span>
+                        <span className="text-[0.6rem] text-gray-400">/ 100</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Core metrics</p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {[
-                      { label: "Missing values", value: percent(quality.metrics.missingRate) },
-                      { label: "Missing partners", value: percent(quality.metrics.partnerMissingRate) },
-                      { label: "Negative/zero revenue", value: percent(quality.metrics.negativeRevenueRate) },
-                      { label: "Invalid revenue", value: percent(quality.metrics.invalidRevenueRate) },
-                      { label: "Date coverage", value: percent(quality.metrics.timeCoverage) },
-                      { label: "Partner coverage", value: percent(quality.metrics.partnerCoverage) },
-                    ].map((metric) => (
-                      <div key={metric.label} className="rounded-2xl border border-gray-100 p-3">
-                        <p className="text-xs uppercase text-gray-500">{metric.label}</p>
-                        <p className="text-lg font-semibold text-gray-900 dark:text-white">{metric.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Schema changes</p>
-                    <p className="text-xs text-gray-400">
-                      {quality.schemaChanges.previousFileName
-                        ? `vs ${quality.schemaChanges.previousFileName}`
-                        : "No previous upload"}
-                      {quality.schemaChanges.previousUploadedAt
-                        ? ` · ${formatDateString(quality.schemaChanges.previousUploadedAt)}`
-                        : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {quality.schemaChanges.summary.map((line, index) => (
-                      <span
-                        key={`schema-summary-${index}`}
-                        className="rounded-full border border-gray-200 px-2 py-1 text-[0.65rem] text-gray-600 bg-white dark:bg-gray-900"
-                      >
-                        {line}
+                    </div>
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${badgeStyles[quality.badge].className}`}>
+                        {badgeStyles[quality.badge].label}
                       </span>
-                    ))}
+                      <p className="text-xs text-gray-400">{quality.status}</p>
+                    </div>
+                    <div className="w-full border-t border-gray-100 pt-3 grid grid-cols-2 gap-y-2 text-center">
+                      {[
+                        { label: "Rows", value: quality.metrics.rowCount },
+                        { label: "Columns", value: quality.metrics.columnCount },
+                        { label: "Partners", value: quality.metrics.uniquePartners },
+                        { label: "Dates", value: quality.metrics.uniqueDates },
+                      ].map((s) => (
+                        <div key={s.label}>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{s.value}</p>
+                          <p className="text-[0.65rem] text-gray-400">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  {quality.schemaChanges.previousFileId && quality.schemaChanges.newColumns.length > 0 && (
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 text-sm text-slate-700">
-                      <p className="text-[0.65rem] uppercase tracking-[0.4em] text-emerald-600">New columns</p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5">
-                        {quality.schemaChanges.newColumns.map((column) => (
-                          <li key={`new-${column}`}>{column}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {quality.schemaChanges.previousFileId && quality.schemaChanges.removedColumns.length > 0 && (
-                    <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-3 text-sm text-rose-700">
-                      <p className="text-[0.65rem] uppercase tracking-[0.4em] text-rose-600">Removed columns</p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5">
-                        {quality.schemaChanges.removedColumns.map((column) => (
-                          <li key={`removed-${column}`}>{column}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {quality.schemaChanges.previousFileId && quality.schemaChanges.renamedColumns.length > 0 && (
-                    <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-3 text-sm text-amber-800">
-                      <p className="text-[0.65rem] uppercase tracking-[0.4em] text-amber-600">Renamed columns</p>
-                      <ul className="mt-2 space-y-1 pl-5">
-                        {quality.schemaChanges.renamedColumns.map((entry) => (
-                          <li key={`${entry.from}-${entry.to}`}>
-                            {entry.from} → {entry.to}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {quality.schemaChanges.previousFileId && quality.schemaChanges.warnings.length > 0 && (
-                    <div className="rounded-2xl border border-amber-400/70 bg-amber-50/60 p-3 text-sm text-amber-900">
-                      <p className="text-[0.65rem] uppercase tracking-[0.4em] text-amber-600">Warnings</p>
-                      <ul className="mt-1 space-y-1">
-                        {quality.schemaChanges.warnings.map((warning, index) => (
-                          <li key={`warning-${index}`} className="text-[0.75rem]">
-                            {warning}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                );
+              })()}
+
+              {/* Right — metrics + issues + schema */}
+              <div className="space-y-6">
+
+                {/* Metrics */}
+                <div>
+                  <p className="text-xs font-medium text-gray-400 mb-3">Metrics</p>
+                  <div className="space-y-2">
+                    {[
+                      { label: "Missing values",       value: quality.metrics.missingRate,        bad: (v: number) => v > 0.02 },
+                      { label: "Missing partners",     value: quality.metrics.partnerMissingRate,  bad: (v: number) => v > 0.05 },
+                      { label: "Negative revenue",     value: quality.metrics.negativeRevenueRate, bad: (v: number) => v > 0.02 },
+                      { label: "Invalid revenue",      value: quality.metrics.invalidRevenueRate,  bad: (v: number) => v > 0.01 },
+                      { label: "Date coverage",        value: quality.metrics.timeCoverage,        bad: (v: number) => v < 0.6  },
+                      { label: "Partner coverage",     value: quality.metrics.partnerCoverage,     bad: (v: number) => v < 0.6  },
+                    ].map((m) => {
+                      const isBad = m.bad(m.value);
+                      return (
+                        <div key={m.label} className="flex items-center justify-between py-1.5 border-b border-gray-50 dark:border-gray-800 last:border-0">
+                          <span className="text-sm text-gray-600 dark:text-gray-300">{m.label}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`h-1.5 w-1.5 rounded-full ${isBad ? "bg-red-400" : "bg-emerald-400"}`} />
+                            <span className={`text-sm font-semibold ${isBad ? "text-red-600" : "text-gray-800 dark:text-white"}`}>
+                              {percent(m.value)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
+                {/* Issues */}
                 <div>
-                  <p className="text-xs uppercase tracking-[0.4em] text-gray-500">Key issues</p>
-                  <ul className="mt-2 space-y-2 text-sm text-gray-600 dark:text-gray-300">
-                    {quality.issues.map((issue, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                        <span>{issue}</span>
+                  <p className="text-xs font-medium text-gray-400 mb-3">Issues</p>
+                  <ul className="space-y-1.5">
+                    {quality.issues.map((issue, i) => (
+                      <li key={i} className="text-sm text-gray-600 dark:text-gray-300 flex items-start gap-2">
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                        {issue}
                       </li>
                     ))}
                   </ul>
                 </div>
+
+                {/* Schema changes — only if there's something to show */}
+                {quality.schemaChanges.previousFileId && (
+                  quality.schemaChanges.newColumns.length > 0 ||
+                  quality.schemaChanges.removedColumns.length > 0 ||
+                  quality.schemaChanges.renamedColumns.length > 0
+                ) && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 mb-3">
+                      Schema changes
+                      {quality.schemaChanges.previousFileName && (
+                        <span className="ml-1 font-normal text-gray-300">vs {quality.schemaChanges.previousFileName}</span>
+                      )}
+                    </p>
+                    <div className="space-y-2">
+                      {quality.schemaChanges.newColumns.map((col) => (
+                        <div key={`new-${col}`} className="flex items-center gap-2 text-sm text-emerald-700">
+                          <span className="text-emerald-400">+</span> {col}
+                        </div>
+                      ))}
+                      {quality.schemaChanges.removedColumns.map((col) => (
+                        <div key={`rm-${col}`} className="flex items-center gap-2 text-sm text-red-500">
+                          <span>−</span> {col}
+                        </div>
+                      ))}
+                      {quality.schemaChanges.renamedColumns.map((entry) => (
+                        <div key={`${entry.from}-${entry.to}`} className="text-sm text-amber-700">
+                          {entry.from} → {entry.to}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
               </div>
             </div>
           )}

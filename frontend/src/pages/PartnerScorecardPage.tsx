@@ -30,6 +30,7 @@ type PartnerScorecardItem = {
   disputeCount: number;
   paymentDelayDays: number | null;
   score: number;
+  riskLevel: "low" | "medium" | "high";
   rows: number;
   files: number;
   trend: TrendPoint[];
@@ -365,8 +366,27 @@ const PartnerScorecardPage: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="bg-white border rounded-2xl p-6 text-sm text-gray-500 dark:bg-gray-900/70 dark:border-white/10 dark:text-gray-300">
-            Loading scorecard...
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm dark:bg-gray-900/70 dark:border-white/10 animate-pulse">
+                  <div className="h-3 bg-amber-100 dark:bg-white/10 rounded w-2/3 mb-2" />
+                  <div className="h-7 bg-amber-50 dark:bg-white/5 rounded w-1/2 mb-1" />
+                  <div className="h-2 bg-gray-100 dark:bg-white/5 rounded w-full" />
+                </div>
+              ))}
+            </div>
+            <div className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm dark:bg-gray-900/70 dark:border-white/10 animate-pulse space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex gap-3 items-center">
+                  <div className="h-4 bg-amber-50 dark:bg-white/5 rounded w-1/4" />
+                  <div className="h-4 bg-amber-50 dark:bg-white/5 rounded w-1/6" />
+                  <div className="h-4 bg-amber-50 dark:bg-white/5 rounded w-1/6" />
+                  <div className="h-4 bg-amber-50 dark:bg-white/5 rounded w-1/6" />
+                  <div className="h-4 bg-amber-50 dark:bg-white/5 rounded w-1/6" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>

@@ -605,7 +605,7 @@ const computePartnerScorecardFromEtl = async (
       const usageNorm = item.usage > 0 ? item.usage / maxUsage : 0;
       const qualityNorm = ((item.qualityScore ?? 60) / 100) * 25;
       const disputePenalty = Math.min(item.disputeCount * 2.5, 18);
-      const delayPenalty = 0;
+      const delayPenalty = item.paymentDelayDays === null ? 0 : Math.min(item.paymentDelayDays * 1.2, 18);
       const rawScore = 25 + revenueNorm * 30 + usageNorm * 20 + qualityNorm - disputePenalty - delayPenalty;
       const score = round(clamp(rawScore, 0, 100), 1);
       const riskLevel = getRiskLevel(score, item.disputeCount, item.paymentDelayDays);

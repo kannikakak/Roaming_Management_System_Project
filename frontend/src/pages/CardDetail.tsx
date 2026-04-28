@@ -25,54 +25,6 @@ type ColumnEdit = {
 
 type ExportFormat = 'excel' | 'pdf' | 'png' | 'json' | 'xml';
 
-const toNumber = (value: any) => {
-  if (value === null || value === undefined) return NaN;
-  const normalized = String(value).trim().replace(/,/g, '');
-  if (!normalized || normalized === '-') return NaN;
-  return Number(normalized);
-};
-
-const suggestChartSelection = (columns: string[], rows: any[]) => {
-  if (!Array.isArray(columns) || columns.length < 2 || !Array.isArray(rows) || rows.length === 0) {
-    return null;
-  }
-
-  const sample = rows.slice(0, 500);
-  const stats = columns.map((column) => {
-    let nonEmpty = 0;
-    let numeric = 0;
-    for (const row of sample) {
-      const raw = row?.[column];
-      if (raw === null || raw === undefined || String(raw).trim() === '' || String(raw).trim() === '-') {
-        continue;
-      }
-      nonEmpty += 1;
-      if (Number.isFinite(toNumber(raw))) {
-        numeric += 1;
-      }
-    }
-    return {
-      column,
-      nonEmpty,
-      numericRatio: nonEmpty > 0 ? numeric / nonEmpty : 0,
-    };
-  });
-
-  const numericColumns = stats
-    .filter((s) => s.nonEmpty >= 5 && s.numericRatio >= 0.8)
-    .sort((a, b) => b.nonEmpty - a.nonEmpty)
-    .map((s) => s.column);
-
-  const categoryCol = columns.find((col) => !numericColumns.includes(col)) || columns[0];
-  const valueCols = numericColumns.filter((col) => col !== categoryCol).slice(0, 3);
-  if (!categoryCol || valueCols.length === 0) return null;
-
-  return {
-    chartType: 'Line',
-    selectedCols: [categoryCol, ...valueCols.slice(0, 2)],
-  };
-};
-
 const normalizeIncomingFiles = (data: any): FileData[] => {
   const items = Array.isArray(data?.files) ? data.files : [];
   return items.map((f: any) => ({
@@ -119,6 +71,7 @@ const CardDetail: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const resizingRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
+  const previousActiveFileIdRef = useRef<number | null>(null);
   const allowedExtensions = ['.csv', '.xlsx', '.xls'];
   const preferredFileId =
     typeof location.state?.activeFileId === 'number' ? location.state.activeFileId : null;
@@ -152,13 +105,9 @@ const CardDetail: React.FC = () => {
         return incoming.length > 0 ? incoming[0].id : null;
       });
 
-      if (location.state?.selectedChartCols) {
-        setSelectedChartCols(location.state.selectedChartCols);
-      }
-
       return incoming;
     },
-    [location.state?.selectedChartCols, preferredFileId]
+    [preferredFileId]
   );
 
   useEffect(() => {
@@ -306,11 +255,13 @@ const CardDetail: React.FC = () => {
           return [...created, ...prev.filter(file => !createdIds.has(file.id))];
         });
         setActiveFileId(created[0].id);
+        setSelectedChartCols([]);
       } else {
         created = await refreshFiles(cardId);
         if (created.length === 0) {
           throw new Error('Upload completed but no file record was returned. Check the frontend API base URL and backend deployment.');
         }
+        setSelectedChartCols([]);
       }
 
       created.forEach((f: FileData) => {
@@ -321,31 +272,6 @@ const CardDetail: React.FC = () => {
         });
       });
 
-      if (created.length === 1) {
-        try {
-          const file = created[0];
-          const chartRes = await apiFetch(`/api/files/${file.id}/data`);
-          if (chartRes.ok) {
-            const fileData = await chartRes.json();
-            const suggestion = suggestChartSelection(fileData.columns || [], fileData.rows || []);
-            if (suggestion) {
-              navigate('/charts', {
-                state: {
-                  file: {
-                    id: file.id,
-                    name: file.name,
-                    rows: fileData.rows || [],
-                  },
-                  selectedCols: suggestion.selectedCols,
-                  chartType: suggestion.chartType,
-                },
-              });
-            }
-          }
-        } catch {
-          // Ignore chart suggestion failures to keep upload successful.
-        }
-      }
     } catch (err: any) {
       const message =
         err?.response?.data?.message ||
@@ -729,9 +655,11 @@ const CardDetail: React.FC = () => {
   useEffect(() => {
     if (!activeFileId) return;
     const nextColumns = activeColumns || [];
+    const activeFileChanged = previousActiveFileIdRef.current !== activeFileId;
+    previousActiveFileIdRef.current = activeFileId;
     setShowAdvancedTools(false);
     setIsEditingColumns(false);
-    setSelectedChartCols(prev => prev.filter(col => nextColumns.includes(col)));
+    setSelectedChartCols((prev) => (activeFileChanged ? [] : prev.filter(col => nextColumns.includes(col))));
     setOriginalColumns(nextColumns);
     setColumnEdits(
       nextColumns.map((name, index) => ({

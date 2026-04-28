@@ -37,7 +37,23 @@ const msClientSecret = process.env.MS_CLIENT_SECRET || "";
 const msRedirectUri = process.env.MS_REDIRECT_URI || "";
 const msScope = process.env.MS_SCOPE || "openid profile email";
 const msDefaultRole = process.env.MS_DEFAULT_ROLE || "viewer";
-const mfaIssuer = process.env.MFA_ISSUER || "RMS";
+const mfaIssuer = process.env.MFA_ISSUER || "Roaming & Interconnect System";
+
+const cookieSecure = process.env.NODE_ENV === "production";
+const AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+
+function setAuthCookies(res: any, token: string, refreshToken: string) {
+  const base = { httpOnly: true, secure: cookieSecure, sameSite: "strict" as const, path: "/" };
+  res.cookie("authToken", token, { ...base, maxAge: AUTH_COOKIE_MAX_AGE });
+  res.cookie("refreshToken", refreshToken, { ...base, maxAge: REFRESH_COOKIE_MAX_AGE });
+}
+
+function clearAuthCookies(res: any) {
+  const base = { httpOnly: true, secure: cookieSecure, sameSite: "strict" as const, path: "/" };
+  res.clearCookie("authToken", base);
+  res.clearCookie("refreshToken", base);
+}
 const isRenderRuntime = String(process.env.RENDER || "").trim().toLowerCase() === "true";
 const mfaNumberMatchingEnabled = !["0", "false", "off", "no"].includes(
   String(process.env.MFA_NUMBER_MATCHING || "true").trim().toLowerCase()
@@ -554,6 +570,7 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         action: "user_login_success",
         details: { ...authContext, userId: user.id, roles: rolesArr, method: "local_password" },
       });
+      setAuthCookies(res, token, refreshToken);
       res.json({
         message: "Login successful.",
         token,
@@ -654,6 +671,7 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         action: "user_login_success",
         details: { ...authContext, userId: user.id, roles: rolesArr, method: "local_password" },
       });
+      setAuthCookies(res, token, refreshToken);
       res.json({
         message: "Login successful.",
         token,
@@ -915,7 +933,7 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
       return res.status(502).json({
         message:
           delivery.reason ||
-          "Unable to send reset email right now. Check Render email configuration and try again.",
+          "Unable to send the password reset email right now. Please check the server email configuration and try again.",
       });
     }
 
