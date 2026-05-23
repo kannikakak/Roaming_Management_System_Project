@@ -786,42 +786,67 @@ export const listIngestionHistory = (dbPool: Pool) => async (req: Request, res: 
       [...autoParams, limit]
     );
 
-    let manualRows: any[] = [];
-    if (sourceId <= 0) {
-      const [rows]: any = await dbPool.query(
-        `SELECT f.id as fileId, f.name as fileName, f.uploaded_at as uploadedAt,
-                COALESCE(fr.rowsCount, 0) as rowsImported
-         FROM files f
-         LEFT JOIN (
-            SELECT file_id as fileId, COUNT(*) as rowsCount
-            FROM file_rows
-            GROUP BY file_id
-         ) fr ON fr.fileId = f.id
-         LEFT JOIN ingestion_jobs j ON j.imported_file_id = f.id
-         WHERE j.id IS NULL
-         ORDER BY f.uploaded_at DESC
-         LIMIT ?`,
-        [limit]
-      );
-      manualRows = Array.isArray(rows)
-        ? rows.map((row: any) => ({
-            id: `manual-${row.fileId}`,
-            sourceId: null,
-            sourceName: "Manual Upload",
-            sourceType: "manual",
-            ingestionFileId: null,
-            fileName: row.fileName,
-            fileHash: null,
-            status: "SUCCESS",
-            rowsImported: Number(row.rowsImported || 0),
-            errorMessage: null,
-            importedFileId: row.fileId,
-            createdAt: toIsoString(row.uploadedAt),
-            startedAt: null,
-            finishedAt: toIsoString(row.uploadedAt),
-          }))
-        : [];
+    const manualParams: any[] = [];
+    let manualSourceFilter = "";
+    if (sourceId > 0) {
+      manualSourceFilter = "AND mapped_source.id = ?";
+      manualParams.push(sourceId);
     }
+
+    const [rows]: any = await dbPool.query(
+      `SELECT f.id as fileId, f.name as fileName, f.uploaded_at as uploadedAt,
+              COALESCE(fr.rowsCount, 0) as rowsImported,
+              mapped_source.id as sourceId,
+              mapped_source.name as sourceName,
+              mapped_source.type as sourceType
+       FROM files f
+       LEFT JOIN (
+          SELECT file_id as fileId, COUNT(*) as rowsCount
+          FROM file_rows
+          GROUP BY file_id
+       ) fr ON fr.fileId = f.id
+       LEFT JOIN ingestion_jobs j ON j.imported_file_id = f.id
+       LEFT JOIN ingestion_sources mapped_source
+         ON mapped_source.id = (
+           SELECT s2.id
+           FROM ingestion_sources s2
+           WHERE s2.project_id = f.project_id
+             AND s2.enabled = 1
+           ORDER BY
+             CASE
+               WHEN s2.type = 'folder_sync' THEN 0
+               WHEN s2.type = 'local' THEN 1
+               ELSE 2
+             END,
+             s2.updated_at DESC,
+             s2.created_at DESC,
+             s2.id DESC
+           LIMIT 1
+         )
+       WHERE j.id IS NULL
+       ${manualSourceFilter}
+       ORDER BY f.uploaded_at DESC
+       LIMIT ?`,
+      [...manualParams, limit]
+    );
+    const manualRows: any[] = Array.isArray(rows)
+      ? rows.map((row: any) => ({
+          id: `manual-${row.fileId}`,
+          sourceId: Number(row.sourceId || 0) || null,
+          sourceName: row.sourceName || "Manual Upload",
+          sourceType: row.sourceType || "manual",
+          ingestionFileId: null,
+          fileName: row.fileName,
+          fileHash: null,
+          status: "SUCCESS",
+          rowsImported: Number(row.rowsImported || 0),
+          errorMessage: null,
+          importedFileId: row.fileId,
+          createdAt: toIsoString(row.uploadedAt),
+          startedAt: null,
+          finishedAt: toIsoString(row.uploadedAt),
+        }))
+      : [];
 
     const normalizedAuto = (Array.isArray(autoRows) ? autoRows : []).map((row: any) => ({
       id: `auto-${row.id}`,
