@@ -542,7 +542,6 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         .filter((r): r is Role => Boolean(r));
       const rolesArr = roles.length ? roles : [primaryRole];
       const twoFactorEnabled =
-        !trustMicrosoftUpstreamMfa &&
         schema.hasTwoFactorEnabled &&
         user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
@@ -643,7 +642,6 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
       const role = ensureRole(user.role);
       const rolesArr: Role[] = [role];
       const twoFactorEnabled =
-        !trustMicrosoftUpstreamMfa &&
         schema.hasTwoFactorEnabled &&
         user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
