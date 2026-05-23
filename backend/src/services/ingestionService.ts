@@ -339,7 +339,24 @@ const scanLocalSource = async (dbPool: Pool, source: IngestionSourceRow) => {
   }
 };
 
-const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
+type ProcessQueuedJobOptions = {
+  limit?: number;
+  sourceId?: number;
+};
+
+export const processQueuedIngestionJobs = async (
+  dbPool: Pool,
+  options: ProcessQueuedJobOptions = {}
+) => {
+  const limit = toPositiveInt(String(options.limit ?? 3), 3);
+  const whereParts = ["j.result IS NULL", "j.started_at IS NULL"];
+  const params: any[] = [];
+
+  if (options.sourceId && Number.isFinite(options.sourceId) && options.sourceId > 0) {
+    whereParts.push("j.source_id = ?");
+    params.push(options.sourceId);
+  }
+
   const [rows]: any = await dbPool.query(
     `SELECT j.id as jobId, j.source_id as sourceId, j.file_id as fileId,
             f.remote_path as remotePath, f.file_name as fileName,
@@ -350,10 +367,10 @@ const processQueuedJobs = async (dbPool: Pool, limit = 3) => {
      FROM ingestion_jobs j
      JOIN ingestion_files f ON f.id = j.file_id
      JOIN ingestion_sources s ON s.id = j.source_id
-     WHERE j.result IS NULL AND j.started_at IS NULL
+     WHERE ${whereParts.join(" AND ")}
      ORDER BY j.id ASC
      LIMIT ?`,
-    [limit]
+    [...params, limit]
   );
 
   await ensureStagingDir();
@@ -471,7 +488,7 @@ export const runIngestionCycle = async (dbPool: Pool) => {
       await updateSourceScanStatus(dbPool, source.id, "Unsupported source type");
     }
   }
-  await processQueuedJobs(dbPool);
+  await processQueuedIngestionJobs(dbPool);
 };
 
 export const runIngestionScanOnce = async (dbPool: Pool, sourceId: number) => {
@@ -487,7 +504,12 @@ export const runIngestionScanOnce = async (dbPool: Pool, sourceId: number) => {
     throw new Error("Source not found");
   }
   if (source.type === "local") {
-    return scanLocalSource(dbPool, source as IngestionSourceRow);
+    const result = await scanLocalSource(dbPool, source as IngestionSourceRow);
+    await processQueuedIngestionJobs(dbPool, {
+      sourceId,
+      limit: 25,
+    });
+    return result;
   }
   throw new Error("Only local sources support manual server-side scan.");
 };

@@ -3,7 +3,7 @@ import { Pool } from "mysql2/promise";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { listUsers, updateUserRole, updateUserStatus, createUser, updateUser } from "../controllers/userAdminController";
 
-export function adminUserRoutes(dbPool: Pool) {
+export const adminUserRoutes = (dbPool: Pool) => {
   const router = Router();
   router.use(requireAuth, requireRole(["admin"]));
 

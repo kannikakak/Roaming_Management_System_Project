@@ -79,11 +79,11 @@ Scheduler --> UC_Retention
 Scheduler --> UC_AutoBackup
 Delivery --> UC_Deliver
 
-UC_Auth .> UC_SSO : <<extend>>
-UC_Auth .> UC_2FA : <<extend>>
-UC_AgentUpload .> UC_Upload : <<include>>
-UC_RunSchedules .> UC_Deliver : <<include>>
-UC_RunAlerts .> UC_Alerts : <<include>>
+UC_Auth --> UC_SSO : <<extend>>
+UC_Auth --> UC_2FA : <<extend>>
+UC_AgentUpload --> UC_Upload : <<include>>
+UC_RunSchedules --> UC_Deliver : <<include>>
+UC_RunAlerts --> UC_Alerts : <<include>>
 
 note bottom of Viewer
   Viewer actions are limited to

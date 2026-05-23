@@ -26,7 +26,7 @@ const toTrimmed = (value: unknown) => {
   return next || undefined;
 };
 
-export function alertRoutes(dbPool: Pool) {
+export const alertRoutes = (dbPool: Pool) => {
   const router = Router();
   router.use(requireAuth);
 

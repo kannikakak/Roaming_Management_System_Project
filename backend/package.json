@@ -16,7 +16,10 @@
     "sync-agent:start-hidden": "wscript.exe scripts/run-sync-agent-hidden.vbs",
     "encrypt-rows": "ts-node scripts/encrypt-existing-rows.ts",
     "ingest-watch": "ts-node --files src/workers/ingestionWatcher.ts",
-    "test:schema-changes": "ts-node scripts/test-schema-changes.ts"
+    "test:schema-changes": "ts-node scripts/test-schema-changes.ts",
+    "generate-diagram": "node scripts/generate-diagram.js",
+    "generate-drawio": "node scripts/generate-drawio.js",
+    "generate-svg": "node scripts/generate-svg-diagram.js"
   },
   "dependencies": {
     "axios": "^1.13.2",

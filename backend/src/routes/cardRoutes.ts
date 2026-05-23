@@ -1,14 +1,15 @@
-import { Router } from 'express';
+import { Router } from "express";
+import { Pool } from "mysql2/promise";
 import {
   getCardById,
   getCardsByProject,
   createCard,
   updateCard,
   deleteCard,
-} from '../controllers/cardController';
+} from "../controllers/cardController";
 import { requireAuth } from "../middleware/auth";
 
-export const cardRoutes = (dbPool: any) => {
+export const cardRoutes = (dbPool: Pool) => {
   const router = Router();
   router.use(requireAuth);
   router.get('/project/:projectId', getCardsByProject(dbPool));

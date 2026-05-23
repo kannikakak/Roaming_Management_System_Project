@@ -1,32 +1,32 @@
-# Roaming & Interconnect System Use Case Diagram
-
-This diagram is based on the implemented backend routes, controllers, database schema, and frontend role guards.
-
-Key reading:
-- `Viewer` represents a normal authenticated user with access to their own project scope.
-- `Analyst` inherits viewer capabilities and adds ingestion, reporting, and operational actions.
-- `Admin` inherits analyst capabilities and adds user/system administration.
-
-```plantuml
 @startuml
 left to right direction
 skinparam shadowing false
 skinparam packageStyle rectangle
+skinparam defaultFontName "Times New Roman"
+skinparam actorStyle stickman
+skinparam usecase {
+  BackgroundColor white
+  BorderColor black
+}
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor black
+}
 
-actor "User" as User
+title Roaming & Interconnect Dashboard - Use Case Diagram
+
 actor "Viewer" as Viewer
 actor "Analyst" as Analyst
 actor "Admin" as Admin
 actor "Microsoft Identity\nProvider" as Microsoft
 actor "Ingestion Agent" as Agent
-actor "Scheduler / Time Trigger" as Scheduler
+actor "Scheduler /\nTime Trigger" as Scheduler
 actor "Email / Teams\nDelivery Channel" as Delivery
 
-Viewer --|> User
 Analyst --|> Viewer
 Admin --|> Analyst
 
-rectangle "Roaming & Interconnect Dashboard" {
+rectangle "Roaming & Interconnect Dashboard" as System {
   usecase "Authenticate" as UC_Auth
   usecase "Use Microsoft SSO" as UC_SSO
   usecase "Verify 2FA" as UC_2FA
@@ -39,7 +39,7 @@ rectangle "Roaming & Interconnect Dashboard" {
 
   usecase "Upload and Validate Files" as UC_Upload
   usecase "Manage Ingestion Sources" as UC_Sources
-  usecase "Monitor Ingestion History" as UC_IngestionHistory
+  usecase "Monitor Ingestion History" as UC_History
   usecase "Generate Charts\nand AI Analysis" as UC_Charts
   usecase "Manage Templates,\nReports, and Slides" as UC_Reports
   usecase "Manage Delivery Schedules" as UC_Schedules
@@ -59,17 +59,16 @@ rectangle "Roaming & Interconnect Dashboard" {
   usecase "Run Automatic Backup" as UC_AutoBackup
 }
 
-User --> UC_Auth
-User --> UC_Profile
-
 Viewer --> UC_Project
 Viewer --> UC_Files
 Viewer --> UC_Insights
 Viewer --> UC_Self
+Viewer --> UC_Profile
+Viewer --> UC_Auth
 
 Analyst --> UC_Upload
 Analyst --> UC_Sources
-Analyst --> UC_IngestionHistory
+Analyst --> UC_History
 Analyst --> UC_Charts
 Analyst --> UC_Reports
 Analyst --> UC_Schedules
@@ -89,20 +88,46 @@ Scheduler --> UC_Retention
 Scheduler --> UC_AutoBackup
 Delivery --> UC_Deliver
 
-UC_Auth .> UC_SSO : <<extend>>
-UC_Auth .> UC_2FA : <<extend>>
-UC_AgentUpload .> UC_Upload : <<include>>
-UC_RunSchedules .> UC_Deliver : <<include>>
-UC_RunAlerts .> UC_Alerts : <<include>>
+UC_Auth --> UC_SSO : <<extend>>
+UC_Auth --> UC_2FA : <<extend>>
+UC_AgentUpload --> UC_Upload : <<include>>
+UC_RunSchedules --> UC_Deliver : <<include>>
+UC_RunAlerts --> UC_Alerts : <<include>>
+
+' Layout hints to resemble an academic report diagram
+UC_Project -[hidden]- UC_Auth
+UC_Files -[hidden]- UC_Auth
+UC_Insights -[hidden]- UC_Auth
+UC_Self -[hidden]- UC_Auth
+UC_Profile -[hidden]- UC_Auth
+
+UC_Upload -[hidden]- UC_RunSchedules
+UC_Sources -[hidden]- UC_RunSchedules
+UC_History -[hidden]- UC_RunSchedules
+UC_Charts -[hidden]- UC_RunAlerts
+UC_Reports -[hidden]- UC_RunAlerts
+UC_Schedules -[hidden]- UC_Retention
+UC_Alerts -[hidden]- UC_AutoBackup
+
+UC_Users -[hidden]- UC_Deliver
+UC_Audit -[hidden]- UC_Deliver
+UC_System -[hidden]- UC_Deliver
+UC_Backup -[hidden]- UC_Deliver
+UC_AgentKey -[hidden]- UC_Deliver
 
 note bottom of Viewer
-  Viewer actions are limited to
-  the user's own projects/files.
+Viewer can access only the viewer-level
+dashboard, project, file, and self-service flows.
 end note
 
 note bottom of Analyst
-  Analyst and Admin roles can work
-  across projects and operational flows.
+Analyst inherits Viewer access and adds
+ingestion, reporting, charting, and alert flows.
 end note
+
+note bottom of Admin
+Admin inherits Analyst access and adds
+user administration, audit, backup, and system control.
+end note
+
 @enduml
-```

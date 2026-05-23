@@ -8,23 +8,14 @@ import {
 } from "../controllers/projectController";
 import { requireAuth } from "../middleware/auth";
 
-const projectRoutes = (dbPool: Pool) => {
+export const projectRoutes = (dbPool: Pool) => {
   const router = Router();
   router.use(requireAuth);
 
-  // GET /api/projects?user_id=1
   router.get("/", getProjects(dbPool));
-
-  // POST /api/projects
   router.post("/", createProject(dbPool));
-
-  // PUT /api/projects/:id
   router.put("/:id", updateProject(dbPool));
-
-  // DELETE /api/projects/:id
   router.delete("/:id", deleteProject(dbPool));
 
   return router;
 };
-
-export default projectRoutes;

@@ -29,7 +29,7 @@ function dataUrlToBuffer(dataUrl: string) {
   return { buffer: Buffer.from(base64, "base64"), ext };
 }
 
-export function chartRoutes(dbPool: Pool) {
+export const chartRoutes = (dbPool: Pool) => {
   const router = Router();
   router.use(requireAuth);
 
@@ -79,8 +79,7 @@ export function chartRoutes(dbPool: Pool) {
 
       res.json({ ok: true, chartId: result.insertId, chartImageUrl: imageUrl });
     } catch (err: any) {
-      console.error(err);
-      res.status(500).send(err.message || "Save chart failed");
+      res.status(500).json({ message: err?.message || "Save chart failed" });
     }
   });
 

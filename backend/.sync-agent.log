@@ -320,3 +320,273 @@
   recursive: true,
   stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
 }
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[sync-agent] 2026-04-28T13:07:22.593Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[sync-agent] 2026-04-29T01:56:14.043Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[sync-agent] 2026-04-29T09:06:52.972Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[sync-agent] 2026-04-30T00:15:32.722Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[sync-agent] 2026-05-03T01:32:05.926Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[sync-agent] 2026-05-06T12:39:37.827Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[sync-agent] 2026-05-07T12:33:26.139Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[sync-agent] 2026-05-07T23:22:48.012Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[sync-agent] 2026-05-08T00:03:40.994Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[sync-agent] 2026-05-08T12:04:21.974Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[sync-agent] 2026-05-08T13:31:31.770Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[sync-agent] 2026-05-09T11:46:32.745Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[sync-agent] 2026-05-09T13:41:47.836Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[sync-agent] 2026-05-10T00:11:27.625Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[sync-agent] 2026-05-10T00:46:08.187Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[sync-agent] 2026-05-12T02:19:40.042Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[sync-agent] 2026-05-12T13:52:20.801Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[sync-agent] 2026-05-13T03:41:31.990Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[sync-agent] 2026-05-13T15:17:33.933Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[sync-agent] 2026-05-13T23:16:52.919Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[sync-agent] 2026-05-14T13:49:53.671Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[sync-agent] 2026-05-15T14:54:40.749Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[sync-agent] 2026-05-16T09:11:40.201Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[sync-agent] 2026-05-18T23:40:40.950Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[sync-agent] 2026-05-20T12:12:03.223Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[sync-agent] 2026-05-21T12:32:15.875Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[sync-agent] 2026-05-22T14:56:13.116Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}

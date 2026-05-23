@@ -1,0 +1,140 @@
+@startuml
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam defaultFontName "Times New Roman"
+
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor black
+}
+
+skinparam component {
+  BackgroundColor white
+  BorderColor black
+}
+
+skinparam database {
+  BackgroundColor white
+  BorderColor black
+}
+
+skinparam arrow {
+  Color black
+  Thickness 1.2
+}
+
+title Roaming & Interconnect Dashboard - Logical Architecture
+
+actor "Admin / Analyst / Viewer" as User
+
+rectangle "Presentation Layer" as Presentation {
+  component "React + TypeScript SPA" as FE
+  component "Pages" as Pages
+  component "Reusable Components" as Components
+  component "Hooks / Local State" as Hooks
+  component "API Utilities" as ApiUtils
+}
+
+rectangle "Application Layer" as Application {
+  component "Express Routes" as Routes
+  component "Middleware\n(Auth, Rate Limit, CORS)" as Middleware
+  component "Controllers" as Controllers
+}
+
+rectangle "Service Layer" as Service {
+  component "Authentication Service" as AuthService
+  component "Ingestion Service" as IngestionService
+  component "Analytics Service" as AnalyticsService
+  component "Reporting Service" as ReportingService
+  component "Operations Service" as OperationsService
+  component "Administration / Backup Service" as AdminService
+}
+
+rectangle "Background Processing Layer" as Background {
+  component "Scheduler Worker" as Scheduler
+  component "Analytics ETL Worker" as Etl
+  component "Ingestion Runner" as IngestionRunner
+  component "Backup Scheduler" as BackupScheduler
+}
+
+rectangle "Data Layer" as Data {
+  database "MySQL Database" as DB
+  component "Uploads Storage" as Uploads
+  component "Backup Storage" as Backups
+}
+
+rectangle "External Integration Layer" as External {
+  component "Microsoft Identity Platform" as Microsoft
+  component "Resend / SMTP" as Email
+  component "Microsoft Teams Webhook" as Teams
+  component "Folder Sync Agent" as Agent
+}
+
+User --> FE : uses
+
+FE --> Pages : renders
+FE --> Components : composes
+FE --> Hooks : manages state
+FE --> ApiUtils : sends requests
+
+ApiUtils --> Routes : REST calls
+Routes --> Middleware : request pipeline
+Middleware --> Controllers : validated request
+
+Controllers --> AuthService : auth logic
+Controllers --> IngestionService : ingestion logic
+Controllers --> AnalyticsService : analytics logic
+Controllers --> ReportingService : report logic
+Controllers --> OperationsService : operations logic
+Controllers --> AdminService : admin logic
+
+Scheduler --> ReportingService : runs schedules
+Scheduler --> AdminService : triggers maintenance
+Etl --> AnalyticsService : builds metrics
+IngestionRunner --> IngestionService : scans sources
+BackupScheduler --> AdminService : creates backups
+
+AuthService --> DB : user data
+AuthService --> Microsoft : SSO / OAuth
+
+IngestionService --> DB : metadata
+IngestionService --> Uploads : file storage
+IngestionService --> Agent : agent upload flow
+
+AnalyticsService --> DB : metrics / summaries
+OperationsService --> DB : operational queries
+ReportingService --> DB : report data
+ReportingService --> Email : send email
+ReportingService --> Teams : send notifications
+
+AdminService --> DB : audit / config
+AdminService --> Backups : backup files
+
+' Layout helpers for a cleaner left-to-right flow
+Pages -[hidden]down- Components
+Components -[hidden]down- Hooks
+Hooks -[hidden]down- ApiUtils
+
+Routes -[hidden]down- Middleware
+Middleware -[hidden]down- Controllers
+
+AuthService -[hidden]down- IngestionService
+IngestionService -[hidden]down- AnalyticsService
+AnalyticsService -[hidden]down- ReportingService
+ReportingService -[hidden]down- OperationsService
+OperationsService -[hidden]down- AdminService
+
+Scheduler -[hidden]down- Etl
+Etl -[hidden]down- IngestionRunner
+IngestionRunner -[hidden]down- BackupScheduler
+
+DB -[hidden]down- Uploads
+Uploads -[hidden]down- Backups
+
+Microsoft -[hidden]down- Email
+Email -[hidden]down- Teams
+Teams -[hidden]down- Agent
+
+@enduml

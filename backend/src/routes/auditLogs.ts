@@ -1,12 +1,14 @@
-import { Router } from 'express';
-import { createAuditLog, getAuditLogs, getMyAuditLogs } from '../controllers/auditLogsController';
+import { Router } from "express";
+import { createAuditLog, getAuditLogs, getMyAuditLogs } from "../controllers/auditLogsController";
 import { requireAuth, requireRole } from "../middleware/auth";
 
-const router = Router();
+export const auditLogsRoutes = () => {
+  const router = Router();
+  router.use(requireAuth);
 
-router.use(requireAuth);
-router.post('/', createAuditLog);
-router.get('/', requireRole(["admin"]), getAuditLogs);
-router.get('/me', getMyAuditLogs);
+  router.post("/", createAuditLog);
+  router.get("/", requireRole(["admin"]), getAuditLogs);
+  router.get("/me", getMyAuditLogs);
 
-export default router;
+  return router;
+};
