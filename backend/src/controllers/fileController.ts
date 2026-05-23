@@ -4,6 +4,7 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import path from "path";
 import * as XLSX from "xlsx";
+import { createHash } from "crypto";
 import { parse as csvParse } from "csv-parse";
 import {
   getUploadConfig,
@@ -260,6 +261,94 @@ const normalizeValue = (value: any) => {
 };
 
 const isNumeric = (value: string) => /^-?\d+(\.\d+)?$/.test(value);
+
+const computeFileChecksum = async (filePath: string) =>
+  new Promise<string>((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+
+const resolvePreferredIngestionSource = async (connection: any, projectId: number) => {
+  const [rows]: any = await connection.query(
+    `SELECT id, name, type
+     FROM ingestion_sources
+     WHERE project_id = ? AND enabled = 1
+     ORDER BY
+       CASE
+         WHEN type = 'folder_sync' THEN 0
+         WHEN type = 'local' THEN 1
+         ELSE 2
+       END,
+       updated_at DESC,
+       created_at DESC,
+       id DESC
+     LIMIT 1`,
+    [projectId]
+  );
+  return rows?.[0] || null;
+};
+
+const recordManualUploadIngestionHistory = async (
+  connection: any,
+  input: {
+    projectId: number;
+    importedFileId: number;
+    fileName: string;
+    filePath: string;
+    rowCount: number;
+  }
+) => {
+  const source = await resolvePreferredIngestionSource(connection, input.projectId);
+  if (!source?.id) return null;
+
+  const fileSize = (await fsPromises.stat(input.filePath)).size;
+  const checksum = await computeFileChecksum(input.filePath);
+  const remotePath = `manual/${input.importedFileId}/${input.fileName}`;
+
+  const [fileInsert]: any = await connection.query(
+    `INSERT INTO ingestion_files
+      (source_id, remote_path, original_path, file_name, file_size, last_modified, checksum_sha256, staging_path, uploaded_url, rows_imported, status, error_message, first_seen_at, processed_at)
+     VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, 'SUCCESS', NULL, NOW(), NOW())`,
+    [
+      Number(source.id),
+      remotePath,
+      remotePath,
+      input.fileName,
+      fileSize,
+      checksum,
+      input.filePath,
+      input.filePath,
+      input.rowCount,
+    ]
+  );
+
+  const ingestionFileId = Number(fileInsert?.insertId || 0);
+
+  const [jobInsert]: any = await connection.query(
+    `INSERT INTO ingestion_jobs
+      (source_id, file_id, file_name, file_hash, imported_file_id, status, rows_imported, error_message, attempt, started_at, finished_at, result)
+     VALUES (?, ?, ?, ?, ?, 'SUCCESS', ?, NULL, 1, NOW(), NOW(), 'SUCCESS')`,
+    [
+      Number(source.id),
+      ingestionFileId,
+      input.fileName,
+      checksum,
+      input.importedFileId,
+      input.rowCount,
+    ]
+  );
+
+  return {
+    sourceId: Number(source.id),
+    sourceName: String(source.name || ""),
+    sourceType: String(source.type || ""),
+    ingestionFileId,
+    ingestionJobId: Number(jobInsert?.insertId || 0),
+  };
+};
 
 const computeQualityMetrics = (columns: string[], rows: any[]): QualityMetrics => {
   const totalRows = rows.length;
@@ -549,6 +638,13 @@ const ingestFiles = async (
       const connection = await dbPool.getConnection();
       let uniqueNameForMetrics = entry.safeName;
       let committedFileId: number | null = null;
+      let ingestionHistoryRecord: {
+        sourceId: number;
+        sourceName: string;
+        sourceType: string;
+        ingestionFileId: number;
+        ingestionJobId: number;
+      } | null = null;
       try {
         await connection.beginTransaction();
 
@@ -574,6 +670,14 @@ const ingestFiles = async (
         if (entry.rows.length > 0) {
           await insertRowsInBatches(connection, fileId, entry.rows, encryptionKey);
         }
+
+        ingestionHistoryRecord = await recordManualUploadIngestionHistory(connection, {
+          projectId,
+          importedFileId: fileId,
+          fileName: uniqueName,
+          filePath: entry.file.path,
+          rowCount: entry.rows.length,
+        });
 
         await connection.query(
           `INSERT INTO data_quality_scores
@@ -615,6 +719,8 @@ const ingestFiles = async (
           uploadedAt: new Date().toISOString(),
           qualityScore: entry.quality.score,
           trustLevel: entry.quality.trustLevel,
+          ingestionSourceId: ingestionHistoryRecord?.sourceId || null,
+          ingestionSourceName: ingestionHistoryRecord?.sourceName || null,
         });
 
         if (settings?.in_app_enabled) {
