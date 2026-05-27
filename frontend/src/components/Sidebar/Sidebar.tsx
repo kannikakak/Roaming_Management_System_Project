@@ -56,7 +56,6 @@ const navSections: NavSection[] = [
   {
     title: 'Reporting',
     items: [
-      { label: 'Report Builder', icon: <FileText size={20} />, path: '/report-builder' },
       { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
       { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
       { label: 'Delivery Log', icon: <History size={20} />, path: '/delivery-history' },
