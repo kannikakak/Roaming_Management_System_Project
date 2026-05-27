@@ -42,7 +42,7 @@ const navSections: NavSection[] = [
       { label: 'Projects', icon: <Layers size={20} />, path: '/projects' },
       { label: 'Data Quality', icon: <ClipboardList size={20} />, path: '/data-quality' },
       { label: 'Charts', icon: <BarChart2 size={20} />, path: '/charts' },
-      { label: 'AI Studio', icon: <Sparkles size={20} />, path: '/ai-studio' },
+      { label: 'AI Ask', icon: <Sparkles size={20} />, path: '/ai-studio' },
     ],
   },
   {
@@ -56,6 +56,7 @@ const navSections: NavSection[] = [
   {
     title: 'Reporting',
     items: [
+      { label: 'Report Builder', icon: <FileText size={20} />, path: '/report-builder' },
       { label: 'Slide Builder', icon: <FileText size={20} />, path: '/slide-builder' },
       { label: 'Schedules', icon: <Calendar size={20} />, path: '/schedules' },
       { label: 'Delivery Log', icon: <History size={20} />, path: '/delivery-history' },

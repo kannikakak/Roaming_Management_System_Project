@@ -590,3 +590,17 @@
   recursive: true,
   stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
 }
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[sync-agent] 2026-05-27T13:21:22.856Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 8,
+  watchDir: 'C:\\RoamingDropZone\\Reports',
+  scanSeconds: 30,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
+[sync-agent] 2026-05-27T13:21:22.884Z Uploading 02_tap_inbound_records.xlsx
+[sync-agent] 2026-05-27T13:22:06.226Z Uploaded 02_tap_inbound_records.xlsx { rowsImported: 1500, ingestionJobId: 35 }
+[sync-agent] 2026-05-27T13:22:06.233Z Uploading roaming_settlement.xlsx
+[sync-agent] 2026-05-27T13:22:14.216Z Uploaded roaming_settlement.xlsx { rowsImported: 30, ingestionJobId: 37 }

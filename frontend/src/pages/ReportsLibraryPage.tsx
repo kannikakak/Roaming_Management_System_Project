@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 import { REPORT_DRAFT_KEY } from "../types/report";
 
@@ -38,6 +39,7 @@ type LocalDraftStoredSlide = {
 };
 
 const ReportsLibraryPage: React.FC = () => {
+  const navigate = useNavigate();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -186,12 +188,20 @@ const ReportsLibraryPage: React.FC = () => {
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-3xl font-bold text-amber-800">Reports Library</h2>
-          <button
-            onClick={refreshAll}
-            className="text-sm px-3 py-2 rounded-lg border border-amber-200 bg-white hover:bg-amber-50"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/report-builder")}
+              className="text-sm px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+            >
+              Open Report Builder
+            </button>
+            <button
+              onClick={refreshAll}
+              className="text-sm px-3 py-2 rounded-lg border border-amber-200 bg-white hover:bg-amber-50"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="bg-white border rounded-2xl p-5 space-y-5">

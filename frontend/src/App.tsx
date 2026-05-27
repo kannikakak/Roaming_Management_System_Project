@@ -15,6 +15,7 @@ const ChartPage = React.lazy(() => import("./pages/ChartPage"));
 const Projects = React.lazy(() => import("./pages/Projects"));
 const AuditLogViewer = React.lazy(() => import("./pages/AuditLogViewer"));
 const SlideBuilderPage = React.lazy(() => import("./pages/SlideBuilderPage"));
+const ReportBuilderPage = React.lazy(() => import("./pages/ReportBuilderPage"));
 const SchedulesPage = React.lazy(() => import("./pages/SchedulesPage"));
 const AiChartsPage = React.lazy(() => import("./pages/AiChartsPage"));
 const AccountSettingsPage = React.lazy(() => import("./pages/AccountSettingsPage"));
@@ -211,6 +212,16 @@ const App: React.FC = () => (
           <RequireAuth>
             <MainLayout>
               <SlideBuilderPage />
+            </MainLayout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/report-builder"
+        element={
+          <RequireAuth>
+            <MainLayout>
+              <ReportBuilderPage />
             </MainLayout>
           </RequireAuth>
         }

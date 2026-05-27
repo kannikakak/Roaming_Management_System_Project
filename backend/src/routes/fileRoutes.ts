@@ -48,24 +48,22 @@ export function fileRoutes(dbPool: Pool) {
     message: "Upload rate limit exceeded. Please wait before uploading again.",
   });
 
+  const handleUploadMiddleware = (req: Request, res: Response, next: Function) => {
+    upload.array("files", uploadConfig.maxFiles)(req, res, (err: any) => {
+      if (err) {
+        const message = err.message || "Upload failed";
+        return res.status(400).json({ message });
+      }
+      return next();
+    });
+  };
+
   // List files for a card
   router.get('/', listFiles(dbPool));
 
-  // Upload files (multi)
-  router.post(
-    "/upload",
-    uploadLimiter,
-    (req, res, next) => {
-      upload.array("files", uploadConfig.maxFiles)(req, res, (err: any) => {
-        if (err) {
-          const message = err.message || "Upload failed";
-          return res.status(400).json({ message });
-        }
-        return next();
-      });
-    },
-    uploadFiles(dbPool)
-  );
+  // Upload files (multi). Support both /api/files and /api/files/upload.
+  router.post("/", uploadLimiter, handleUploadMiddleware, uploadFiles(dbPool));
+  router.post("/upload", uploadLimiter, handleUploadMiddleware, uploadFiles(dbPool));
 
   // Get file data
   router.get('/:fileId/data', getFileData(dbPool));
