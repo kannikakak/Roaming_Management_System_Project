@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { apiFetch } from "../utils/api";
+import { subscribeToIngestionUpdates } from "../utils/ingestionEvents";
 
 type Project = { id: number; name: string };
 type FileItem = {
@@ -63,6 +64,21 @@ const DataExplorerPage: React.FC = () => {
     apiFetch(`/api/files?projectId=${projectId}`)
       .then((res) => res.json())
       .then((data) => setFiles(data.files || []));
+  }, [projectId]);
+
+  useEffect(() => {
+    return subscribeToIngestionUpdates((detail) => {
+      if (!projectId || !detail.projectId || detail.projectId !== projectId) return;
+      apiFetch(`/api/files?projectId=${projectId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setFiles(data.files || []);
+          if (detail.importedFileId) {
+            setPendingFileId(detail.importedFileId);
+          }
+        })
+        .catch(() => undefined);
+    });
   }, [projectId]);
 
   const loadPreview = useCallback(async (fileId: number) => {

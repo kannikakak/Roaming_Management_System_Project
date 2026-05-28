@@ -4,6 +4,7 @@ import { ArrowLeft, Upload, FileSpreadsheet, Trash2, Search, BarChart3, Download
 import axios from 'axios';
 import { logAudit } from '../utils/auditLog';
 import { apiFetch, getApiBaseUrl, getAuthToken } from '../utils/api';
+import { subscribeToIngestionUpdates } from '../utils/ingestionEvents';
 
 type FileData = {
   id: number;
@@ -135,6 +136,18 @@ const CardDetail: React.FC = () => {
       controller.abort();
       window.clearInterval(pollTimer);
     };
+  }, [cardId, refreshFiles]);
+
+  useEffect(() => {
+    if (!cardId) return;
+    return subscribeToIngestionUpdates((detail) => {
+      if (!detail.projectId || String(detail.projectId) !== String(cardId)) return;
+      void refreshFiles(cardId).then(() => {
+        if (detail.importedFileId) {
+          setActiveFileId(detail.importedFileId);
+        }
+      }).catch(() => undefined);
+    });
   }, [cardId, refreshFiles]);
 
   useEffect(() => {

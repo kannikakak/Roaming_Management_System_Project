@@ -774,12 +774,16 @@ export const listIngestionHistory = (dbPool: Pool) => async (req: Request, res: 
               COALESCE(j.rows_imported, f.rows_imported, 0) as rowsImported,
               COALESCE(j.error_message, f.error_message) as errorMessage,
               j.imported_file_id as importedFileId,
+              imported_file.project_id as projectId,
+              project.name as projectName,
               j.created_at as createdAt,
               j.started_at as startedAt,
               j.finished_at as finishedAt
        FROM ingestion_jobs j
        LEFT JOIN ingestion_files f ON f.id = j.file_id
        LEFT JOIN ingestion_sources s ON s.id = j.source_id
+       LEFT JOIN files imported_file ON imported_file.id = j.imported_file_id
+       LEFT JOIN projects project ON project.id = imported_file.project_id
        ${autoWhere}
        ORDER BY j.id DESC
        LIMIT ?`,
@@ -796,10 +800,13 @@ export const listIngestionHistory = (dbPool: Pool) => async (req: Request, res: 
     const [rows]: any = await dbPool.query(
       `SELECT f.id as fileId, f.name as fileName, f.uploaded_at as uploadedAt,
               COALESCE(fr.rowsCount, 0) as rowsImported,
+              f.project_id as projectId,
+              project.name as projectName,
               mapped_source.id as sourceId,
               mapped_source.name as sourceName,
               mapped_source.type as sourceType
        FROM files f
+       LEFT JOIN projects project ON project.id = f.project_id
        LEFT JOIN (
           SELECT file_id as fileId, COUNT(*) as rowsCount
           FROM file_rows
@@ -842,6 +849,8 @@ export const listIngestionHistory = (dbPool: Pool) => async (req: Request, res: 
           rowsImported: Number(row.rowsImported || 0),
           errorMessage: null,
           importedFileId: row.fileId,
+          projectId: Number(row.projectId || 0) || null,
+          projectName: row.projectName || null,
           createdAt: toIsoString(row.uploadedAt),
           startedAt: null,
           finishedAt: toIsoString(row.uploadedAt),
@@ -860,6 +869,8 @@ export const listIngestionHistory = (dbPool: Pool) => async (req: Request, res: 
       rowsImported: Number(row.rowsImported || 0),
       errorMessage: row.errorMessage || null,
       importedFileId: Number(row.importedFileId || 0) || null,
+      projectId: Number(row.projectId || 0) || null,
+      projectName: row.projectName || null,
       createdAt: toIsoString(row.createdAt || row.startedAt || row.finishedAt),
       startedAt: toIsoString(row.startedAt),
       finishedAt: toIsoString(row.finishedAt),

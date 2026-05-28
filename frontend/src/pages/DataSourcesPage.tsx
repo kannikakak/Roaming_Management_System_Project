@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, KeyRound, RefreshCw, RotateCcw, Play, Activity } from "lucide-react";
 import Surface from "../components/Surface";
 import { apiFetch } from "../utils/api";
+import { subscribeToIngestionUpdates } from "../utils/ingestionEvents";
 import type {
   CreateForm,
   ProjectRow,
@@ -59,9 +60,11 @@ const DataSourcesPage: React.FC = () => {
     setError(null);
   }, []);
 
-  const fetchSources = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchSources = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const response = await apiFetch("/api/sources");
       const data = await requestJson<SourceRow[]>(response, "Failed to load data sources.");
@@ -89,10 +92,14 @@ const DataSourcesPage: React.FC = () => {
       }
       setSourceProjectDrafts(drafts);
     } catch (err: any) {
-      setSources([]);
-      setError(err?.message || "Failed to load data sources.");
+      if (!options.silent) {
+        setSources([]);
+        setError(err?.message || "Failed to load data sources.");
+      }
     } finally {
-      setLoading(false);
+      if (!options.silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -118,6 +125,21 @@ const DataSourcesPage: React.FC = () => {
     void fetchProjects();
     void fetchSources();
   }, [fetchProjects, fetchSources]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchSources({ silent: true });
+    }, 2000);
+
+    const unsubscribe = subscribeToIngestionUpdates(() => {
+      void fetchSources({ silent: true });
+    });
+
+    return () => {
+      window.clearInterval(timer);
+      unsubscribe();
+    };
+  }, [fetchSources]);
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
@@ -725,4 +747,3 @@ AGENT_WATCH_DIR=C:\\RoamingDropZone\\Reports`}
 };
 
 export default DataSourcesPage;
-
