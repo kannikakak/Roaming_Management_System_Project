@@ -46,11 +46,11 @@ const requestJson = async <T,>(res: Response, fallback: string): Promise<T> => {
 };
 
 const formatDateTime = (value: string | null) => {
-  if (!value) return "—";
+  if (!value) return "--";
   try {
     return new Date(value).toLocaleString();
   } catch {
-    return "—";
+    return "--";
   }
 };
 
@@ -70,6 +70,7 @@ const IngestionHistoryPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -153,6 +154,54 @@ const IngestionHistoryPage: React.FC = () => {
       }
     },
     [fetchHistory, sourceFilter]
+  );
+
+  const handleDeleteItem = useCallback(
+    async (item: HistoryItem) => {
+      const isManualEntry = item.id.startsWith("manual-");
+      const deleteConfirmed = window.confirm(
+        isManualEntry
+          ? `Delete '${item.fileName}' from the system? This will also remove it from import history.`
+          : `Delete history entry for '${item.fileName}'?`
+      );
+      if (!deleteConfirmed) return;
+
+      let purgeImportedData = isManualEntry;
+      if (!isManualEntry && item.importedFileId) {
+        purgeImportedData = window.confirm(
+          "Also delete the imported file from the system?\n\nOK = delete file and related history\nCancel = delete history entry only"
+        );
+      }
+
+      setDeletingId(item.id);
+      setMessage(null);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set("purgeImportedData", purgeImportedData ? "true" : "false");
+        const response = await apiFetch(
+          `/api/ingest/history/${encodeURIComponent(item.id)}?${params.toString()}`,
+          {
+            method: "DELETE",
+          }
+        );
+        const result = await requestJson<{ deletedImportedFile?: boolean }>(
+          response,
+          "Failed to delete ingestion history entry."
+        );
+        setMessage(
+          result.deletedImportedFile
+            ? `Deleted '${item.fileName}' and removed its history.`
+            : `Deleted history entry for '${item.fileName}'.`
+        );
+        await fetchHistory(true);
+      } catch (err: any) {
+        setError(err?.message || "Failed to delete ingestion history entry.");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [fetchHistory]
   );
 
   useEffect(() => {
@@ -315,6 +364,7 @@ const IngestionHistoryPage: React.FC = () => {
                     <th className="pb-2">Created</th>
                     <th className="pb-2">Finished</th>
                     <th className="pb-2">Error</th>
+                    <th className="pb-2 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -342,7 +392,17 @@ const IngestionHistoryPage: React.FC = () => {
                       <td className="py-3 text-gray-700 dark:text-gray-200">{item.rowsImported || 0}</td>
                       <td className="py-3 text-xs text-gray-500">{formatDateTime(item.createdAt)}</td>
                       <td className="py-3 text-xs text-gray-500">{formatDateTime(item.finishedAt)}</td>
-                      <td className="py-3 text-xs text-red-600 max-w-xs">{item.errorMessage || "—"}</td>
+                      <td className="py-3 text-xs text-red-600 max-w-xs">{item.errorMessage || "--"}</td>
+                      <td className="py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteItem(item)}
+                          disabled={deletingId === item.id}
+                          className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === item.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

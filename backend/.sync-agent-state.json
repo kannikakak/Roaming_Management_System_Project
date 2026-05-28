@@ -58,46 +58,44 @@
     "C:\\RoamingDropZone\\Reports\\04_partner_reference_rates.xlsx": {
       "fingerprint": "73539:1770785749276",
       "lastHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928",
-      "lastStatus": "SUCCESS",
+      "lastStatus": "DELETED",
       "lastUploadedAt": "2026-03-26T09:26:23.206Z",
-      "lastSeenAt": "2026-03-26T09:26:23.206Z",
+      "lastSeenAt": "2026-05-28T07:20:36.306Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
-        "sourceId": 8,
-        "sourceName": "Roaming Drop Zone",
-        "ingestionJobId": 34,
-        "ingestionFileId": 20,
-        "importedFileId": 29,
-        "rowsImported": 1200,
-        "fileHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928"
+        "sourceId": 11,
+        "sourceName": "Roaming",
+        "remotePath": "04_partner_reference_rates.xlsx",
+        "ingestionFileId": 25,
+        "ingestionJobId": 39,
+        "deletedImportedCount": 0
       },
       "lastError": null,
       "originalPath": "04_partner_reference_rates.xlsx",
-      "lastDeletedAt": "2026-02-15T03:03:29.871Z"
+      "lastDeletedAt": "2026-05-28T07:20:36.306Z"
     },
     "C:\\RoamingDropZone\\Reports\\05_alerts_and_job_logs.xlsx": {
       "fingerprint": "102882:1770785752529",
       "lastHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86",
-      "lastStatus": "SUCCESS",
+      "lastStatus": "DELETED",
       "lastUploadedAt": "2026-03-26T08:05:23.650Z",
-      "lastSeenAt": "2026-03-26T08:05:23.650Z",
+      "lastSeenAt": "2026-05-28T07:20:38.474Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
-        "sourceId": 8,
-        "sourceName": "Roaming Drop Zone",
-        "ingestionJobId": 33,
-        "ingestionFileId": 19,
-        "importedFileId": 28,
-        "rowsImported": 1300,
-        "fileHash": "de77917af86a900af666e93ab2f18bb5d4a2333fa10b35bf2c99bb0dd33e5e86"
+        "sourceId": 11,
+        "sourceName": "Roaming",
+        "remotePath": "05_alerts_and_job_logs.xlsx",
+        "ingestionFileId": 26,
+        "ingestionJobId": 40,
+        "deletedImportedCount": 0
       },
       "lastError": null,
       "originalPath": "05_alerts_and_job_logs.xlsx",
-      "lastDeletedAt": "2026-03-26T07:47:23.003Z"
+      "lastDeletedAt": "2026-05-28T07:20:38.474Z"
     },
     "C:\\RoamingDropZone\\Reports\\03_settlement_summary.xlsx": {
       "fingerprint": "88221:1770785745884",
@@ -123,24 +121,23 @@
     "C:\\RoamingDropZone\\Reports\\02_tap_inbound_records.xlsx": {
       "fingerprint": "128744:1770785742574",
       "lastHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4",
-      "lastStatus": "SUCCESS",
+      "lastStatus": "DELETED",
       "lastUploadedAt": "2026-05-27T13:22:06.226Z",
-      "lastSeenAt": "2026-05-27T13:22:06.226Z",
+      "lastSeenAt": "2026-05-28T07:20:40.446Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
-        "sourceId": 8,
-        "sourceName": "Roaming Drop Zone",
-        "ingestionJobId": 35,
-        "ingestionFileId": 21,
-        "importedFileId": 35,
-        "rowsImported": 1500,
-        "fileHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4"
+        "sourceId": 11,
+        "sourceName": "Roaming",
+        "remotePath": "02_tap_inbound_records.xlsx",
+        "ingestionFileId": 27,
+        "ingestionJobId": 41,
+        "deletedImportedCount": 0
       },
       "lastError": null,
       "originalPath": "02_tap_inbound_records.xlsx",
-      "lastDeletedAt": "2026-03-26T07:47:27.648Z"
+      "lastDeletedAt": "2026-05-28T07:20:40.446Z"
     },
     "C:\\RoamingDropZone\\Reports\\call_attempts_kpi_dummy.xlsx": {
       "originalPath": "call_attempts_kpi_dummy.xlsx",
@@ -222,23 +219,22 @@
       "originalPath": "roaming_settlement.xlsx",
       "fingerprint": "6816:1767336364484",
       "lastHash": "dff17be140803c8a7876ab3017b23b8a4ab522c9ec2f69b07231dba3b2e1d67c",
-      "lastStatus": "SUCCESS",
-      "lastSeenAt": "2026-05-27T13:22:14.216Z",
+      "lastStatus": "DELETED",
+      "lastSeenAt": "2026-05-28T07:20:42.358Z",
       "lastError": null,
       "failCount": 0,
       "nextAttemptAt": null,
       "lastUploadedAt": "2026-05-27T13:22:14.216Z",
       "lastResult": {
         "ok": true,
-        "sourceId": 8,
-        "sourceName": "Roaming Drop Zone",
-        "ingestionJobId": 37,
-        "ingestionFileId": 23,
-        "importedFileId": 36,
-        "rowsImported": 30,
-        "fileHash": "dff17be140803c8a7876ab3017b23b8a4ab522c9ec2f69b07231dba3b2e1d67c"
+        "sourceId": 11,
+        "sourceName": "Roaming",
+        "remotePath": "roaming_settlement.xlsx",
+        "ingestionFileId": 28,
+        "ingestionJobId": 42,
+        "deletedImportedCount": 0
       },
-      "lastDeletedAt": "2026-03-26T07:47:36.258Z"
+      "lastDeletedAt": "2026-05-28T07:20:42.358Z"
     },
     "C:\\RoamingDropZone\\Reports\\codex-sync-test-20260326.csv": {
       "originalPath": "codex-sync-test-20260326.csv",

@@ -11,6 +11,8 @@ import { getUploadConfig } from "../utils/uploadValidation";
 import { readAgentKeyFromRequest, hashAgentKey } from "../utils/agentKey";
 import { upsertAlert } from "../services/alerts";
 import { writeAuditLog } from "../utils/auditLogger";
+import { createDeletedSourceFileBackup } from "../services/backupRecovery";
+import { requireFileAccess, requireProjectAccess } from "../utils/accessControl";
 
 const uploadConfig = getUploadConfig();
 
@@ -966,5 +968,223 @@ export const clearIngestionHistory = (dbPool: Pool) => async (req: Request, res:
       message: "Failed to clear ingestion history.",
       error: err?.message || err,
     });
+  }
+};
+
+const deleteOrphanedIngestionFiles = async (connection: any, fileIds: number[]) => {
+  const uniqueIds = Array.from(
+    new Set(fileIds.filter((value) => Number.isFinite(value) && value > 0))
+  );
+  for (const fileId of uniqueIds) {
+    const [remainingRows]: any = await connection.query(
+      "SELECT COUNT(*) as total FROM ingestion_jobs WHERE file_id = ?",
+      [fileId]
+    );
+    const remaining = Number(remainingRows?.[0]?.total || 0);
+    if (remaining === 0) {
+      await connection.query("DELETE FROM ingestion_files WHERE id = ?", [fileId]);
+    }
+  }
+};
+
+export const deleteIngestionHistoryEntry = (dbPool: Pool) => async (req: Request, res: Response) => {
+  const entryId = String(req.params.entryId || "").trim();
+  const purgeImportedData =
+    String(req.query.purgeImportedData || req.body?.purgeImportedData || "").trim().toLowerCase() === "true";
+
+  if (!entryId) {
+    return res.status(400).json({ message: "entryId is required." });
+  }
+
+  if (entryId.startsWith("manual-")) {
+    const importedFileId = Number(entryId.slice("manual-".length));
+    const access = await requireFileAccess(dbPool, importedFileId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+
+    let sourceBackup: any = null;
+    try {
+      sourceBackup = await createDeletedSourceFileBackup(
+        dbPool,
+        access.fileId,
+        req.user?.email || `user:${req.user?.id || "unknown"}`
+      );
+    } catch (backupErr: any) {
+      return res.status(500).json({
+        message: "Cannot delete imported file because source backup failed.",
+        error: backupErr?.message || backupErr,
+      });
+    }
+
+    const connection = await dbPool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [jobRows]: any = await connection.query(
+        "SELECT id, file_id as fileId FROM ingestion_jobs WHERE imported_file_id = ?",
+        [access.fileId]
+      );
+      const historyJobIds = (Array.isArray(jobRows) ? jobRows : [])
+        .map((row: any) => Number(row.id || 0))
+        .filter((value: number) => Number.isFinite(value) && value > 0);
+      const ingestionFileIds = (Array.isArray(jobRows) ? jobRows : [])
+        .map((row: any) => Number(row.fileId || 0))
+        .filter((value: number) => Number.isFinite(value) && value > 0);
+
+      await connection.query("DELETE FROM ingestion_jobs WHERE imported_file_id = ?", [access.fileId]);
+      await deleteOrphanedIngestionFiles(connection, ingestionFileIds);
+      await connection.query("DELETE FROM files WHERE id = ?", [access.fileId]);
+
+      await connection.commit();
+
+      await safeAuditLog(dbPool, {
+        req,
+        action: "ingestion_history_entry_deleted",
+        details: {
+          entryId,
+          importedFileId: access.fileId,
+          projectId: access.projectId,
+          purgedImportedData: true,
+          deletedHistoryJobs: historyJobIds.length,
+          sourceBackup,
+        },
+      });
+
+      return res.json({
+        ok: true,
+        entryId,
+        deletedHistoryJobs: historyJobIds.length,
+        deletedImportedFile: true,
+        sourceBackup,
+      });
+    } catch (err: any) {
+      await connection.rollback();
+      return res.status(500).json({
+        message: "Failed to delete ingestion history entry.",
+        error: err?.message || err,
+      });
+    } finally {
+      connection.release();
+    }
+  }
+
+  if (!entryId.startsWith("auto-")) {
+    return res.status(400).json({ message: "Unsupported history entry id." });
+  }
+
+  const jobId = Number(entryId.slice("auto-".length));
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return res.status(400).json({ message: "Invalid history entry id." });
+  }
+
+  const [jobRows]: any = await dbPool.query(
+    `SELECT j.id, j.file_id as fileId, j.imported_file_id as importedFileId, s.project_id as sourceProjectId
+     FROM ingestion_jobs j
+     LEFT JOIN ingestion_sources s ON s.id = j.source_id
+     WHERE j.id = ?
+     LIMIT 1`,
+    [jobId]
+  );
+  const job = jobRows?.[0];
+  if (!job) {
+    return res.status(404).json({ message: "History entry not found." });
+  }
+
+  const importedFileId = Number(job.importedFileId || 0) || null;
+  if (importedFileId) {
+    const access = await requireFileAccess(dbPool, importedFileId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+  } else {
+    const sourceProjectId = Number(job.sourceProjectId || 0);
+    const access = await requireProjectAccess(dbPool, sourceProjectId, req);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+  }
+
+  let sourceBackup: any = null;
+  if (purgeImportedData && importedFileId) {
+    try {
+      sourceBackup = await createDeletedSourceFileBackup(
+        dbPool,
+        importedFileId,
+        req.user?.email || `user:${req.user?.id || "unknown"}`
+      );
+    } catch (backupErr: any) {
+      return res.status(500).json({
+        message: "Cannot delete imported file because source backup failed.",
+        error: backupErr?.message || backupErr,
+      });
+    }
+  }
+
+  const connection = await dbPool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    let deletedHistoryJobs = 0;
+    let deletedImportedFile = false;
+    const ingestionFileIds: number[] = [];
+
+    if (purgeImportedData && importedFileId) {
+      const [relatedJobs]: any = await connection.query(
+        "SELECT id, file_id as fileId FROM ingestion_jobs WHERE imported_file_id = ?",
+        [importedFileId]
+      );
+      const relatedJobIds = Array.isArray(relatedJobs) ? relatedJobs : [];
+      deletedHistoryJobs = relatedJobIds.length;
+      for (const row of relatedJobIds) {
+        const fileId = Number(row?.fileId || 0);
+        if (Number.isFinite(fileId) && fileId > 0) {
+          ingestionFileIds.push(fileId);
+        }
+      }
+      await connection.query("DELETE FROM ingestion_jobs WHERE imported_file_id = ?", [importedFileId]);
+      await deleteOrphanedIngestionFiles(connection, ingestionFileIds);
+      await connection.query("DELETE FROM files WHERE id = ?", [importedFileId]);
+      deletedImportedFile = true;
+    } else {
+      const fileId = Number(job.fileId || 0);
+      await connection.query("DELETE FROM ingestion_jobs WHERE id = ?", [jobId]);
+      deletedHistoryJobs = 1;
+      if (Number.isFinite(fileId) && fileId > 0) {
+        await deleteOrphanedIngestionFiles(connection, [fileId]);
+      }
+    }
+
+    await connection.commit();
+
+    await safeAuditLog(dbPool, {
+      req,
+      action: "ingestion_history_entry_deleted",
+      details: {
+        entryId,
+        jobId,
+        importedFileId,
+        purgedImportedData: purgeImportedData && Boolean(importedFileId),
+        deletedHistoryJobs,
+        deletedImportedFile,
+        sourceBackup,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      entryId,
+      deletedHistoryJobs,
+      deletedImportedFile,
+      sourceBackup,
+    });
+  } catch (err: any) {
+    await connection.rollback();
+    return res.status(500).json({
+      message: "Failed to delete ingestion history entry.",
+      error: err?.message || err,
+    });
+  } finally {
+    connection.release();
   }
 };

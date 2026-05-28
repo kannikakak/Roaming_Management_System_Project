@@ -10,6 +10,7 @@ import {
   agentDelete,
   agentUpload,
   clearIngestionHistory,
+  deleteIngestionHistoryEntry,
   listIngestionHistory,
 } from "../controllers/agentIngestionController";
 
@@ -75,6 +76,13 @@ export const agentIngestionRoutes = (dbPool: Pool) => {
     historyLimiter,
     requireRole(["admin", "analyst"]),
     clearIngestionHistory(dbPool)
+  );
+  router.delete(
+    "/history/:entryId",
+    requireAuth,
+    historyLimiter,
+    requireRole(["admin", "analyst"]),
+    deleteIngestionHistoryEntry(dbPool)
   );
 
   return router;
