@@ -3,7 +3,6 @@ import {
   Database,
   FolderOpen,
   TrendingUp,
-  PieChart as PieChartIcon,
   Filter,
   Download,
   Sparkles,
@@ -17,9 +16,6 @@ import {
   CartesianGrid,
   BarChart,
   Bar,
-  PieChart,
-  Pie,
-  Cell,
   Legend,
 } from "recharts";
 import { apiFetch } from "../utils/api";
@@ -59,17 +55,6 @@ type ExportFormat = "excel" | "pdf" | "png" | "json" | "xml";
 
 const ACCENT = "#F59E0B";
 const ACCENT_SOFT = "#FCD34D";
-const PIE_COLORS = [
-  "#F59E0B",
-  "#F97316",
-  "#FB923C",
-  "#FBBF24",
-  "#FCD34D",
-  "#FDBA74",
-  "#FFEDD5",
-  "#FED7AA",
-];
-
 const formatNumber = (value: number) => new Intl.NumberFormat().format(value);
 const formatCompact = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: "compact" }).format(value);
@@ -103,7 +88,6 @@ const DashboardAnalyticsPage: React.FC = () => {
     country: "",
   });
   const [appliedFilters, setAppliedFilters] = useState<AnalyticsFilterState>(filterInputs);
-  const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
   const chartRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [refreshTick, setRefreshTick] = useState(0);
@@ -125,13 +109,6 @@ const DashboardAnalyticsPage: React.FC = () => {
         if (!mounted) return;
         setAnalytics(json);
         setAnalyticsLastUpdated(new Date());
-        if (json.filters.partner) {
-          setSelectedPartner(json.filters.partner);
-        } else if (appliedFilters.partner) {
-          setSelectedPartner(appliedFilters.partner);
-        } else {
-          setSelectedPartner(null);
-        }
       } catch (err: any) {
         if (mounted) setAnalyticsError(err.message || "Failed to load analytics.");
       } finally {
@@ -204,7 +181,7 @@ const DashboardAnalyticsPage: React.FC = () => {
     [analytics]
   );
 
-  const drilldownPartner = selectedPartner || appliedFilters.partner.trim() || "";
+  const drilldownPartner = appliedFilters.partner.trim();
   const drilldownSeries = useMemo(() => {
     if (!analytics) return [] as AnalyticsSeries[];
     if (drilldownPartner && analytics.partnerDrilldown[drilldownPartner]) {
@@ -222,14 +199,6 @@ const DashboardAnalyticsPage: React.FC = () => {
     const empty: AnalyticsFilterState = { startDate: "", endDate: "", partner: "", country: "" };
     setFilterInputs(empty);
     setAppliedFilters(empty);
-    setSelectedPartner(null);
-  };
-
-  const onPartnerDrilldown = (partnerName: string) => {
-    const nextInputs = { ...filterInputs, partner: partnerName };
-    setFilterInputs(nextInputs);
-    setAppliedFilters(nextInputs);
-    setSelectedPartner(partnerName);
   };
 
   const setChartRef = (id: string) => (el: HTMLDivElement | null) => {
@@ -245,9 +214,6 @@ const DashboardAnalyticsPage: React.FC = () => {
     );
     data.uploadTrend.forEach((d) =>
       rows.push({ dataset: "uploadTrend", day: d.day, label: toDateLabel(d.day), value: d.files })
-    );
-    data.partnerShare.forEach((d) =>
-      rows.push({ dataset: "partnerShare", label: d.name, value: d.value, partner: d.name })
     );
     data.countryShare.forEach((d) =>
       rows.push({ dataset: "countryShare", label: d.name, value: d.value, country: d.name })
@@ -279,7 +245,6 @@ const DashboardAnalyticsPage: React.FC = () => {
   const chartConfig = useMemo(
     () => [
       { id: "rowTrend", title: "Roaming Trend (Rows)", type: "line", dataset: "rowTrend" },
-      { id: "partnerShare", title: "Partner Share", type: "pie", dataset: "partnerShare" },
       { id: "uploadTrend", title: "Upload Trend", type: "line", dataset: "uploadTrend" },
       { id: "projectComparison", title: "Project Performance", type: "bar", dataset: "projectComparison" },
       {
@@ -563,51 +528,6 @@ const DashboardAnalyticsPage: React.FC = () => {
                       <Line type="monotone" dataKey="rows" stroke={ACCENT} strokeWidth={3} dot={{ r: 2 }} activeDot={{ r: 5 }} />
                     </LineChart>
                 </ChartContainer>
-              </div>
-
-              <div className="rounded-2xl border border-amber-100 p-4 bg-white dark:bg-white/5 dark:border-white/10">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">Partner Share</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Click a slice to filter</p>
-                  </div>
-                  <PieChartIcon className="w-5 h-5 text-amber-700 dark:text-amber-300" />
-                </div>
-                {analytics.partnerShare.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">No partner data yet.</div>
-                ) : (
-                  <ChartContainer className="h-64 min-w-0" containerRef={setChartRef("partnerShare")}>
-                      <PieChart>
-                        <Pie
-                          data={analytics.partnerShare}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={55}
-                          outerRadius={90}
-                          paddingAngle={2}
-                          onClick={(entry: any) => entry?.name && onPartnerDrilldown(entry.name)}
-                        >
-                          {analytics.partnerShare.map((entry, index) => (
-                            <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: 12,
-                            borderColor: chartPalette.tooltipBorder,
-                            background: chartPalette.tooltipBg,
-                            color: theme === "dark" ? "#F9FAFB" : "#111827",
-                          }}
-                        />
-                        <Legend />
-                      </PieChart>
-                  </ChartContainer>
-                )}
-                {drilldownPartner && (
-                  <div className="text-xs text-amber-700 dark:text-amber-300 mt-2">
-                    Filter: {drilldownPartner}
-                  </div>
-                )}
               </div>
 
               <div className="rounded-2xl border border-amber-100 p-4 bg-white dark:bg-white/5 dark:border-white/10">

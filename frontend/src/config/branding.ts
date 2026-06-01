@@ -20,7 +20,7 @@ const getBranding = (): BrandingConfig => {
     appTagline: process.env.REACT_APP_TAGLINE || 'Professional Roaming & Interconnect Platform',
     companyName: process.env.REACT_APP_COMPANY_NAME,
     supportEmail: process.env.REACT_APP_SUPPORT_EMAIL || 'support@roamingmanagementsystem.com',
-    loginSubtitle: 'Sign in to manage your roaming data and reports',
+    loginSubtitle: 'Login to manage your roaming data and reports',
     registerSubtitle: 'Join to manage roaming operations and reports',
   };
 };

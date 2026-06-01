@@ -256,6 +256,48 @@
       },
       "lastError": null,
       "lastDeletedAt": "2026-03-26T07:51:08.667Z"
+    },
+    "C:\\RoamingDropZone\\Reportscd\\agent-test-20260528-142033.csv": {
+      "originalPath": "agent-test-20260528-142033.csv",
+      "fingerprint": "142:1779952833513",
+      "lastHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-05-28T07:20:58.014Z",
+      "lastSeenAt": "2026-05-28T07:20:58.014Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 11,
+        "sourceName": "Roaming",
+        "ingestionJobId": 43,
+        "ingestionFileId": 29,
+        "importedFileId": 37,
+        "rowsImported": 3,
+        "fileHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66"
+      },
+      "lastError": null
+    },
+    "C:\\RoamingDropZone\\Reportscd\\04_partner_reference_rates.xlsx": {
+      "originalPath": "04_partner_reference_rates.xlsx",
+      "fingerprint": "73539:1770785749276",
+      "lastHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-05-28T07:35:17.971Z",
+      "lastSeenAt": "2026-05-28T07:35:17.971Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 11,
+        "sourceName": "Roaming",
+        "ingestionJobId": 45,
+        "ingestionFileId": 31,
+        "importedFileId": 38,
+        "rowsImported": 1200,
+        "fileHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928"
+      },
+      "lastError": null
     }
   }
 }
