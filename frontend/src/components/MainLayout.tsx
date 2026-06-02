@@ -82,14 +82,14 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         const latestStatus = String(latestVisible.status || "").toUpperCase();
         setToast({
-          title: latestStatus === "SUCCESS" ? "Folder upload received" : "Folder upload failed",
+          title: latestStatus === "SUCCESS" ? "Upload successful" : "Upload failed",
           message:
             latestStatus === "SUCCESS"
-              ? `${latestVisible.fileName} is now available in the system.`
+              ? `${latestVisible.fileName} was uploaded into the system successfully.`
               : `${latestVisible.fileName} could not be imported.`,
           tone: latestStatus === "SUCCESS" ? "success" : "error",
         });
-        toastTimerRef.current = window.setTimeout(() => setToast(null), 2000);
+        toastTimerRef.current = window.setTimeout(() => setToast(null), 4000);
       } catch {
         // Keep polling quiet; this watcher should not break page rendering.
       }

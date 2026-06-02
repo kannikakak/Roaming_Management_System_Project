@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, KeyRound, RefreshCw, RotateCcw, Play, Activity } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import Surface from "../components/Surface";
 import { apiFetch } from "../utils/api";
 import { subscribeToIngestionUpdates } from "../utils/ingestionEvents";
@@ -12,57 +11,7 @@ import type {
 } from "./data-sources/types";
 import { formatDateTime, getStatusLabel, requestJson } from "./data-sources/utils";
 
-type IngestionHistoryItem = {
-  id: string;
-  sourceId: number | null;
-  sourceName: string;
-  fileName: string;
-  status: string;
-  importedFileId: number | null;
-  projectId: number | null;
-};
-
-type SuccessCountdownState = {
-  sourceName: string;
-  fileName: string;
-  secondsLeft: number;
-};
-
-type UploadSuccessModalState = {
-  sourceName: string;
-  fileName: string;
-  folderPath: string | null;
-  importedFileId: number | null;
-};
-
-const getSourceFolderPath = (source: SourceRow | undefined) => {
-  const config = source?.connectionConfig;
-  if (!config || typeof config !== "object") return null;
-
-  const pathCandidates = [
-    typeof config.path === "string" ? config.path : "",
-    Array.isArray(config.paths) ? String(config.paths[0] || "") : "",
-    typeof config.dropZoneHint === "string" ? config.dropZoneHint : "",
-  ];
-
-  const folderPath = pathCandidates.map((value) => value.trim()).find(Boolean);
-  return folderPath || null;
-};
-
-const toFolderUrl = (folderPath: string) => {
-  const normalized = folderPath.replace(/\\/g, "/").trim();
-  if (!normalized) return "";
-  if (/^[a-zA-Z]:\//.test(normalized)) {
-    return `file:///${normalized}`;
-  }
-  if (normalized.startsWith("//")) {
-    return `file:${normalized}`;
-  }
-  return `file://${normalized}`;
-};
-
 const DataSourcesPage: React.FC = () => {
-  const navigate = useNavigate();
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sourceProjectDrafts, setSourceProjectDrafts] = useState<Record<number, string>>({});
@@ -77,8 +26,6 @@ const DataSourcesPage: React.FC = () => {
     apiKey: string;
     apiKeyHint?: string;
   } | null>(null);
-  const [successCountdown, setSuccessCountdown] = useState<SuccessCountdownState | null>(null);
-  const [uploadSuccessModal, setUploadSuccessModal] = useState<UploadSuccessModalState | null>(null);
   const [form, setForm] = useState<CreateForm>({
     name: "",
     type: "folder_sync",
@@ -89,9 +36,6 @@ const DataSourcesPage: React.FC = () => {
     localPath: "",
     enabled: true,
   });
-  const historyStatusRef = useRef<Map<string, string>>(new Map());
-  const historySeededRef = useRef(false);
-  const successCountdownTimerRef = useRef<number | null>(null);
 
   const userId = useMemo(() => {
     const raw = localStorage.getItem("authUser");
@@ -111,14 +55,6 @@ const DataSourcesPage: React.FC = () => {
     }
     return map;
   }, [projects]);
-
-  const sourceMap = useMemo(() => {
-    const map = new Map<number, SourceRow>();
-    for (const source of sources) {
-      map.set(source.id, source);
-    }
-    return map;
-  }, [sources]);
 
   const clearNotice = useCallback(() => {
     setMessage(null);
@@ -206,148 +142,12 @@ const DataSourcesPage: React.FC = () => {
     };
   }, [fetchSources]);
 
-  const startSuccessSequence = useCallback((item: IngestionHistoryItem) => {
-    if (successCountdownTimerRef.current) {
-      window.clearTimeout(successCountdownTimerRef.current);
-      successCountdownTimerRef.current = null;
-    }
-
-    const matchedSource = item.sourceId ? sourceMap.get(item.sourceId) : undefined;
-    const nextModal: UploadSuccessModalState = {
-      sourceName: item.sourceName || matchedSource?.name || "Data source",
-      fileName: item.fileName || "Unknown file",
-      folderPath: getSourceFolderPath(matchedSource),
-      importedFileId: item.importedFileId ?? null,
-    };
-
-    setUploadSuccessModal(null);
-    setSuccessCountdown({
-      sourceName: nextModal.sourceName,
-      fileName: nextModal.fileName,
-      secondsLeft: 3,
-    });
-
-    const runTick = (secondsLeft: number) => {
-      successCountdownTimerRef.current = window.setTimeout(() => {
-        if (secondsLeft <= 1) {
-          setSuccessCountdown(null);
-          setUploadSuccessModal(nextModal);
-          successCountdownTimerRef.current = null;
-          return;
-        }
-
-        setSuccessCountdown({
-          sourceName: nextModal.sourceName,
-          fileName: nextModal.fileName,
-          secondsLeft: secondsLeft - 1,
-        });
-        runTick(secondsLeft - 1);
-      }, 1000);
-    };
-
-    runTick(3);
-  }, [sourceMap]);
-
-  useEffect(() => {
-    const pollHistory = async () => {
-      try {
-        const response = await apiFetch("/api/ingest/history?limit=40");
-        if (!response.ok) return;
-
-        const payload = await response.json().catch(() => null);
-        const items = Array.isArray(payload?.items)
-          ? (payload.items as IngestionHistoryItem[])
-          : [];
-        const relevantItems = items.filter((item) =>
-          item.sourceId !== null && sourceMap.has(Number(item.sourceId))
-        );
-
-        if (!historySeededRef.current) {
-          historyStatusRef.current = new Map(
-            relevantItems.map((item) => [String(item.id), String(item.status || "").toUpperCase()])
-          );
-          historySeededRef.current = true;
-          return;
-        }
-
-        const nextStatuses = new Map(historyStatusRef.current);
-        const successItems: IngestionHistoryItem[] = [];
-
-        for (const item of relevantItems) {
-          const id = String(item.id);
-          const status = String(item.status || "").toUpperCase();
-          const previousStatus = nextStatuses.get(id);
-          nextStatuses.set(id, status);
-
-          if (status === "SUCCESS" && previousStatus !== "SUCCESS") {
-            successItems.push(item);
-          }
-        }
-
-        historyStatusRef.current = nextStatuses;
-
-        if (successItems.length > 0) {
-          const latestSuccess = successItems.sort((left, right) =>
-            String(left.id).localeCompare(String(right.id))
-          )[successItems.length - 1];
-          startSuccessSequence(latestSuccess);
-          void fetchSources({ silent: true });
-        }
-      } catch {
-        // Keep this watcher quiet; the page should continue rendering even if polling fails.
-      }
-    };
-
-    void pollHistory();
-    const timer = window.setInterval(() => {
-      void pollHistory();
-    }, 2000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [fetchSources, sourceMap, startSuccessSequence]);
-
-  useEffect(() => {
-    return () => {
-      if (successCountdownTimerRef.current) {
-        window.clearTimeout(successCountdownTimerRef.current);
-      }
-    };
-  }, []);
-
   const copyToClipboard = useCallback(async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
       setMessage("Copied to clipboard.");
     } catch {
       setError("Clipboard access failed. Copy manually.");
-    }
-  }, []);
-
-  const handleOpenFolder = useCallback(async (folderPath: string | null) => {
-    if (!folderPath) {
-      setError("No configured folder path was found for this source.");
-      return;
-    }
-
-    const folderUrl = toFolderUrl(folderPath);
-    if (!folderUrl) {
-      setError("Configured folder path is invalid.");
-      return;
-    }
-
-    const popup = window.open(folderUrl, "_blank", "noopener,noreferrer");
-    if (popup) {
-      setMessage(`Opening configured folder: ${folderPath}`);
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(folderPath);
-      setMessage(`Browser blocked direct folder open. Folder path copied: ${folderPath}`);
-    } catch {
-      setError(`Browser blocked direct folder open. Folder path: ${folderPath}`);
     }
   }, []);
 
@@ -601,17 +401,6 @@ npm run sync-agent`,
             Refresh
           </button>
         </div>
-
-        {successCountdown ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm">
-            <div className="font-semibold">
-              Scanning complete. Upload success popup in {successCountdown.secondsLeft}s.
-            </div>
-            <div className="mt-1 text-xs text-amber-700">
-              Source: {successCountdown.sourceName} | File: {successCountdown.fileName}
-            </div>
-          </div>
-        ) : null}
 
         {message ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
@@ -954,63 +743,6 @@ AGENT_WATCH_DIR=C:\\RoamingDropZone\\Reports`}
           </Surface>
         ) : null}
       </div>
-
-      {uploadSuccessModal ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4">
-          <div className="w-full max-w-md rounded-3xl border border-emerald-200 bg-white p-6 shadow-2xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-600">
-              Upload Successful
-            </div>
-            <h3 className="mt-2 text-2xl font-bold text-gray-900">Your file upload was successful.</h3>
-            <div className="mt-4 space-y-2 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-gray-700">
-              <div>
-                <span className="font-semibold text-gray-900">Source:</span> {uploadSuccessModal.sourceName}
-              </div>
-              <div>
-                <span className="font-semibold text-gray-900">File:</span> {uploadSuccessModal.fileName}
-              </div>
-              <div>
-                <span className="font-semibold text-gray-900">Folder:</span>{" "}
-                {uploadSuccessModal.folderPath || "No configured folder hint"}
-              </div>
-            </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              {uploadSuccessModal.folderPath ? (
-                <button
-                  type="button"
-                  onClick={() => void handleOpenFolder(uploadSuccessModal.folderPath)}
-                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-                >
-                  Open folder
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => navigate("/ingestion-history")}
-                className="rounded-full border border-amber-200 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50"
-              >
-                View import history
-              </button>
-              {uploadSuccessModal.folderPath ? (
-                <button
-                  type="button"
-                  onClick={() => void copyToClipboard(uploadSuccessModal.folderPath as string)}
-                  className="rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                >
-                  Copy folder path
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setUploadSuccessModal(null)}
-                className="rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 };

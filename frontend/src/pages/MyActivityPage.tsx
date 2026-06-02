@@ -7,6 +7,8 @@ type AuditLogEntry = {
   id: number;
   timestamp: string;
   user: string;
+  actorDisplay?: string;
+  actor_display?: string;
   action: string;
   details?: any;
 };
@@ -63,6 +65,18 @@ const MyActivityPage: React.FC = () => {
     return `${text.slice(0, limit)}...`;
   };
 
+  const actorLabel = (log: AuditLogEntry) => {
+    const display = String(log.actorDisplay || log.actor_display || "").trim();
+    if (display) return display;
+
+    const actor = String(log.user || "").trim();
+    if (!actor) return "-";
+    if (actor === "system") return "System";
+    if (actor.startsWith("agent:")) return `Sync Agent #${actor.slice("agent:".length)}`;
+    if (actor.startsWith("user:")) return `User #${actor.slice("user:".length)}`;
+    return actor;
+  };
+
   const exportAllPdf = () => {
     const rows = logs
       .slice()
@@ -77,9 +91,10 @@ const MyActivityPage: React.FC = () => {
     doc.setFontSize(10);
     doc.text(`Exported rows: ${rows.length}`, 14, 22);
     autoTable(doc, {
-      head: [["Time", "Action", "Details"]],
+      head: [["Time", "Actor", "Action", "Details"]],
       body: rows.map((row) => [
         new Date(row.timestamp).toLocaleString(),
+        actorLabel(row),
         row.action,
         shortDetails(row.details),
       ]),
@@ -100,7 +115,7 @@ const MyActivityPage: React.FC = () => {
         if (!fromOk || !toOk) return false;
         if (actionFilter && log.action !== actionFilter) return false;
         if (!q) return true;
-        const combined = `${log.action} ${detailsText(log.details)}`.toLowerCase();
+        const combined = `${actorLabel(log)} ${log.user || ""} ${log.action} ${detailsText(log.details)}`.toLowerCase();
         return combined.includes(q);
       })
       .sort(
@@ -199,6 +214,7 @@ const MyActivityPage: React.FC = () => {
                 <thead className="bg-slate-100 border-b border-slate-200">
                   <tr>
                     <th className="text-left px-4 py-3 font-semibold text-slate-800">Time</th>
+                    <th className="text-left px-4 py-3 font-semibold text-slate-800">Actor</th>
                     <th className="text-left px-4 py-3 font-semibold text-slate-800">Action</th>
                     <th className="text-left px-4 py-3 font-semibold text-slate-800">Details</th>
                   </tr>
@@ -216,6 +232,9 @@ const MyActivityPage: React.FC = () => {
                       <tr key={log.id} className="border-b border-slate-100 align-top">
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                           {new Date(log.timestamp).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
+                          {actorLabel(log)}
                         </td>
                         <td className="px-4 py-3 font-medium text-slate-900">{log.action}</td>
                         <td className="px-4 py-3">
