@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Download,
   Image as ImageIcon,
-  LayoutPanelLeft,
   Search,
   Sparkles,
   Trash2,
@@ -143,11 +142,6 @@ const SlideBuilderPage: React.FC = () => {
     [slides, activeId]
   );
 
-  const activeSlideSummaryCount = useMemo(
-    () => (activeSlide?.summary || "").trim().length,
-    [activeSlide]
-  );
-
   const filteredSlides = useMemo(() => {
     const query = slideQuery.trim().toLowerCase();
     if (!query) return slides;
@@ -244,11 +238,7 @@ const SlideBuilderPage: React.FC = () => {
         <section className="rounded-3xl border border-amber-200/80 bg-white/90 backdrop-blur p-5 sm:p-7 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.45)]">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
-                <LayoutPanelLeft className="h-3.5 w-3.5" />
-                Local Draft Mode
-              </div>
-              <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
                 Slide Builder
               </h1>
               {notice && (
@@ -282,23 +272,6 @@ const SlideBuilderPage: React.FC = () => {
                 <Download className="w-4 h-4" />
                 {isExporting ? "Exporting..." : `Export PPTX (${slides.length})`}
               </button>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-amber-700">Total Slides</div>
-              <div className="text-lg font-bold text-slate-900">{slides.length}</div>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-amber-700">Active Slide</div>
-              <div className="text-lg font-bold text-slate-900">
-                {activeSlideIndex >= 0 ? activeSlideIndex + 1 : "-"}
-              </div>
-            </div>
-            <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-emerald-700">Filtered</div>
-              <div className="text-lg font-bold text-slate-900">{filteredSlides.length}</div>
             </div>
           </div>
         </section>
@@ -444,25 +417,6 @@ const SlideBuilderPage: React.FC = () => {
                       value={activeSlide.summary}
                       onChange={(e) => updateSlide(activeSlide.id, { summary: e.target.value })}
                     />
-                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500">
-                      <span>Tip: keep summary concise and action-oriented.</span>
-                      <span>{activeSlideSummaryCount} chars</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-500">Chart Type</div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        {activeSlide.chartMeta?.chartType || "-"}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-500">File</div>
-                      <div className="text-sm font-semibold text-slate-900 truncate">
-                        {activeSlide.chartMeta?.fileName || "-"}
-                      </div>
-                    </div>
                   </div>
                 </div>
               ) : (
@@ -480,16 +434,6 @@ const SlideBuilderPage: React.FC = () => {
                     </div>
                     <div className="text-sm text-slate-500 break-words">
                       {activeSlide.subtitle || "-"}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5">
-                        {activeSlide.chartMeta?.chartType || "Chart"}
-                      </span>
-                      {activeSlide.chartMeta?.fileName && (
-                        <span className="inline-flex rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold px-2 py-0.5 max-w-full truncate">
-                          {activeSlide.chartMeta.fileName}
-                        </span>
-                      )}
                     </div>
                   </div>
 

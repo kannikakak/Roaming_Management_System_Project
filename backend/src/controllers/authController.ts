@@ -48,9 +48,6 @@ function clearAuthCookies(res: any) {
   res.clearCookie("refreshToken", base);
 }
 const isRenderRuntime = String(process.env.RENDER || "").trim().toLowerCase() === "true";
-const mfaNumberMatchingEnabled = !["0", "false", "off", "no"].includes(
-  String(process.env.MFA_NUMBER_MATCHING || "true").trim().toLowerCase()
-);
 const localLoginEnabled = !["0", "false", "off", "no"].includes(
   String(process.env.AUTH_LOCAL_LOGIN_ENABLED || "true").trim().toLowerCase()
 );
@@ -140,25 +137,10 @@ function createRefreshToken(userId: number, email: string, roles: Role[]) {
   );
 }
 
-function createMfaToken(
-  userId: number,
-  email: string,
-  roles: Role[],
-  numberChallenge?: string
-) {
+function createMfaToken(userId: number, email: string, roles: Role[]) {
   const primary = roles[0] ?? ensureRole(undefined);
   const options: jwt.SignOptions = { expiresIn: mfaTokenExpiresIn as any };
-  const payload: any = { id: userId, email, role: primary, roles, mfa: true };
-  if (numberChallenge) payload.numberChallenge = numberChallenge;
-  return jwt.sign(payload, getJwtSecret(), options);
-}
-
-function createMfaChallenge(roles: Role[], userId: number, email: string) {
-  const numberChallenge = mfaNumberMatchingEnabled
-    ? String(10 + crypto.randomInt(90))
-    : undefined;
-  const mfaToken = createMfaToken(userId, email, roles, numberChallenge);
-  return { mfaToken, numberChallenge };
+  return jwt.sign({ id: userId, email, role: primary, roles, mfa: true }, getJwtSecret(), options);
 }
 
 function buildUserPayload(user: any, role: string, schema: UserSchemaInfo, roles?: Role[]) {
@@ -493,11 +475,7 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         schema.hasTwoFactorEnabled &&
         user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
-        const { mfaToken, numberChallenge } = createMfaChallenge(
-          rolesArr,
-          user.id,
-          user.email
-        );
+        const mfaToken = createMfaToken(user.id, user.email, rolesArr);
         await writeAuditLog(dbPool, {
           actor: user.email,
           action: "user_login_mfa_challenge",
@@ -506,7 +484,6 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         return res.json({
           requires2fa: true,
           mfaToken,
-          numberChallenge,
           user: { id: user.id, email: user.email },
         });
       }
@@ -581,11 +558,7 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         schema.hasTwoFactorEnabled &&
         user.two_factor_enabled === 1;
       if (twoFactorEnabled) {
-        const { mfaToken, numberChallenge } = createMfaChallenge(
-          rolesArr,
-          user.id,
-          user.email
-        );
+        const mfaToken = createMfaToken(user.id, user.email, rolesArr);
         await writeAuditLog(dbPool, {
           actor: user.email,
           action: "user_login_mfa_challenge",
@@ -594,7 +567,6 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
         return res.json({
           requires2fa: true,
           mfaToken,
-          numberChallenge,
           user: { id: user.id, email: user.email },
         });
       }
@@ -1108,10 +1080,9 @@ export const disableTwoFactor = (dbPool: Pool) => async (req: Request, res: Resp
 };
 
 export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const { mfaToken, code, numberChallengeAnswer } = req.body as {
+  const { mfaToken, code } = req.body as {
     mfaToken?: string;
     code?: string;
-    numberChallengeAnswer?: string;
   };
   const authContext = buildAuthContext(req);
   if (!mfaToken || !code) {
@@ -1127,17 +1098,6 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
 
   if (!payload?.mfa || !payload?.id) {
     return res.status(401).json({ message: "Invalid verification token." });
-  }
-  if (payload?.numberChallenge) {
-    const provided = String(numberChallengeAnswer || "").trim();
-    if (provided !== String(payload.numberChallenge)) {
-      await writeAuditLog(dbPool, {
-        actor: payload?.email || `user:${payload?.id || "unknown"}`,
-        action: "user_login_failed",
-        details: { ...authContext, reason: "invalid_number_challenge", method: "mfa" },
-      });
-      return res.status(400).json({ message: "Number challenge is invalid." });
-    }
   }
 
   const schema = await getUserSchemaInfo(dbPool);

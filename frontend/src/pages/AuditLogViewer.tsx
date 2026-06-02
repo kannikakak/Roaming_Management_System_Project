@@ -7,6 +7,8 @@ type AuditLog = {
   id?: number;
   timestamp?: string;
   user?: string;
+  actorDisplay?: string;
+  actor_display?: string;
   action?: string;
   details?: any;
 };
@@ -53,6 +55,34 @@ const shortDetails = (details: any, limit = 140) => {
   return `${text.slice(0, limit)}...`;
 };
 
+const titleCase = (value: string) =>
+  value.replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const formatActionLabel = (action?: string) => {
+  const text = String(action || "").trim();
+  if (!text) return "-";
+  const spaced = text
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  return titleCase(spaced)
+    .replace(/\bMfa\b/g, "MFA")
+    .replace(/\bApi\b/g, "API")
+    .replace(/\bPptx\b/g, "PPTX");
+};
+
+const formatActorLabel = (log: AuditLog) => {
+  const display = String(log.actorDisplay || log.actor_display || "").trim();
+  if (display) return display;
+  const actor = String(log.user || "").trim();
+  if (!actor) return "-";
+  if (actor === "system") return "System";
+  if (actor.startsWith("agent:")) return `Sync Agent #${actor.slice("agent:".length)}`;
+  if (actor.startsWith("user:")) return `User #${actor.slice("user:".length)}`;
+  return actor;
+};
+
 const isDataModified = (log: AuditLog) => {
   const action = String(log.action || "").toLowerCase();
   const parsed = parseDetails(log.details);
@@ -91,7 +121,7 @@ const AuditLogViewer: React.FC = () => {
 
   const users = useMemo(() => {
     return Array.from(
-      new Set(logs.map((log) => String(log.user || "").trim()).filter(Boolean))
+      new Set(logs.map((log) => formatActorLabel(log)).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b));
   }, [logs]);
 
@@ -111,11 +141,11 @@ const AuditLogViewer: React.FC = () => {
           !dateTo || new Date(ts) <= new Date(`${dateTo}T23:59:59.999`);
         if (!fromMatch || !toMatch) return false;
 
-        if (userFilter && String(log.user || "") !== userFilter) return false;
+        if (userFilter && formatActorLabel(log) !== userFilter) return false;
         if (actionFilter && String(log.action || "") !== actionFilter) return false;
 
         if (!q) return true;
-        const merged = `${String(log.user || "")} ${String(log.action || "")} ${detailsToText(log.details)}`.toLowerCase();
+        const merged = `${formatActorLabel(log)} ${String(log.user || "")} ${String(log.action || "")} ${detailsToText(log.details)}`.toLowerCase();
         return merged.includes(q);
       })
       .sort((a, b) => {
@@ -137,11 +167,11 @@ const AuditLogViewer: React.FC = () => {
     doc.setFontSize(10);
     doc.text(`Exported rows: ${rows.length}`, 14, 22);
     autoTable(doc, {
-      head: [["Timestamp", "User", "Action", "Details"]],
+      head: [["Time", "Actor", "Action", "Details"]],
       body: rows.map((log) => [
         formatDate(String(log.timestamp || "")),
-        String(log.user || ""),
-        String(log.action || ""),
+        formatActorLabel(log),
+        formatActionLabel(log.action),
         shortDetails(log.details, 260),
       ]),
       startY: 26,
@@ -216,7 +246,7 @@ const AuditLogViewer: React.FC = () => {
             onChange={(e) => setUserFilter(e.target.value)}
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
           >
-            <option value="">All users</option>
+            <option value="">All actors</option>
             {users.map((user) => (
               <option key={user} value={user}>
                 {user}
@@ -264,8 +294,8 @@ const AuditLogViewer: React.FC = () => {
             <table className="w-full text-sm">
               <thead className="bg-slate-100 border-b border-slate-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-800">Timestamp</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-800">User</th>
+                  <th className="text-left px-4 py-3 font-semibold text-slate-800">Time</th>
+                  <th className="text-left px-4 py-3 font-semibold text-slate-800">Actor</th>
                   <th className="text-left px-4 py-3 font-semibold text-slate-800">Action</th>
                   <th className="text-left px-4 py-3 font-semibold text-slate-800">Details</th>
                 </tr>
@@ -280,10 +310,15 @@ const AuditLogViewer: React.FC = () => {
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                         {formatDate(String(log.timestamp || ""))}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{String(log.user || "-")}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <div className="font-medium text-slate-900">{formatActorLabel(log)}</div>
+                        {log.user && formatActorLabel(log) !== String(log.user).trim() && (
+                          <div className="text-xs text-slate-500 mt-1 break-all">{String(log.user)}</div>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2 items-center">
-                          <span className="font-medium text-slate-900">{String(log.action || "-")}</span>
+                          <span className="font-medium text-slate-900">{formatActionLabel(log.action)}</span>
                           {isDataModified(log) && (
                             <span className="text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full border border-amber-200">
                               Data Modified

@@ -6,23 +6,6 @@ import ThemeToggle from '../components/ThemeToggle';
 import rmsLogo from '../assets/rms-logo.svg';
 import branding from '../config/branding';
 
-const parseMfaChallengeFromToken = (token: string | null): string | null => {
-  if (!token) return null;
-  try {
-    const encoded = token.split('.')[1];
-    if (!encoded) return null;
-    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-    const payload = JSON.parse(atob(padded)) as { numberChallenge?: string | number };
-    const value = payload?.numberChallenge;
-    if (typeof value === 'number') return String(value);
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    return null;
-  } catch {
-    return null;
-  }
-};
-
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,8 +13,6 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [mfaToken, setMfaToken] = useState<string | null>(null);
-  const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
-  const [mfaChallengeAnswer, setMfaChallengeAnswer] = useState('');
   const [mfaCode, setMfaCode] = useState('');
   const [isMfaLoading, setIsMfaLoading] = useState(false);
   const navigate = useNavigate();
@@ -40,12 +21,9 @@ const Login = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tokenFromQuery = params.get('mfaToken');
-    const challengeFromQuery = params.get('mfaChallenge');
     const errorFromQuery = params.get('error');
     if (tokenFromQuery) {
       setMfaToken(tokenFromQuery);
-      setMfaChallenge(challengeFromQuery || parseMfaChallengeFromToken(tokenFromQuery));
-      setMfaChallengeAnswer('');
       setPassword('');
       setError('');
     }
@@ -73,11 +51,6 @@ const Login = () => {
       if (response.ok) {
         if (data.requires2fa && data.mfaToken) {
           setMfaToken(data.mfaToken);
-          const challenge =
-            (typeof data.numberChallenge === 'string' && data.numberChallenge.trim()) ||
-            parseMfaChallengeFromToken(data.mfaToken);
-          setMfaChallenge(challenge || null);
-          setMfaChallengeAnswer('');
           setMfaCode('');
           return;
         }
@@ -102,10 +75,6 @@ const Login = () => {
   const handleVerifyMfa = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mfaToken) return;
-    if (mfaChallenge && !mfaChallengeAnswer.trim()) {
-      setError('Please enter the number challenge.');
-      return;
-    }
     setError('');
     setIsMfaLoading(true);
     try {
@@ -115,7 +84,6 @@ const Login = () => {
         body: JSON.stringify({
           mfaToken,
           code: mfaCode,
-          numberChallengeAnswer: mfaChallenge ? mfaChallengeAnswer : undefined,
         }),
       });
       const data = await response.json();
@@ -140,8 +108,6 @@ const Login = () => {
 
   const handleResetMfa = () => {
     setMfaToken(null);
-    setMfaChallenge(null);
-    setMfaChallengeAnswer('');
     setMfaCode('');
     navigate('/login', { replace: true });
   };
@@ -242,24 +208,6 @@ const Login = () => {
 
         {mfaToken && (
           <form className="space-y-4" onSubmit={handleVerifyMfa}>
-            {mfaChallenge && (
-              <>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-                  Security check number: <span className="font-bold tracking-widest">{mfaChallenge}</span>
-                </div>
-                <div className="relative">
-                  <input
-                    id="mfaNumber"
-                    type="text"
-                    inputMode="numeric"
-                    value={mfaChallengeAnswer}
-                    onChange={(e) => setMfaChallengeAnswer(e.target.value)}
-                    className="block w-full rounded-lg border border-gray-300 px-3 py-3 text-gray-900 placeholder-gray-400 focus:border-amber-500 focus:ring-amber-500 transition dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-500"
-                    placeholder="Enter security number"
-                  />
-                </div>
-              </>
-            )}
             <div className="text-sm text-gray-600 text-center dark:text-gray-300">
               Enter the 6-digit code from your authenticator app.
             </div>

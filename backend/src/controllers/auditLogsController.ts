@@ -1,6 +1,37 @@
 import { Request, Response } from 'express';
 import { dbPool } from '../db';
 
+const buildActorDisplayExpression = async () => {
+  const [columns]: any = await dbPool.query("SHOW COLUMNS FROM users");
+  const names = new Set(columns.map((column: any) => String(column.Field)));
+  const fullNameExpr = names.has("full_name") ? "NULLIF(TRIM(u.full_name), '')" : null;
+  const nameExpr = names.has("name") ? "NULLIF(TRIM(u.name), '')" : null;
+  const options = [fullNameExpr, nameExpr, "NULLIF(TRIM(u.email), '')", "l.user"].filter(Boolean);
+  return `COALESCE(${options.join(", ")}) AS actorDisplay`;
+};
+
+const listAuditLogsQuery = async () => {
+  const actorDisplay = await buildActorDisplayExpression();
+  return `
+    SELECT l.id, l.timestamp, l.user, l.action, l.details, ${actorDisplay}
+    FROM audit_logs l
+    LEFT JOIN users u ON LOWER(TRIM(u.email)) = LOWER(TRIM(l.user))
+    ORDER BY l.timestamp DESC
+    LIMIT 500
+  `;
+};
+
+const myAuditLogsQuery = async () => {
+  const actorDisplay = await buildActorDisplayExpression();
+  return `
+    SELECT l.id, l.timestamp, l.user, l.action, l.details, ${actorDisplay}
+    FROM audit_logs l
+    LEFT JOIN users u ON LOWER(TRIM(u.email)) = LOWER(TRIM(l.user))
+    WHERE LOWER(TRIM(l.user)) = LOWER(TRIM(?))
+    ORDER BY l.timestamp DESC
+  `;
+};
+
 export const createAuditLog = async (req: Request, res: Response) => {
   const { user, action, details } = req.body;
   const actor = user || req.user?.email || "unknown";
@@ -21,7 +52,7 @@ export const createAuditLog = async (req: Request, res: Response) => {
 
 export const getAuditLogs = async (_req: Request, res: Response) => {
   try {
-    const [rows] = await dbPool.query('SELECT id, timestamp, user, action, details FROM audit_logs ORDER BY timestamp DESC LIMIT 500');
+    const [rows] = await dbPool.query(await listAuditLogsQuery());
     res.json(rows);
   } catch (err: any) {
     console.error('Audit log fetch error:', err);
@@ -33,10 +64,7 @@ export const getMyAuditLogs = async (req: Request, res: Response) => {
   try {
     const actor = req.user?.email;
     if (!actor) return res.status(401).json({ error: "Unauthorized" });
-    const [rows] = await dbPool.query(
-      "SELECT * FROM audit_logs WHERE user = ? ORDER BY timestamp DESC",
-      [actor]
-    );
+    const [rows] = await dbPool.query(await myAuditLogsQuery(), [actor]);
     res.json(rows);
   } catch (err: any) {
     console.error("Audit log fetch error:", err);
