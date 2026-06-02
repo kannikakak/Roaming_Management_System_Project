@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
-import { apiFetch, getApiBaseUrl, setAuthToken, setRefreshToken } from '../utils/api';
+import { apiFetch, setAuthToken, setRefreshToken } from '../utils/api';
 import ThemeToggle from '../components/ThemeToggle';
 import rmsLogo from '../assets/rms-logo.svg';
 import branding from '../config/branding';
@@ -36,11 +36,6 @@ const Login = () => {
   const [isMfaLoading, setIsMfaLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const authMode = String(process.env.REACT_APP_AUTH_MODE || 'hybrid').trim().toLowerCase();
-  const microsoftOnly = authMode === 'microsoft' || authMode === 'microsoft_only';
-  const microsoftAutoRedirect = ['1', 'true', 'yes', 'on'].includes(
-    String(process.env.REACT_APP_MICROSOFT_AUTO_REDIRECT || 'false').trim().toLowerCase()
-  );
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -58,13 +53,6 @@ const Login = () => {
       setError(decodeURIComponent(errorFromQuery));
     }
   }, [location.search]);
-
-  const microsoftLoginUrl = `${getApiBaseUrl()}/api/auth/microsoft/login`;
-
-  useEffect(() => {
-    if (!microsoftOnly || !microsoftAutoRedirect || mfaToken) return;
-    window.location.href = microsoftLoginUrl;
-  }, [microsoftOnly, microsoftAutoRedirect, mfaToken, microsoftLoginUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,21 +173,7 @@ const Login = () => {
         )}
         {!mfaToken && (
           <div className="space-y-4">
-            {microsoftOnly ? (
-              <>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-                  Your organization uses Microsoft single sign-on.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => (window.location.href = microsoftLoginUrl)}
-                  className="w-full py-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow transition"
-                >
-                  Continue with Microsoft
-                </button>
-              </>
-            ) : (
-              <form className="space-y-4" onSubmit={handleSubmit}>
+            <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="relative">
                   <input
                     id="email"
@@ -263,7 +237,6 @@ const Login = () => {
                   </button>
                 </div>
               </form>
-            )}
           </div>
         )}
 

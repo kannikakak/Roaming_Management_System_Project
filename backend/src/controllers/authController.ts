@@ -6,7 +6,6 @@ import fs from "fs/promises";
 import path from "path";
 import QRCode from "qrcode";
 import speakeasy from "speakeasy";
-import { Issuer, generators, Client } from "openid-client";
 import { Pool } from "mysql2/promise";
 import { ALLOWED_ROLES, Role, normalizeRole as normalizeRoleConst, ensureRole, pickRoleFromCsv } from "../constants/roles";
 import { getEmailConfigHint, isEmailReady, sendEmail } from "../services/delivery";
@@ -31,12 +30,6 @@ const selfRegisterRoles = process.env.SELF_REGISTER_ROLES || "viewer";
 const mfaTokenExpiresIn = process.env.MFA_TOKEN_EXPIRES_IN || "10m";
 const passwordResetTokenMinutes = Math.max(5, Number(process.env.PASSWORD_RESET_TOKEN_MINUTES || 30));
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-const msTenantId = process.env.MS_TENANT_ID || "common";
-const msClientId = process.env.MS_CLIENT_ID || "";
-const msClientSecret = process.env.MS_CLIENT_SECRET || "";
-const msRedirectUri = process.env.MS_REDIRECT_URI || "";
-const msScope = process.env.MS_SCOPE || "openid profile email";
-const msDefaultRole = process.env.MS_DEFAULT_ROLE || "viewer";
 const mfaIssuer = process.env.MFA_ISSUER || "Roaming & Interconnect System";
 
 const cookieSecure = process.env.NODE_ENV === "production";
@@ -64,9 +57,6 @@ const localLoginEnabled = !["0", "false", "off", "no"].includes(
 const localRegisterEnabled = !["0", "false", "off", "no"].includes(
   String(process.env.AUTH_LOCAL_REGISTER_ENABLED || "true").trim().toLowerCase()
 );
-const trustMicrosoftUpstreamMfa = !["0", "false", "off", "no"].includes(
-  String(process.env.MS_TRUST_UPSTREAM_MFA || "true").trim().toLowerCase()
-);
 
 type UserSchemaInfo = {
   hasFullName: boolean;
@@ -80,7 +70,6 @@ type UserSchemaInfo = {
   hasRolesTable: boolean;
   hasRefreshTokensTable: boolean;
   hasAuthProvider: boolean;
-  hasMicrosoftSub: boolean;
   hasTwoFactorSecret: boolean;
   hasTwoFactorEnabled: boolean;
   hasPasswordResetsTable: boolean;
@@ -111,7 +100,6 @@ async function getUserSchemaInfo(dbPool: Pool): Promise<UserSchemaInfo> {
     hasRolesTable: tableNames.has("roles"),
     hasRefreshTokensTable: tableNames.has("refresh_tokens"),
     hasAuthProvider: names.has("auth_provider"),
-    hasMicrosoftSub: names.has("microsoft_sub"),
     hasTwoFactorSecret: names.has("two_factor_secret"),
     hasTwoFactorEnabled: names.has("two_factor_enabled"),
     hasPasswordResetsTable: tableNames.has("password_resets"),
@@ -319,10 +307,6 @@ async function ensurePasswordResetsTable(dbPool: Pool, schema: UserSchemaInfo) {
   if (schemaCache.info) schemaCache.info.hasPasswordResetsTable = true;
 }
 
-function getFrontendCallbackUrl() {
-  return `${frontendUrl.replace(/\/$/, "")}/auth/microsoft/callback`;
-}
-
 function getPasswordResetUrl(token: string) {
   return `${frontendUrl.replace(/\/$/, "")}/?resetToken=${encodeURIComponent(token)}`;
 }
@@ -334,34 +318,10 @@ function isFrontendUrlReadyForPasswordReset() {
   return !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(value);
 }
 
-let microsoftClientPromise: Promise<Client> | null = null;
-
-async function getMicrosoftClient() {
-  if (!msClientId || !msClientSecret || !msRedirectUri) {
-    throw new Error("Microsoft OAuth is not configured.");
-  }
-  if (!microsoftClientPromise) {
-    const issuerUrl = `https://login.microsoftonline.com/${msTenantId}/v2.0/.well-known/openid-configuration`;
-    microsoftClientPromise = Issuer.discover(issuerUrl).then((issuer) => {
-      return new issuer.Client({
-        client_id: msClientId,
-        client_secret: msClientSecret,
-        redirect_uris: [msRedirectUri],
-        response_types: ["code"],
-      });
-    });
-  }
-  return microsoftClientPromise;
-}
-
-function generateRandomPassword() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
 export const register = (dbPool: Pool) => async (req: Request, res: Response) => {
   if (!localRegisterEnabled) {
     return res.status(403).json({
-      message: "Self-registration is disabled. Please use Microsoft sign-in.",
+      message: "Self-registration is disabled.",
     });
   }
   const { name, email, password, role } = req.body;
@@ -447,7 +407,7 @@ export const register = (dbPool: Pool) => async (req: Request, res: Response) =>
 export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
   if (!localLoginEnabled) {
     return res.status(403).json({
-      message: "Local email/password login is disabled. Please use Microsoft sign-in.",
+      message: "Local email/password login is disabled.",
     });
   }
   const { email, password } = req.body;
@@ -503,18 +463,6 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
           details: { ...authContext, reason: "account_disabled", method: "local_password" },
         });
         return res.status(403).json({ message: "Account disabled." });
-      }
-      if (schema.hasAuthProvider) {
-        const provider = String(user.auth_provider || "").trim().toLowerCase();
-        if (provider && provider !== "local") {
-          const label = provider === "microsoft" ? "Microsoft" : provider;
-          await writeAuditLog(dbPool, {
-            actor: normalizedEmail,
-            action: "user_login_failed",
-            details: { ...authContext, reason: "provider_mismatch", provider, method: "local_password" },
-          });
-          return res.status(400).json({ message: `This account uses ${label} sign-in. Please use ${label} login.` });
-        }
       }
       if (!user.password_hash) {
         await writeAuditLog(dbPool, {
@@ -607,18 +555,6 @@ export const login = (dbPool: Pool) => async (req: Request, res: Response) => {
           details: { ...authContext, reason: "account_disabled", method: "local_password" },
         });
         return res.status(403).json({ message: "Account disabled." });
-      }
-      if (schema.hasAuthProvider) {
-        const provider = String(user.auth_provider || "").trim().toLowerCase();
-        if (provider && provider !== "local") {
-          const label = provider === "microsoft" ? "Microsoft" : provider;
-          await writeAuditLog(dbPool, {
-            actor: normalizedEmail,
-            action: "user_login_failed",
-            details: { ...authContext, reason: "provider_mismatch", provider, method: "local_password" },
-          });
-          return res.status(400).json({ message: `This account uses ${label} sign-in. Please use ${label} login.` });
-        }
       }
       if (!user.password) {
         await writeAuditLog(dbPool, {
@@ -867,13 +803,6 @@ export const forgotPassword = (dbPool: Pool) => async (req: Request, res: Respon
       return res.json({ message: genericMessage });
     }
 
-    const provider = schema.hasAuthProvider
-      ? String(user.auth_provider || "local").trim().toLowerCase()
-      : "local";
-    if (provider && provider !== "local") {
-      return res.json({ message: genericMessage });
-    }
-
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
     const expiresAt = getPasswordResetExpiryDate();
@@ -997,13 +926,6 @@ export const resetPassword = (dbPool: Pool) => async (req: Request, res: Respons
     }
     if (schema.hasIsActive && resetRecord.is_active === 0) {
       return res.status(403).json({ message: "Account disabled." });
-    }
-
-    const provider = schema.hasAuthProvider
-      ? String(resetRecord.auth_provider || "local").trim().toLowerCase()
-      : "local";
-    if (provider && provider !== "local") {
-      return res.status(400).json({ message: "This account uses single sign-on and cannot reset password here." });
     }
 
     const passCol = schema.hasPasswordHash ? "password_hash" : schema.hasPassword ? "password" : "";
@@ -1328,318 +1250,6 @@ export const verifyTwoFactorLogin = (dbPool: Pool) => async (req: Request, res: 
   }
 
   return res.status(500).json({ message: "User schema is missing required columns." });
-};
-
-export const startMicrosoftLogin = () => async (_req: Request, res: Response) => {
-  try {
-    const client = await getMicrosoftClient();
-    const nonce = generators.nonce();
-    const state = jwt.sign({ nonce }, getJwtSecret(), { expiresIn: "10m" });
-    const url = client.authorizationUrl({
-      scope: msScope,
-      response_type: "code",
-      redirect_uri: msRedirectUri,
-      state,
-      nonce,
-    });
-    return res.redirect(url);
-  } catch (err: any) {
-    return res.status(500).json({ message: err.message || "Microsoft login is not configured." });
-  }
-};
-
-export const handleMicrosoftCallback = (dbPool: Pool) => async (req: Request, res: Response) => {
-  const redirectBase = getFrontendCallbackUrl();
-  const authContext = buildAuthContext(req);
-  const error = req.query.error ? String(req.query.error) : "";
-  if (error) {
-    const description = req.query.error_description
-      ? String(req.query.error_description)
-      : error;
-    return res.redirect(
-      `${redirectBase}?error=${encodeURIComponent(description)}`
-    );
-  }
-
-  const stateParam = req.query.state;
-  if (typeof stateParam !== "string") {
-    return res.redirect(`${redirectBase}?error=Invalid%20state`);
-  }
-
-  let statePayload: any = null;
-  try {
-    statePayload = jwt.verify(stateParam, getJwtSecret()) as any;
-  } catch {
-    return res.redirect(`${redirectBase}?error=Invalid%20state`);
-  }
-
-  try {
-    const client = await getMicrosoftClient();
-    const params = client.callbackParams(req);
-    const tokenSet = await client.callback(msRedirectUri, params, {
-      state: stateParam,
-      nonce: statePayload?.nonce,
-    });
-
-    const claims = tokenSet.claims();
-    const email = String(
-      claims.email || claims.preferred_username || ""
-    ).trim();
-    if (!email) {
-      return res.redirect(`${redirectBase}?error=Email%20not%20available`);
-    }
-    const normalizedEmail = email.toLowerCase();
-    const name = String(claims.name || normalizedEmail.split("@")[0] || "Microsoft User");
-    const sub = String(claims.sub || "");
-
-    const schema = await getUserSchemaInfo(dbPool);
-    let user: any = null;
-
-    if (schema.hasFullName && schema.hasPasswordHash && schema.hasUserRolesTable && schema.hasRolesTable) {
-      const selectProfile = schema.hasProfileImageUrl ? ", u.profile_image_url" : "";
-      const selectIsActive = schema.hasIsActive ? ", u.is_active" : "";
-      const selectTwoFactor = schema.hasTwoFactorEnabled ? ", u.two_factor_enabled" : "";
-      const selectAuthProvider = schema.hasAuthProvider ? ", u.auth_provider" : "";
-      const selectMicrosoftSub = schema.hasMicrosoftSub ? ", u.microsoft_sub" : "";
-      const baseQuery = `
-        SELECT u.id, u.full_name, u.email${selectProfile}${selectIsActive}${selectTwoFactor}${selectAuthProvider}${selectMicrosoftSub},
-               GROUP_CONCAT(r.name) as roles
-        FROM users u
-        LEFT JOIN user_roles ur ON ur.user_id = u.id
-        LEFT JOIN roles r ON r.id = ur.role_id
-        WHERE `;
-
-      if (schema.hasMicrosoftSub && sub) {
-        const [rows]: any = await dbPool.query(
-          `${baseQuery}u.microsoft_sub = ? GROUP BY u.id`,
-          [sub]
-        );
-        user = rows[0] || null;
-      }
-
-      if (!user) {
-        const [rows]: any = await dbPool.query(
-          `${baseQuery}u.email = ? GROUP BY u.id`,
-          [normalizedEmail]
-        );
-        user = rows[0] || null;
-      }
-
-      if (!user) {
-        const hashedPassword = await bcrypt.hash(generateRandomPassword(), 10);
-        const columns = ["full_name", "email", "password_hash", "created_at"];
-        const placeholders = ["?", "?", "?", "NOW()"];
-        const values: any[] = [name, normalizedEmail, hashedPassword];
-        if (schema.hasAuthProvider) {
-          columns.push("auth_provider");
-          placeholders.push("?");
-          values.push("microsoft");
-        }
-        if (schema.hasMicrosoftSub && sub) {
-          columns.push("microsoft_sub");
-          placeholders.push("?");
-          values.push(sub);
-        }
-
-        const conn = await dbPool.getConnection();
-        try {
-          await conn.beginTransaction();
-          const [roleRows]: any = await conn.query(
-            "SELECT id FROM roles WHERE name = ? LIMIT 1",
-            [msDefaultRole]
-          );
-          if (!roleRows.length) {
-            await conn.rollback();
-            return res.redirect(`${redirectBase}?error=Role%20not%20found`);
-          }
-          const roleId = roleRows[0].id as number;
-
-          const [userResult]: any = await conn.query(
-            `INSERT INTO users (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`,
-            values
-          );
-          const userId = userResult.insertId as number;
-          await conn.query(
-            "INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)",
-            [userId, roleId]
-          );
-          await conn.commit();
-        } catch (err) {
-          await conn.rollback();
-          throw err;
-        } finally {
-          conn.release();
-        }
-
-        const [rows]: any = await dbPool.query(
-          `${baseQuery}u.email = ? GROUP BY u.id`,
-          [normalizedEmail]
-        );
-        user = rows[0] || null;
-      } else {
-        if (schema.hasMicrosoftSub && sub && !user.microsoft_sub) {
-          await dbPool.query("UPDATE users SET microsoft_sub = ? WHERE id = ?", [
-            sub,
-            user.id,
-          ]);
-        }
-        if (schema.hasAuthProvider && !user.auth_provider) {
-          await dbPool.query("UPDATE users SET auth_provider = ? WHERE id = ?", [
-            "microsoft",
-            user.id,
-          ]);
-        }
-      }
-
-      if (!user) {
-        return res.redirect(`${redirectBase}?error=Unable%20to%20sign%20in`);
-      }
-      if (schema.hasIsActive && user.is_active === 0) {
-        return res.redirect(`${redirectBase}?error=Account%20disabled`);
-      }
-
-      const primaryRole = pickRoleFromCsv(user.roles, ensureRole(msDefaultRole));
-      const roles: Role[] = String(user.roles || "")
-        .split(",")
-        .map((r: string) => normalizeRoleConst(r))
-        .filter((r): r is Role => Boolean(r));
-      const rolesArr = roles.length ? roles : [primaryRole];
-      const twoFactorEnabled = schema.hasTwoFactorEnabled && user.two_factor_enabled === 1;
-      if (twoFactorEnabled) {
-        const { mfaToken, numberChallenge } = createMfaChallenge(
-          rolesArr,
-          user.id,
-          user.email
-        );
-        await writeAuditLog(dbPool, {
-          actor: user.email,
-          action: "user_login_mfa_challenge",
-          details: { ...authContext, userId: user.id, method: "microsoft" },
-        });
-        const query = `mfaToken=${encodeURIComponent(mfaToken)}${
-          numberChallenge ? `&mfaChallenge=${encodeURIComponent(numberChallenge)}` : ""
-        }`;
-        return res.redirect(`${redirectBase}?${query}`);
-      }
-
-      const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, rolesArr);
-      await writeAuditLog(dbPool, {
-        actor: user.email,
-        action: "user_login_success",
-        details: { ...authContext, userId: user.id, roles: rolesArr, method: "microsoft" },
-      });
-      return res.redirect(
-        `${redirectBase}?token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}`
-      );
-    }
-
-    if (schema.hasName && schema.hasRole) {
-      const selectIsActive = schema.hasIsActive ? ", is_active" : "";
-      const selectTwoFactor = schema.hasTwoFactorEnabled ? ", two_factor_enabled" : "";
-      const selectAuthProvider = schema.hasAuthProvider ? ", auth_provider" : "";
-      const selectMicrosoftSub = schema.hasMicrosoftSub ? ", microsoft_sub" : "";
-      let [rows]: any = [null];
-
-      if (schema.hasMicrosoftSub && sub) {
-        [rows] = await dbPool.query(
-          `SELECT id, name, email, role${selectIsActive}${selectTwoFactor}${selectAuthProvider}${selectMicrosoftSub} FROM users WHERE microsoft_sub = ? LIMIT 1`,
-          [sub]
-        );
-      }
-      if (!rows?.length) {
-        [rows] = await dbPool.query(
-          `SELECT id, name, email, role${selectIsActive}${selectTwoFactor}${selectAuthProvider}${selectMicrosoftSub} FROM users WHERE email = ? LIMIT 1`,
-          [normalizedEmail]
-        );
-      }
-
-      user = rows[0] || null;
-      if (!user) {
-        const hashedPassword = await bcrypt.hash(generateRandomPassword(), 10);
-        const columns = ["name", "email", "password", "role", "created_at", "updated_at"];
-        const placeholders = ["?", "?", "?", "?", "NOW()", "NOW()"];
-        const values: any[] = [name, normalizedEmail, hashedPassword, msDefaultRole];
-        if (schema.hasAuthProvider) {
-          columns.push("auth_provider");
-          placeholders.push("?");
-          values.push("microsoft");
-        }
-        if (schema.hasMicrosoftSub && sub) {
-          columns.push("microsoft_sub");
-          placeholders.push("?");
-          values.push(sub);
-        }
-        await dbPool.query(
-          `INSERT INTO users (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`,
-          values
-        );
-        [rows] = await dbPool.query(
-          `SELECT id, name, email, role${selectIsActive}${selectTwoFactor}${selectAuthProvider}${selectMicrosoftSub} FROM users WHERE email = ? LIMIT 1`,
-          [normalizedEmail]
-        );
-        user = rows[0] || null;
-      } else {
-        if (schema.hasMicrosoftSub && sub && !user.microsoft_sub) {
-          await dbPool.query("UPDATE users SET microsoft_sub = ? WHERE id = ?", [
-            sub,
-            user.id,
-          ]);
-        }
-        if (schema.hasAuthProvider && !user.auth_provider) {
-          await dbPool.query("UPDATE users SET auth_provider = ? WHERE id = ?", [
-            "microsoft",
-            user.id,
-          ]);
-        }
-      }
-
-      if (!user) {
-        return res.redirect(`${redirectBase}?error=Unable%20to%20sign%20in`);
-      }
-      if (schema.hasIsActive && user.is_active === 0) {
-        return res.redirect(`${redirectBase}?error=Account%20disabled`);
-      }
-
-      const role = ensureRole(user.role, ensureRole(msDefaultRole));
-      const twoFactorEnabled = schema.hasTwoFactorEnabled && user.two_factor_enabled === 1;
-      if (twoFactorEnabled) {
-        const { mfaToken, numberChallenge } = createMfaChallenge(
-          [role],
-          user.id,
-          user.email
-        );
-        await writeAuditLog(dbPool, {
-          actor: user.email,
-          action: "user_login_mfa_challenge",
-          details: { ...authContext, userId: user.id, method: "microsoft" },
-        });
-        const query = `mfaToken=${encodeURIComponent(mfaToken)}${
-          numberChallenge ? `&mfaChallenge=${encodeURIComponent(numberChallenge)}` : ""
-        }`;
-        return res.redirect(`${redirectBase}?${query}`);
-      }
-
-      const { token, refreshToken } = await issueTokens(dbPool, schema, user.id, user.email, [role]);
-      await writeAuditLog(dbPool, {
-        actor: user.email,
-        action: "user_login_success",
-        details: { ...authContext, userId: user.id, roles: [role], method: "microsoft" },
-      });
-      return res.redirect(
-        `${redirectBase}?token=${encodeURIComponent(token)}&refreshToken=${encodeURIComponent(refreshToken)}`
-      );
-    }
-
-    return res.redirect(`${redirectBase}?error=User%20schema%20missing`);
-  } catch (err: any) {
-    console.error("Microsoft login error:", err);
-    await writeAuditLog(dbPool, {
-      actor: "system",
-      action: "user_login_error",
-      details: { ...authContext, reason: err?.message || "Microsoft login failed", method: "microsoft" },
-    });
-    return res.redirect(`${redirectBase}?error=Microsoft%20login%20failed`);
-  }
 };
 
 export const refreshToken = (dbPool: Pool) => async (req: Request, res: Response) => {

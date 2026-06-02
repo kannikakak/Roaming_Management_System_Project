@@ -18,8 +18,6 @@ import {
   enableTwoFactor,
   disableTwoFactor,
   verifyTwoFactorLogin,
-  startMicrosoftLogin,
-  handleMicrosoftCallback,
 } from '../controllers/authController';
 import { Pool } from 'mysql2/promise';
 import { requireAuth } from "../middleware/auth";
@@ -44,8 +42,6 @@ export const authRoutes = (dbPool: Pool) => {
   router.post('/logout', authLimiter, logout(dbPool));
   router.post('/forgot-password', authLimiter, forgotPassword(dbPool));
   router.post('/reset-password', authLimiter, resetPassword(dbPool));
-  router.get('/microsoft/login', authLimiter, startMicrosoftLogin());
-  router.get('/microsoft/callback', handleMicrosoftCallback(dbPool));
   router.post('/2fa/verify', authLimiter, verifyTwoFactorLogin(dbPool));
   router.get('/me', requireAuth, getMe(dbPool));
   router.put('/profile', requireAuth, updateProfile(dbPool));

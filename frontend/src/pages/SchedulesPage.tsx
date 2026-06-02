@@ -64,14 +64,12 @@ const SchedulesPage: React.FC = () => {
   const [isActive, setIsActive] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sendToEmail, setSendToEmail] = useState(true);
-  const [sendToTeams, setSendToTeams] = useState(false);
 
   const resetComposer = () => {
     setName("");
     setRecipientsEmail("");
     setAttachment(null);
     setSendToEmail(true);
-    setSendToTeams(false);
   };
 
   const loadSchedules = async () => {
@@ -101,7 +99,6 @@ const SchedulesPage: React.FC = () => {
     formData.append("fileFormat", fileFormat);
     formData.append("isActive", "true");
     formData.append("recipientsEmail", JSON.stringify(emails));
-    formData.append("recipientsTelegram", JSON.stringify(sendToTeams ? ["teams"] : []));
     if (attachment) {
       formData.append("file", attachment);
     }
@@ -167,13 +164,7 @@ const SchedulesPage: React.FC = () => {
       await apiFetch(`/api/schedules/${scheduleId}`, { method: "DELETE" }).catch(() => null);
     }
 
-    const channels = [
-      sendToEmail ? `email (${emails.length} recipient${emails.length === 1 ? "" : "s"})` : null,
-      sendToTeams ? "Microsoft Teams" : null,
-    ]
-      .filter(Boolean)
-      .join(" and ");
-    return `Sent via ${channels}.`;
+    return `Sent via email (${emails.length} recipient${emails.length === 1 ? "" : "s"}).`;
   };
 
   const sendNow = async (e: React.FormEvent) => {
@@ -181,9 +172,6 @@ const SchedulesPage: React.FC = () => {
     try {
       setSendingNow(true);
       const emails = toList(recipientsEmail);
-      if (!sendToEmail && !sendToTeams) {
-        throw new Error("Select at least one delivery channel.");
-      }
       if (sendToEmail && emails.length === 0) {
         throw new Error("Enter at least one email recipient.");
       }
@@ -191,7 +179,6 @@ const SchedulesPage: React.FC = () => {
       const formData = new FormData();
       formData.append("recipientsEmail", JSON.stringify(emails));
       formData.append("sendToEmail", String(sendToEmail));
-      formData.append("sendToTeams", String(sendToTeams));
       if (name.trim()) {
         formData.append("subject", name.trim());
       }
@@ -242,14 +229,11 @@ const SchedulesPage: React.FC = () => {
         dayOfWeek: frequency === "weekly" ? dayOfWeek : null,
         dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
         recipientsEmail: sendToEmail ? toList(recipientsEmail) : [],
-        recipientsTelegram: sendToTeams ? ["teams"] : [],
+        recipientsTelegram: [],
         fileFormat,
         isActive,
       };
 
-      if (!sendToEmail && !sendToTeams) {
-        throw new Error("Select at least one delivery channel.");
-      }
       if (sendToEmail && toList(recipientsEmail).length === 0) {
         throw new Error("Enter at least one email recipient.");
       }
@@ -382,7 +366,7 @@ const SchedulesPage: React.FC = () => {
             </h3>
             <p className="mb-4 text-sm text-gray-500">
               {deliveryMode === "send"
-                ? "Upload a file, choose Email and/or Microsoft Teams, and send immediately."
+                ? "Upload a file, choose Email, and send immediately."
                 : "Create an automated delivery that runs on a fixed time."}
             </p>
             <form
@@ -511,14 +495,6 @@ const SchedulesPage: React.FC = () => {
                     />
                     Email
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={sendToTeams}
-                      onChange={(e) => setSendToTeams(e.target.checked)}
-                    />
-                    Microsoft Teams
-                  </label>
                 </div>
               </div>
               <div>
@@ -571,7 +547,7 @@ const SchedulesPage: React.FC = () => {
                 <div className="text-[11px] text-gray-500 mt-2">
                   {deliveryMode === "send"
                     ? "Quick Send uses the server email settings and sends immediately to the addresses you enter."
-                    : `Schedules can send by Email, Microsoft Teams, or both. Schedule times use ${CAMBODIA_TIME_ZONE}.`}
+                    : `Schedules send by Email. Schedule times use ${CAMBODIA_TIME_ZONE}.`}
                 </div>
               </div>
             </form>
@@ -618,12 +594,7 @@ const SchedulesPage: React.FC = () => {
                       {s.frequency} | {s.file_format.toUpperCase()} | Target {s.target_type} #{s.target_id}
                     </div>
                     <div className="text-xs text-gray-500">
-                      Channels: {[
-                        hasChannel(s.recipients_email) ? "Email" : null,
-                        hasChannel(s.recipients_telegram) ? "Microsoft Teams" : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" + ") || "None"}
+                      Channels: {hasChannel(s.recipients_email) ? "Email" : "None"}
                     </div>
                     {s.attachment_name && (
                       <div className="text-xs text-amber-700">

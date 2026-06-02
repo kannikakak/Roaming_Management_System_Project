@@ -340,12 +340,12 @@ const ChartPage: React.FC = () => {
     (cols: string[], category: string) => {
       const measureCols = cols.filter((col) => category === ROW_NUMBER_KEY || col !== category);
       const numericCols = measureCols.filter((col) => !isDateLikeCol(col) && isNumericCol(col));
+      if (numericCols.length > 0) return numericCols;
+
       const textCountCols = measureCols
         .filter((col) => !isDateLikeCol(col) && !isNumericCol(col))
         .map((col) => `${COUNT_PREFIX}${col}`);
-
-      const next = [...numericCols, ...textCountCols];
-      if (next.length > 0) return next;
+      if (textCountCols.length > 0) return textCountCols;
       return category ? [COUNT_ALL_KEY] : [];
     },
     [isDateLikeCol, isNumericCol]
@@ -366,21 +366,20 @@ const ChartPage: React.FC = () => {
       const unique = (cols: string[]) => Array.from(new Set(cols.filter(Boolean)));
       const preferred = unique(preferredCols.filter((col) => allFileColumns.includes(col)));
       const allCols = unique(allFileColumns);
+      const sourceCols = preferred.length > 0 ? preferred : allCols;
 
       const categoryCandidates = unique([
-        pickCategoryFor(preferred),
-        pickCategoryFor(allCols),
-        preferred.some((col) => isNumericCol(col)) ? ROW_NUMBER_KEY : "",
-        allCols.some((col) => isNumericCol(col)) ? ROW_NUMBER_KEY : "",
+        pickCategoryFor(sourceCols),
+        sourceCols.some((col) => isNumericCol(col)) ? ROW_NUMBER_KEY : "",
       ]);
 
       for (const candidate of categoryCandidates) {
         if (!candidate) continue;
         const nextSelectedCols =
           candidate === ROW_NUMBER_KEY
-            ? unique(preferred.length > 0 ? preferred : allCols)
-            : unique([candidate, ...preferred.filter((col) => col !== candidate), ...allCols.filter((col) => col !== candidate)]);
-        const nextValueCols = getAvailableValueColsFor(nextSelectedCols, candidate).slice(0, 3);
+            ? sourceCols
+            : unique([candidate, ...sourceCols.filter((col) => col !== candidate)]);
+        const nextValueCols = getAvailableValueColsFor(nextSelectedCols, candidate);
         if (nextValueCols.length > 0) {
           return {
             selectedCols: nextSelectedCols,
@@ -410,7 +409,7 @@ const ChartPage: React.FC = () => {
       : pickDefaultCategoryCol();
     const nextAvailable = getAvailableValueCols(nextCategory);
     const cleaned = valueCols.filter((col) => nextAvailable.includes(col));
-    const nextValues = cleaned.length > 0 ? cleaned : nextAvailable.slice(0, 2);
+    const nextValues = cleaned.length > 0 ? cleaned : nextAvailable;
 
     if (nextCategory !== categoryCol) {
       setCategoryCol(nextCategory);
@@ -565,7 +564,7 @@ const ChartPage: React.FC = () => {
     setValueCols((prev) => {
       const allowed = getAvailableValueCols(col);
       const cleaned = prev.filter((c) => allowed.includes(c));
-      const next = cleaned.length > 0 ? cleaned : allowed.slice(0, 2);
+      const next = cleaned.length > 0 ? cleaned : allowed;
       scheduleSessionUpdate({ categoryCol: col, valueCols: next });
       return next;
     });

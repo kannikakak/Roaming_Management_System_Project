@@ -5,7 +5,6 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
-import AuthCallback from "./pages/AuthCallback";
 import MainLayout from "./components/MainLayout";
 import { getAuthToken } from "./utils/api";
 
@@ -100,7 +99,6 @@ const App: React.FC = () => (
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/auth/microsoft/callback" element={<AuthCallback />} />
 
       {/* Protected routes with sidebar */}
       <Route

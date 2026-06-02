@@ -40,7 +40,6 @@
     "multer": "^2.0.2",
     "mysql2": "^3.16.0",
     "nodemailer": "^7.0.12",
-    "openid-client": "^5.7.1",
     "papaparse": "^5.5.3",
     "pptxgenjs": "^4.0.1",
     "qrcode": "^1.5.4",

@@ -105,7 +105,6 @@ const SlideBuilderPage: React.FC = () => {
     const hadLegacyCollab = Boolean(localStorage.getItem(LEGACY_COLLAB_KEY));
     if (hadLegacyCollab) {
       localStorage.removeItem(LEGACY_COLLAB_KEY);
-      setNotice("Collaboration removed. Slide Builder is now local-only.");
     }
 
     const params = new URLSearchParams(window.location.search);
@@ -252,9 +251,6 @@ const SlideBuilderPage: React.FC = () => {
               <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
                 Slide Builder
               </h1>
-              <p className="mt-2 text-sm text-slate-600 max-w-2xl leading-relaxed">
-                Collaboration has been removed from this page. Build, edit, and export your slides from local draft data.
-              </p>
               {notice && (
                 <div className="mt-3 inline-flex rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
                   {notice}
@@ -303,10 +299,6 @@ const SlideBuilderPage: React.FC = () => {
             <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 px-3 py-2">
               <div className="text-[11px] uppercase tracking-wide text-emerald-700">Filtered</div>
               <div className="text-lg font-bold text-slate-900">{filteredSlides.length}</div>
-            </div>
-            <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-violet-700">Storage</div>
-              <div className="text-lg font-bold text-slate-900">Local</div>
             </div>
           </div>
         </section>

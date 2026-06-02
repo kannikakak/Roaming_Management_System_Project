@@ -417,10 +417,6 @@ const Projects: React.FC = () => {
               </button>
             </div>
 
-            {/* Helpful debug hint */}
-            <p className="text-xs text-gray-400 mt-4">
-              If create fails with â€œnon-JSON responseâ€, check your proxy or route mount: backend must serve <b>/api/projects</b>.
-            </p>
           </div>
         </div>
       )}
