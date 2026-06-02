@@ -53,6 +53,8 @@ const ChartPage: React.FC = () => {
 
   const { file: initialFile, selectedCols: initialSelectedCols, chartType: initialChartType } =
     (location.state || {}) as any;
+  const hasIncomingSelection =
+    Boolean(initialFile?.id) && Array.isArray(initialSelectedCols) && initialSelectedCols.length > 0;
 
   const chartRef = useRef<HTMLDivElement | null>(null);
 
@@ -211,7 +213,7 @@ const ChartPage: React.FC = () => {
     const params = new URLSearchParams(location.search);
     const paramId = params.get("sessionId");
     const storedId = localStorage.getItem(COLLAB_KEY);
-    const resolved = paramId || storedId;
+    const resolved = paramId || (!hasIncomingSelection ? storedId : null);
     if (resolved) {
       const parsedId = Number(resolved);
       if (Number.isFinite(parsedId)) {
@@ -226,7 +228,7 @@ const ChartPage: React.FC = () => {
       }
     }
     setSessionId(null);
-  }, [location.search, navigate, loadSession]);
+  }, [hasIncomingSelection, location.search, navigate, loadSession]);
 
   useEffect(() => {
     if (!sessionId) return;

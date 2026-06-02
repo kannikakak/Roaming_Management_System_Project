@@ -261,41 +261,83 @@
       "originalPath": "agent-test-20260528-142033.csv",
       "fingerprint": "142:1779952833513",
       "lastHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66",
-      "lastStatus": "SUCCESS",
+      "lastStatus": "DELETED",
       "lastUploadedAt": "2026-05-28T07:20:58.014Z",
-      "lastSeenAt": "2026-05-28T07:20:58.014Z",
+      "lastSeenAt": "2026-06-02T08:04:02.720Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
-        "sourceId": 11,
-        "sourceName": "Roaming",
-        "ingestionJobId": 43,
-        "ingestionFileId": 29,
-        "importedFileId": 37,
-        "rowsImported": 3,
-        "fileHash": "88265076a6fb7c1581954c32b9b6caf941a1ff24e8afdabf752fac16f340fb66"
+        "sourceId": 12,
+        "sourceName": "Interconnet",
+        "remotePath": "agent-test-20260528-142033.csv",
+        "ingestionFileId": 37,
+        "ingestionJobId": 51,
+        "deletedImportedCount": 0
       },
-      "lastError": null
+      "lastError": null,
+      "lastDeletedAt": "2026-06-02T08:04:02.720Z"
     },
     "C:\\RoamingDropZone\\Reportscd\\04_partner_reference_rates.xlsx": {
       "originalPath": "04_partner_reference_rates.xlsx",
       "fingerprint": "73539:1770785749276",
       "lastHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928",
-      "lastStatus": "SUCCESS",
+      "lastStatus": "DELETED",
       "lastUploadedAt": "2026-05-28T07:35:17.971Z",
-      "lastSeenAt": "2026-05-28T07:35:17.971Z",
+      "lastSeenAt": "2026-06-02T08:04:04.799Z",
       "failCount": 0,
       "nextAttemptAt": null,
       "lastResult": {
         "ok": true,
-        "sourceId": 11,
-        "sourceName": "Roaming",
-        "ingestionJobId": 45,
-        "ingestionFileId": 31,
-        "importedFileId": 38,
-        "rowsImported": 1200,
-        "fileHash": "795eedf4f833c9c4bece93b52ebd85682f655201bebb8ce4da762de061156928"
+        "sourceId": 12,
+        "sourceName": "Interconnet",
+        "remotePath": "04_partner_reference_rates.xlsx",
+        "ingestionFileId": 38,
+        "ingestionJobId": 52,
+        "deletedImportedCount": 0
+      },
+      "lastError": null,
+      "lastDeletedAt": "2026-06-02T08:04:04.799Z"
+    },
+    "C:\\RoamingDropZone\\Reportscd\\01_roaming_cdr_events.xlsx": {
+      "originalPath": "01_roaming_cdr_events.xlsx",
+      "fingerprint": "185545:1770785727661",
+      "lastHash": "7a9c17222220c5332cbca42e8c1c88a5b3958f27e46e2ddc52b39aa5b8c64d2a",
+      "lastStatus": "DELETED",
+      "lastUploadedAt": "2026-06-02T08:03:57.653Z",
+      "lastSeenAt": "2026-06-02T08:04:07.201Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 12,
+        "sourceName": "Interconnet",
+        "remotePath": "01_roaming_cdr_events.xlsx",
+        "ingestionFileId": 35,
+        "ingestionJobId": 53,
+        "deletedImportedCount": 1
+      },
+      "lastError": null,
+      "lastDeletedAt": "2026-06-02T08:04:07.201Z"
+    },
+    "C:\\RoamingDropZone\\Reportscd\\02_tap_inbound_records.xlsx": {
+      "originalPath": "02_tap_inbound_records.xlsx",
+      "fingerprint": "128744:1770785742574",
+      "lastHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4",
+      "lastStatus": "SUCCESS",
+      "lastUploadedAt": "2026-06-02T08:04:51.257Z",
+      "lastSeenAt": "2026-06-02T08:04:51.257Z",
+      "failCount": 0,
+      "nextAttemptAt": null,
+      "lastResult": {
+        "ok": true,
+        "sourceId": 12,
+        "sourceName": "Interconnet",
+        "ingestionJobId": 54,
+        "ingestionFileId": 39,
+        "importedFileId": 42,
+        "rowsImported": 1500,
+        "fileHash": "51ad474af4d45dc143d6dc1620164cf32c4569a89ce8ec72dc93847fbb2c59d4"
       },
       "lastError": null
     }
