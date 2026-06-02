@@ -654,3 +654,13 @@
   recursive: true,
   stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
 }
+[dotenv@17.2.3] injecting env (12) from .env.agent -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (36) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[sync-agent] 2026-06-02T09:40:19.279Z Agent started {
+  apiBaseUrl: 'https://roaming-management-system-project-2.onrender.com',
+  sourceId: 12,
+  watchDir: 'C:\\RoamingDropZone\\Reportscd',
+  scanSeconds: 3,
+  recursive: true,
+  stateFile: 'D:\\000000000001-Cellcard-Internship2\\Roaming_and_Interconnect-System\\roaming-interconnect-dashboard\\backend\\.sync-agent-state.json'
+}
