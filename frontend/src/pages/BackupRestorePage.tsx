@@ -4,6 +4,7 @@ import {
   RefreshCw,
   RotateCcw,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 
 type DeletedSourceBackupItem = {
@@ -47,6 +48,7 @@ const statusTone = (status: string) => {
 };
 
 const BackupRestorePage: React.FC = () => {
+  const navigate = useNavigate();
   const [deletedSourceItems, setDeletedSourceItems] = useState<DeletedSourceBackupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [restoringDeletedId, setRestoringDeletedId] = useState<number | null>(null);
@@ -93,8 +95,22 @@ const BackupRestorePage: React.FC = () => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.message || "Failed to restore deleted source");
-      setMessage(`Deleted source backup #${id} restored successfully.`);
+      const restoredProjectId = Number(data?.result?.projectId || 0);
+      const restoredFileId = Number(data?.result?.restoredFileId || 0);
+      const restoredFileName = String(data?.result?.restoredFileName || "").trim();
+
+      setMessage(
+        restoredFileName
+          ? `${restoredFileName} restored successfully. Opening its project...`
+          : `Deleted source backup #${id} restored successfully. Opening its project...`
+      );
       await loadData();
+
+      if (Number.isFinite(restoredProjectId) && restoredProjectId > 0) {
+        navigate(`/card/${restoredProjectId}`, {
+          state: Number.isFinite(restoredFileId) && restoredFileId > 0 ? { activeFileId: restoredFileId } : undefined,
+        });
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to restore deleted source");
     } finally {
